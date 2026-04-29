@@ -158,6 +158,10 @@ Every message: classify intent FIRST, before any action.
 
 If ambiguous, ASK before proceeding.
 NEVER assume implementation when user asks question.
+
+**Verbalize intent before proceeding:**
+> "Intent: [research / implementation / investigation / evaluation / fix / open-ended] → [routing decision]."
+Keep it one line. Then act accordingly.
 </IntentGate>
 
 <Workflow>

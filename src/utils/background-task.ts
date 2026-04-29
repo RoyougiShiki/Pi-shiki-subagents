@@ -364,6 +364,9 @@ export class SlimBackgroundManager {
             taskId,
             sessionID,
           })
+          if (this.onComplete) {
+            this.onComplete(task)
+          }
         }
         break
       }
@@ -378,6 +381,9 @@ export class SlimBackgroundManager {
           sessionID,
           status: task.status,
         })
+        if (this.onComplete) {
+          this.onComplete(task)
+        }
         break
       }
 
