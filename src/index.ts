@@ -22,9 +22,11 @@ import {
   createChatHeadersHook,
   createDelegateTaskRetryHook,
   createFilterAvailableSkillsHook,
+  createHashlineEditHook,
   createJsonErrorRecoveryHook,
   createPhaseReminderHook,
   createPostFileToolNudgeHook,
+  createRalphLoopHook,
   createTaskSessionManagerHook,
   createTodoContinuationHook,
   ForegroundFallbackManager,
@@ -134,6 +136,8 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let todoContinuationHook: ReturnType<typeof createTodoContinuationHook>;
   let taskSessionManagerHook: ReturnType<typeof createTaskSessionManagerHook>;
   let backgroundTaskHook: ReturnType<typeof createBackgroundTaskHook>;
+  let ralphLoopHook: ReturnType<typeof createRalphLoopHook>;
+  let hashlineEditHook: ReturnType<typeof createHashlineEditHook>;
   let interviewManager: ReturnType<typeof createInterviewManager>;
   let presetManager: ReturnType<typeof createPresetManager>;
   let councilTools: Record<string, unknown>;
@@ -309,6 +313,10 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         sessionAgentMap.get(sessionID) === 'orchestrator',
     });
     backgroundTaskHook = createBackgroundTaskHook(ctx);
+    ralphLoopHook = createRalphLoopHook(ctx);
+    hashlineEditHook = createHashlineEditHook({
+      enabled: false,
+    });
     interviewManager = createInterviewManager(ctx, config);
     presetManager = createPresetManager(ctx, config);
 
@@ -715,6 +723,34 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
       interviewManager.registerCommand(opencodeConfig);
       presetManager.registerCommand(opencodeConfig);
+
+      const configCmd = opencodeConfig.command as
+        | Record<string, unknown>
+        | undefined;
+      if (configCmd) {
+        if (!configCmd['ralph-loop']) {
+          configCmd['ralph-loop'] = {
+            template:
+              'Start a Ralph Loop for the given task prompt',
+            description:
+              'Start a self-repeating loop that continues until <promise>DONE</promise> is output',
+          };
+        }
+        if (!configCmd['ulw-loop']) {
+          configCmd['ulw-loop'] = {
+            template:
+              'Start a ULW (Ultra Work) loop for the given task prompt',
+            description:
+              'Like ralph-loop but with 500 max iterations and Oracle verification',
+          };
+        }
+        if (!configCmd['cancel-ralph']) {
+          configCmd['cancel-ralph'] = {
+            template: 'Cancel the active Ralph Loop',
+            description: 'Stop the currently running Ralph Loop',
+          };
+        }
+      }
     },
 
     event: async (input) => {
@@ -771,6 +807,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       // Background task: track session lifecycle for background agents
       await backgroundTaskHook.event(input);
 
+      // Ralph loop: detect completion promises and inject continuation
+      await ralphLoopHook.event(input as Parameters<typeof ralphLoopHook.event>[0]);
+
       if (input.event.type === 'session.deleted') {
         const props = input.event.properties as
           | { info?: { id?: string }; sessionID?: string }
@@ -797,6 +836,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         output as {
           args?: { patchText?: unknown; [key: string]: unknown };
         },
+      );
+
+      await hashlineEditHook['tool.execute.before'](
+        input as { tool: string; sessionID?: string },
+        output as { args?: Record<string, unknown> },
       );
 
       await taskSessionManagerHook['tool.execute.before'](
@@ -836,6 +880,13 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
           sessionID: string;
           arguments: string;
         },
+        output as { parts: Array<{ type: string; text?: string }> },
+      );
+
+      await ralphLoopHook.handleCommand(
+        input.command,
+        input.arguments,
+        input.sessionID,
         output as { parts: Array<{ type: string; text?: string }> },
       );
     },
