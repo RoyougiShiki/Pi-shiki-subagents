@@ -131,10 +131,16 @@ export class SlimBackgroundManager {
   private directory: string
   private tasks = new Map<string, BackgroundTask>()
   private sessionIndex = new Map<string, string>() // sessionID → taskID
+  private pollingTimer: ReturnType<typeof setInterval> | null = null
+  private onComplete?: (task: BackgroundTask) => void
 
-  constructor(ctx: PluginInput) {
+  constructor(
+    ctx: PluginInput,
+    options?: { onComplete?: (task: BackgroundTask) => void },
+  ) {
     this.client = ctx.client
     this.directory = ctx.directory
+    this.onComplete = options?.onComplete
   }
 
   // -------------------------------------------------------------------------
@@ -443,5 +449,95 @@ export class SlimBackgroundManager {
     }
 
     return pruned
+  }
+
+  // -------------------------------------------------------------------------
+  // Polling
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start periodic polling of running task sessions.
+   * Checks every `intervalMs` (default 8s) for completed/errored tasks
+   * that were not caught by events.
+   */
+  startPolling(intervalMs = 8_000): void {
+    if (this.pollingTimer) return
+
+    this.pollingTimer = setInterval(() => {
+      this.pollRunningTasks().catch((err) => {
+        log('[background-task] Poll error', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      })
+      this.prune(30 * 60 * 1000) // prune tasks older than 30 min
+    }, intervalMs)
+
+    // Prevent the timer from keeping the process alive
+    if (this.pollingTimer && typeof this.pollingTimer === 'object' && 'unref' in this.pollingTimer) {
+      this.pollingTimer.unref()
+    }
+
+    log('[background-task] Polling started', { intervalMs })
+  }
+
+  /**
+   * Stop the polling timer.
+   */
+  stopPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer)
+      this.pollingTimer = null
+      log('[background-task] Polling stopped')
+    }
+  }
+
+  /**
+   * Check running tasks by querying their session status.
+   * If a session is idle and no completion was detected, mark it completed.
+   */
+  private async pollRunningTasks(): Promise<void> {
+    const running = this.getActiveTasks()
+    if (running.length === 0) return
+
+    const statusResult = await this.client.session.status().catch(() => null)
+    if (!statusResult?.data) return
+
+    const sessionStatusMap = new Map<string, string>()
+    for (const [sid, status] of Object.entries(statusResult.data as Record<string, { type?: string }>)) {
+      sessionStatusMap.set(sid, status?.type ?? 'unknown')
+    }
+
+    for (const task of running) {
+      if (!task.sessionID) continue
+
+      const sessionType = sessionStatusMap.get(task.sessionID)
+      if (sessionType === 'idle') {
+        // Session idle but no event caught it — complete now
+        const now = new Date()
+        task.status = 'completed'
+        task.completedAt = now
+        task.lastUpdate = now
+        log('[background-task] Completed (poll detected idle)', {
+          taskId: task.id,
+          sessionID: task.sessionID,
+        })
+        if (this.onComplete) {
+          this.onComplete(task)
+        }
+      } else if (!sessionType || sessionType === 'unknown') {
+        // Session no longer exists — treat as completed
+        const now = new Date()
+        task.status = 'completed'
+        task.completedAt = now
+        task.lastUpdate = now
+        log('[background-task] Completed (poll: session gone)', {
+          taskId: task.id,
+          sessionID: task.sessionID,
+        })
+        if (this.onComplete) {
+          this.onComplete(task)
+        }
+      }
+    }
   }
 }

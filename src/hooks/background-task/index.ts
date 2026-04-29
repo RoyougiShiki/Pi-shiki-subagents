@@ -67,7 +67,14 @@ export function createBackgroundTaskHook(ctx: PluginInput): {
     }>
   }) => Promise<void>
 } {
-  const bgManager = new SlimBackgroundManager(ctx)
+  const pendingNotifications: string[] = []
+  const bgManager = new SlimBackgroundManager(ctx, {
+    onComplete: (task) => {
+      const label = task.description || task.id
+      pendingNotifications.push(`${task.id} (${label})`)
+    },
+  })
+  bgManager.startPolling(8_000)
 
   // ── task tool ────────────────────────────────────────────────────
 
@@ -350,7 +357,7 @@ Returns task_id for background tasks. Use background_output to check results.`,
     bgManager.handleEvent(input.event)
   }
 
-  // ── system reminder injection for pending background tasks ───────
+  // ── system reminder injection ──────────────────────────────────
 
   async function handleMessagesTransform(output: {
     messages: Array<{
@@ -358,40 +365,37 @@ Returns task_id for background tasks. Use background_output to check results.`,
       parts: Array<{ type: string; text?: string }>
     }>
   }): Promise<void> {
-    // Find the last user message in the orchestrator session
     for (let i = output.messages.length - 1; i >= 0; i -= 1) {
       const message = output.messages[i]
       if (message.info.role !== 'user') continue
       if (message.info.agent && message.info.agent !== 'orchestrator') return
 
-      const activeTasks = bgManager.getActiveTasks()
-      if (activeTasks.length === 0) return
-
-      // Build reminder for pending tasks
-      const reminders = activeTasks
-        .map(
-          (t) =>
-            `  - task_id: ${t.id} | ${t.description || '(no description)'} [${t.status}]`,
-        )
-        .join('\n')
-
-      const reminder = [
-        '<system-reminder>',
-        `Background tasks still running (${activeTasks.length}):`,
-        reminders,
-        'Use background_output(task_id="...") to check results.',
-        '</system-reminder>',
-      ].join('\n')
-
-      // Append to the last user message's text part
       const textPart = message.parts.find(
         (part) => part.type === 'text' && typeof part.text === 'string',
       )
-      if (textPart && typeof textPart.text === 'string') {
-        // Don't duplicate injection
-        if (textPart.text.includes('<system-reminder>')) return
-        textPart.text = `${textPart.text}\n\n${reminder}`
+      if (!textPart || typeof textPart.text !== 'string') return
+      if (textPart.text.includes('<system-reminder>')) return
+
+      const parts: string[] = []
+
+      // Compact completion notifications (polling-detected)
+      if (pendingNotifications.length > 0) {
+        const done = pendingNotifications.splice(0)
+        parts.push(
+          `[BG DONE] ${done.length} task(s) finished: ${done.join('; ')}. Use background_output(task_id="...") to retrieve results.`,
+        )
       }
+
+      // Compact running reminder
+      const active = bgManager.getActiveTasks()
+      if (active.length > 0) {
+        const ids = active.map((t) => t.id).join(', ')
+        parts.push(`[BG RUNNING] ${active.length} task(s): ${ids}`)
+      }
+
+      if (parts.length === 0) return
+
+      textPart.text = `${textPart.text}\n\n<system-reminder>\n${parts.join('\n')}\n</system-reminder>`
       return
     }
   }
