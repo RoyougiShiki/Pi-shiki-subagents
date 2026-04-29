@@ -18,6 +18,7 @@ import { CouncilManager } from './council';
 import {
   createApplyPatchHook,
   createAutoUpdateCheckerHook,
+  createBackgroundTaskHook,
   createChatHeadersHook,
   createDelegateTaskRetryHook,
   createFilterAvailableSkillsHook,
@@ -132,6 +133,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let foregroundFallback: ForegroundFallbackManager;
   let todoContinuationHook: ReturnType<typeof createTodoContinuationHook>;
   let taskSessionManagerHook: ReturnType<typeof createTaskSessionManagerHook>;
+  let backgroundTaskHook: ReturnType<typeof createBackgroundTaskHook>;
   let interviewManager: ReturnType<typeof createInterviewManager>;
   let presetManager: ReturnType<typeof createPresetManager>;
   let councilTools: Record<string, unknown>;
@@ -306,12 +308,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       shouldManageSession: (sessionID) =>
         sessionAgentMap.get(sessionID) === 'orchestrator',
     });
+    backgroundTaskHook = createBackgroundTaskHook(ctx);
     interviewManager = createInterviewManager(ctx, config);
     presetManager = createPresetManager(ctx, config);
 
     toolCount =
       Object.keys(councilTools).length +
       Object.keys(todoContinuationHook.tool).length +
+      Object.keys(backgroundTaskHook.tools).length +
       1 + // webfetch
       2; // ast_grep_search, ast_grep_replace
   } catch (err) {
@@ -379,6 +383,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       ...councilTools,
       webfetch,
       ...todoContinuationHook.tool,
+      ...backgroundTaskHook.tools,
       ast_grep_search,
       ast_grep_replace,
     },
@@ -763,6 +768,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         },
       );
 
+      // Background task: track session lifecycle for background agents
+      await backgroundTaskHook.event(input);
+
       if (input.event.type === 'session.deleted') {
         const props = input.event.properties as
           | { info?: { id?: string }; sessionID?: string }
@@ -954,6 +962,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       });
 
       await todoContinuationHook.handleMessagesTransform({
+        messages: typedOutput.messages,
+      });
+      await backgroundTaskHook.handleMessagesTransform({
         messages: typedOutput.messages,
       });
       await taskSessionManagerHook['experimental.chat.messages.transform'](
