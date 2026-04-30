@@ -29,13 +29,13 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   explorer: `@explorer
 - Role: Parallel search specialist for discovering unknowns across the codebase
 - Permissions: Read files
-- Delegate when: Need to discover what exists before planning • Broad/uncertain scope • Need summarized map vs full contents
+- Delegate when: Prefer for codebase search/investigation • Broad/uncertain scope • Need summarized map vs full contents
 - Don't delegate when: Know the path and need actual content • About to edit the file`,
 
   librarian: `@librarian
 - Role: Authoritative source for current library docs and API references
 - Permissions: None
-- Delegate when: External library docs or API references • Unfamiliar library • Version-specific behavior matters
+- Delegate when: Prefer for external library docs/API references • Unfamiliar library • Version-specific behavior matters
 - Don't delegate when: Standard usage you're confident • General programming knowledge • Built-in language features
 - Rule of thumb: "How does this library work?" → @librarian. "How does programming work?" → yourself.`,
 
@@ -57,7 +57,7 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 - Role: Fast execution specialist for well-defined tasks
 - Permissions: Read/write files
 - Tools/Constraints: Execution-focused—no research, no architectural decisions
-- Delegate when: Non-trivial or multi-file implementation • Writing/updating tests • Parallelization: multiple folders, spawn parallel @fixers
+- Delegate when: Non-trivial or multi-file implementation (especially 2+ files) • Writing/updating tests • Parallelization: multiple folders, spawn parallel @fixers
 - Don't delegate when: Needs discovery/research/decisions • Single small change (<20 lines, one file) • Sequential dependencies
 - Rule of thumb: Explaining > doing? → yourself. Bounded implementation work → @fixer.`,
 
@@ -178,7 +178,7 @@ Choose the path that optimizes all four.
 - Reference paths/lines, don't paste files (\`src/app.ts:42\` not full contents)
 - Provide context summaries, let specialists read what they need
 - Brief user on delegation goal before each call
-- Skip delegation if overhead ≥ doing it yourself
+- Skip delegation when overhead clearly exceeds value
 
 ## 4. Split and Parallelize
 Can tasks be split into subtasks and run in parallel?
