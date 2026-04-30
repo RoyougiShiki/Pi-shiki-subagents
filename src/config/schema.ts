@@ -318,6 +318,14 @@ export const PluginConfigSchema = z
     todoContinuation: TodoContinuationConfigSchema.optional(),
     fallback: FailoverConfigSchema.optional(),
     council: CouncilConfigSchema.optional(),
+    visionModel: z
+      .string()
+      .optional()
+      .describe(
+        'Model ID (provider/model format) for the vision_analyze tool. ' +
+          'This model is used to analyze images via direct API call. ' +
+          'Defaults to "dmxapi/glm-4.1v-thinking-flash" if not set.',
+      ),
   })
   .superRefine((value, ctx) => {
     if (value.agents) {

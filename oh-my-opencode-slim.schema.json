@@ -376,7 +376,7 @@
       }
     },
     "disabled_agents": {
-      "description": "Agent names to disable completely. Disabled agents are not instantiated and cannot be delegated to. Orchestrator and council internal agents (councillor) cannot be disabled. By default, 'observer' is disabled. Remove it from this list and configure a vision-capable model to enable.",
+      "description": "Agent names to disable completely. Disabled agents are not instantiated and cannot be delegated to. Orchestrator and council internal agents (councillor) cannot be disabled. All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.",
       "type": "array",
       "items": {
         "type": "string"
@@ -683,6 +683,10 @@
       "required": [
         "presets"
       ]
+    },
+    "visionModel": {
+      "description": "Model ID (provider/model format) for the vision_analyze tool. This model is used to analyze images via direct API call. Defaults to \"dmxapi/glm-4.1v-thinking-flash\" if not set.",
+      "type": "string"
     }
   },
   "title": "oh-my-opencode-slim",

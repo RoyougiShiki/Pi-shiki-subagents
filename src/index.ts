@@ -44,6 +44,7 @@ import {
   ast_grep_search,
   createCouncilTool,
   createPresetManager,
+  createVisionAnalyzeTool,
   createWebfetchTool,
 } from './tools';
 import {
@@ -141,6 +142,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let interviewManager: ReturnType<typeof createInterviewManager>;
   let presetManager: ReturnType<typeof createPresetManager>;
   let councilTools: Record<string, unknown>;
+  let visionAnalyzeTools: Record<string, unknown>;
   let webfetch: ReturnType<typeof createWebfetchTool>;
   let rewriteDisplayNameMentions: ReturnType<
     typeof createDisplayNameMentionRewriter
@@ -251,6 +253,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     mcps = createBuiltinMcps(config.disabled_mcps, config.websearch);
     webfetch = createWebfetchTool(ctx);
+    visionAnalyzeTools = createVisionAnalyzeTool(ctx, config.visionModel);
 
     // Initialize MultiplexerSessionManager to handle OpenCode's built-in
     // Task tool sessions
@@ -315,13 +318,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     backgroundTaskHook = createBackgroundTaskHook(ctx);
     ralphLoopHook = createRalphLoopHook(ctx);
     hashlineEditHook = createHashlineEditHook({
-      enabled: false,
+      enabled: true,
     });
     interviewManager = createInterviewManager(ctx, config);
     presetManager = createPresetManager(ctx, config);
 
     toolCount =
       Object.keys(councilTools).length +
+      Object.keys(visionAnalyzeTools).length +
       Object.keys(todoContinuationHook.tool).length +
       Object.keys(backgroundTaskHook.tools).length +
       1 + // webfetch
@@ -389,6 +393,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     tool: {
       ...councilTools,
+      ...visionAnalyzeTools,
       webfetch,
       ...todoContinuationHook.tool,
       ...backgroundTaskHook.tools,
@@ -959,6 +964,15 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
             orchestratorPrompt +
             (output.system[0] ? `\n\n${output.system[0]}` : '');
         }
+
+        // Lightweight IntentGate reinforcement (low-token).
+        // Goal: improve compliance for the required first-line verbalization
+        // without re-injecting long prompt content.
+        const INTENTGATE_REMINDER =
+          'Before any action, output one line: "Intent: [classification] → [routing decision]". Then execute.';
+        output.system[0] = output.system[0]
+          ? `${output.system[0]}\n\n${INTENTGATE_REMINDER}`
+          : INTENTGATE_REMINDER;
       }
 
       // Collapse to single system message for provider compatibility.
