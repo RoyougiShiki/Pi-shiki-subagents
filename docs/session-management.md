@@ -56,6 +56,9 @@ On a related follow-up, the orchestrator can reuse that session instead of
 launching a fresh one. If the remembered child session no longer exists, the
 plugin drops the stale entry and falls back to a new session automatically.
 
+For unrelated work, prefer a fresh child session to avoid context pollution.
+If relation is unclear, start fresh and pass a short summary.
+
 ---
 
 ## Scope and Safety

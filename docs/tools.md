@@ -20,6 +20,32 @@ Fetch remote pages with content extraction tuned for docs/static sites.
 
 ---
 
+## Vision Analysis
+
+Analyze images with a dedicated tool path used by Observer and Orchestrator.
+
+| Tool | Description |
+|------|-------------|
+| `vision_analyze` | Read an image from disk and return a text description using the configured vision model (`visionModel`) |
+
+`vision_analyze` is useful when the current reasoning model is text-only or unreliable on raw image parts. Configure its model with `visionModel` in `oh-my-opencode-slim.json`.
+
+---
+
+## Background Task Tools
+
+Use async child-agent execution with explicit output retrieval.
+
+| Tool | Description |
+|------|-------------|
+| `task` | Spawn/continue child-agent tasks (`run_in_background=true` for async) |
+| `background_output` | Get task output; use `incremental=true` for new output since last check, `full_session=true` for full transcript |
+| `background_cancel` | Cancel one or all running background tasks; returns continuation hints when available |
+
+When a background task finishes, the system injects `<system-reminder>` in the parent session. Query output after reminder instead of polling aggressively.
+
+---
+
 ## Code Search Tools
 
 Fast, structural code search and refactoring — more powerful than plain text grep.

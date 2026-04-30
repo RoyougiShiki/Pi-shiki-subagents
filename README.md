@@ -420,7 +420,7 @@ If any agent fails to respond, check your provider authentication and config fil
 ### Observer: The Silent Witness
 
 > [!NOTE]
-> **Why a separate agent?** If your Orchestrator model is not multimodal, enable Observer to handle images, screenshots, PDFs, and other visual files. Observer is disabled by default and gives the Orchestrator a dedicated multimodal reader without forcing you to change your main reasoning model. Set `disabled_agents: []` and an `observer` model in your configuration.
+> **Why a separate agent?** If your Orchestrator model is not multimodal, use Observer to handle images, screenshots, PDFs, and other visual files. Observer is enabled by default and gives the Orchestrator a dedicated visual-analysis path without forcing you to change your main reasoning model.
 
 <table>
   <tr>
@@ -432,9 +432,9 @@ If any agent fails to respond, check your provider authentication and config fil
 
 **Read-only visual analysis** — interprets images, screenshots, PDFs, and diagrams. Returns structured observations to the orchestrator without loading raw file bytes into the main context window.
 
-- Images, screenshots, diagrams → `read` tool (native image support)
+- Images, screenshots, diagrams → `vision_analyze` tool (configurable vision model via `visionModel`)
 - PDFs and binary documents → `read` tool (text + structure extraction)
-- **Disabled by default** — enable with `"disabled_agents": []` and configure a vision-capable model
+- Enabled by default — disable only if you do not want visual-analysis delegation
 
     </td>
   </tr>
@@ -445,7 +445,7 @@ If any agent fails to respond, check your provider authentication and config fil
   </tr>
   <tr>
     <td colspan="2">
-      <b>Default Model:</b> <code>openai/gpt-5.4-mini</code> — <i>configure a vision-capable model to enable</i>
+      <b>Default Model:</b> <code>openai/gpt-5.4-mini</code>
     </td>
   </tr>
   <tr>

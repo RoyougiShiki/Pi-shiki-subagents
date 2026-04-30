@@ -125,6 +125,7 @@ Presets can also be switched at runtime without restarting using the `/preset` c
 | `council.timeout` | number | `180000` | Per-councillor timeout (ms) |
 | `council.councillor_execution_mode` | string | `"parallel"` | Run councillors in `parallel` or `serial`; use `serial` for single-model setups |
 | `council.councillor_retries` | number | `3` | Max retries per councillor on empty provider response (0–5) |
+| `visionModel` | string | `"dmxapi/glm-4.1v-thinking-flash"` | Vision model for `vision_analyze` in `provider/model` format (for example `dmxapi/minimax-m2.7`) |
 | `todoContinuation.maxContinuations` | integer | `5` | Max consecutive auto-continuations before stopping (1–50) |
 | `todoContinuation.cooldownMs` | integer | `3000` | Delay in ms before auto-continuing — gives user time to abort (0–30000) |
 | `todoContinuation.autoEnable` | boolean | `false` | Automatically enable auto-continue when session has enough todos |
@@ -201,6 +202,21 @@ internal agent name unchanged.
 
 With this config, users can refer to `@advisor` and `@researcher`, while the
 plugin still routes them to `oracle` and `explorer` internally.
+
+### Vision Model for `vision_analyze`
+
+Set `visionModel` when you want `vision_analyze` to use a specific model.
+
+```jsonc
+{
+  "visionModel": "dmxapi/glm-4.1v-thinking-flash"
+}
+```
+
+Recommended split for mixed setups:
+
+- `observer.model`: reasoning/coordination model for the Observer agent
+- `visionModel`: dedicated vision model for image interpretation
 
 Notes:
 
