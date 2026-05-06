@@ -19,8 +19,8 @@ const pendingApproval = new Map<string, boolean>();
 // Patterns that indicate the assistant presented options
 const OPTIONS_PRESENTED_PATTERNS = [
   /\b(方案|option|approach|alternative)\b/i,
-  /^[A-Z]\)\s/m,    // "A) ..." at start of line
-  /^\d+\.\s/m,      // "1. ..." at start of line
+  /^[A-Z]\)\s/m, // "A) ..." at start of line
+  /^\d+\.\s/m, // "1. ..." at start of line
   /\b(recommend|suggest|propose)\b/i,
 ];
 
@@ -50,12 +50,17 @@ interface MessageWithParts {
 
 function getTextFromMessage(msg: MessageWithParts): string {
   return (msg.parts ?? [])
-    .filter((p): p is MessagePart & { text: string } => p.type === 'text' && typeof p.text === 'string')
+    .filter(
+      (p): p is MessagePart & { text: string } =>
+        p.type === 'text' && typeof p.text === 'string',
+    )
     .map((p) => p.text)
     .join('\n');
 }
 
-function findLastAssistant(messages: MessageWithParts[]): MessageWithParts | null {
+function findLastAssistant(
+  messages: MessageWithParts[],
+): MessageWithParts | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].info.role === 'assistant') {
       return messages[i];
@@ -81,7 +86,7 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
 const BLOCK_MESSAGE =
   '[ApprovalGate] You proposed multiple design/implementation approaches but the user has not yet approved one.\n' +
   'Do not implement until the user selects an option or explicitly directs you to proceed.\n' +
-  'If the user\'s response is unclear, ask for clarification.';
+  "If the user's response is unclear, ask for clarification.";
 
 export function createApproachApprovalGateHook() {
   return {

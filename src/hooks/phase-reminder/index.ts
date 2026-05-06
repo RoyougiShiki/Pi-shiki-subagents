@@ -1,31 +1,8 @@
-/**
- * Phase reminder to append after each latest user message.
- *
- * Keeping this at the tail preserves immediate workflow guidance without
- * mutating the cached system prompt or prepending request-local content ahead
- * of the user's actual turn.
- */
 import { PHASE_REMINDER_TEXT } from '../../config/constants';
 import { SLIM_INTERNAL_INITIATOR_MARKER } from '../../utils';
+import type { MessageWithParts } from '../shared-message-types';
 
 export const PHASE_REMINDER = `<internal_reminder>${PHASE_REMINDER_TEXT}</internal_reminder>`;
-
-interface MessageInfo {
-  role: string;
-  agent?: string;
-  sessionID?: string;
-}
-
-interface MessagePart {
-  type: string;
-  text?: string;
-  [key: string]: unknown;
-}
-
-interface MessageWithParts {
-  info: MessageInfo;
-  parts: MessagePart[];
-}
 
 /**
  * Creates the experimental.chat.messages.transform hook for phase reminder injection.

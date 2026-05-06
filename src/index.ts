@@ -7,8 +7,8 @@ import {
   loadPluginConfig,
   type MultiplexerConfig,
 } from './config';
-import { AGENT_ALIASES } from './config/constants';
 import { parseList } from './config/agent-mcps';
+import { AGENT_ALIASES } from './config/constants';
 import {
   getActiveRuntimePreset,
   getPreviousRuntimePreset,
@@ -28,7 +28,6 @@ import {
   createIntentGuardHook,
   createJsonErrorRecoveryHook,
   createPhaseReminderHook,
-  createPostFileToolNudgeHook,
   createRalphLoopHook,
   createTaskSessionManagerHook,
   createTodoContinuationHook,
@@ -136,7 +135,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     typeof createFilterAvailableSkillsHook
   >;
   let sessionAgentMap: Map<string, string>;
-  let postFileToolNudgeHook: ReturnType<typeof createPostFileToolNudgeHook>;
   let chatHeadersHook: ReturnType<typeof createChatHeadersHook>;
   let delegateTaskRetryHook: ReturnType<typeof createDelegateTaskRetryHook>;
   let applyPatchHook: ReturnType<typeof createApplyPatchHook>;
@@ -294,12 +292,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Track session → agent mapping for serve-mode system prompt injection
     sessionAgentMap = new Map<string, string>();
-
-    // Initialize post-file-tool nudge hook
-    postFileToolNudgeHook = createPostFileToolNudgeHook({
-      shouldInject: (sessionID) =>
-        sessionAgentMap.get(sessionID) === 'orchestrator',
-    });
 
     chatHeadersHook = createChatHeadersHook(ctx);
 
@@ -612,15 +604,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
           // Build resolved key set from new preset for correct comparison
           // (handles alias keys like "explore" → "explorer")
           const newPresetResolved = new Set(
-            Object.keys(runtimePreset).map(
-              (k) => AGENT_ALIASES[k] ?? k,
-            ),
+            Object.keys(runtimePreset).map((k) => AGENT_ALIASES[k] ?? k),
           );
           for (const agentName of Object.keys(prevPreset)) {
-            const resolvedName =
-              AGENT_ALIASES[agentName] ?? agentName;
-            if (newPresetResolved.has(resolvedName))
-              continue; // new preset handles it
+            const resolvedName = AGENT_ALIASES[agentName] ?? agentName;
+            if (newPresetResolved.has(resolvedName)) continue; // new preset handles it
             const entry = configAgent[resolvedName] as
               | Record<string, unknown>
               | undefined;
@@ -628,8 +616,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
             // Reset to config-file baseline. Use the previous preset's
             // override to identify which fields to clear even when the
             // baseline doesn't define them.
-            const baseline =
-              config.agents?.[resolvedName];
+            const baseline = config.agents?.[resolvedName];
             const prevOverride = prevPreset[agentName] as
               | AgentOverrideConfig
               | undefined;
@@ -638,18 +625,12 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
             }
             if (typeof baseline?.variant === 'string') {
               entry.variant = baseline.variant;
-            } else if (
-              prevOverride &&
-              'variant' in prevOverride
-            ) {
+            } else if (prevOverride && 'variant' in prevOverride) {
               delete entry.variant;
             }
             if (typeof baseline?.temperature === 'number') {
               entry.temperature = baseline.temperature;
-            } else if (
-              prevOverride &&
-              'temperature' in prevOverride
-            ) {
+            } else if (prevOverride && 'temperature' in prevOverride) {
               delete entry.temperature;
             }
             if (
@@ -658,10 +639,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
               !Array.isArray(baseline.options)
             ) {
               entry.options = baseline.options;
-            } else if (
-              prevOverride &&
-              'options' in prevOverride
-            ) {
+            } else if (prevOverride && 'options' in prevOverride) {
               delete entry.options;
             }
             log('[plugin] runtime preset reset from previous', {
@@ -753,16 +731,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       if (configCmd) {
         if (!configCmd['ralph-loop']) {
           configCmd['ralph-loop'] = {
-            template:
-              'Start a Ralph Loop for the given task prompt',
+            template: 'Start a Ralph Loop for the given task prompt',
             description:
               'Start a self-repeating loop that continues until <promise>DONE</promise> is output',
           };
         }
         if (!configCmd['ulw-loop']) {
           configCmd['ulw-loop'] = {
-            template:
-              'Start a ULW (Ultra Work) loop for the given task prompt',
+            template: 'Start a ULW (Ultra Work) loop for the given task prompt',
             description:
               'Like ralph-loop but with 500 max iterations and Oracle verification',
           };
@@ -831,7 +807,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       await backgroundTaskHook.event(input);
 
       // Ralph loop: detect completion promises and inject continuation
-      await ralphLoopHook.event(input as Parameters<typeof ralphLoopHook.event>[0]);
+      await ralphLoopHook.event(
+        input as Parameters<typeof ralphLoopHook.event>[0],
+      );
 
       if (input.event.type === 'session.deleted') {
         const props = input.event.properties as
@@ -1113,19 +1091,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
           sessionID?: string;
         },
         output as { output?: unknown },
-      );
-
-      await postFileToolNudgeHook['tool.execute.after'](
-        input as {
-          tool: string;
-          sessionID?: string;
-          callID?: string;
-        },
-        output as {
-          title: string;
-          output: string;
-          metadata: Record<string, unknown>;
-        },
       );
 
       await taskSessionManagerHook['tool.execute.after'](

@@ -10,38 +10,38 @@
  * the native edit tool processes them.
  */
 
-import { log } from '../../utils/logger'
 import {
-  HashlineMismatchError,
   computeLineHash,
   generateHashlineTag,
+  HashlineMismatchError,
   validateHashlineRef,
-} from '../../utils/hashline'
+} from '../../utils/hashline';
+import { log } from '../../utils/logger';
 
-const HASHLINE_RE = /^[0-9]+#[A-Z]{2}\|/
+const HASHLINE_RE = /^[0-9]+#[A-Z]{2}\|/;
 
-const EDIT_TOOL_NAMES = new Set(['edit'])
+const EDIT_TOOL_NAMES = new Set(['edit']);
 
 interface ToolExecuteBeforeInput {
-  tool: string
-  directory?: string
+  tool: string;
+  directory?: string;
 }
 
 interface ToolExecuteBeforeOutput {
   args?: {
-    filePath?: unknown
-    oldString?: unknown
-    newString?: unknown
-    [key: string]: unknown
-  }
+    filePath?: unknown;
+    oldString?: unknown;
+    newString?: unknown;
+    [key: string]: unknown;
+  };
 }
 
 interface ToolExecuteAfterInput {
-  tool: string
+  tool: string;
 }
 
 interface ToolExecuteAfterOutput {
-  output?: unknown
+  output?: unknown;
 }
 
 /**
@@ -49,7 +49,7 @@ interface ToolExecuteAfterOutput {
  */
 export interface HashlineEditHookOptions {
   /** Enable or disable the hook. Defaults to `true`. */
-  enabled?: boolean
+  enabled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,56 +61,54 @@ export interface HashlineEditHookOptions {
  * Returns `{ ref, content }` or `null` if the line has no tag.
  */
 function extractTaggedLine(line: string): {
-  ref: string
-  content: string
+  ref: string;
+  content: string;
 } | null {
-  const pipeIdx = line.indexOf('|')
-  if (pipeIdx < 0) return null
+  const pipeIdx = line.indexOf('|');
+  if (pipeIdx < 0) return null;
 
-  const prefix = line.slice(0, pipeIdx)
-  if (!prefix.match(/^[0-9]+#[A-Z]{2}$/)) return null
+  const prefix = line.slice(0, pipeIdx);
+  if (!prefix.match(/^[0-9]+#[A-Z]{2}$/)) return null;
 
-  return { ref: prefix, content: line.slice(pipeIdx + 1) }
+  return { ref: prefix, content: line.slice(pipeIdx + 1) };
 }
 
 /**
  * Validate all LINE#ID tags in a multi-line string.
  * Returns an array of mismatches (empty = all valid).
  */
-function validateAllTags(
-  text: string,
-): Array<{
-  lineNumber: number
-  expectedRef: string
-  actualContent: string
-  computedHash: string
+function validateAllTags(text: string): Array<{
+  lineNumber: number;
+  expectedRef: string;
+  actualContent: string;
+  computedHash: string;
 }> {
   const mismatches: Array<{
-    lineNumber: number
-    expectedRef: string
-    actualContent: string
-    computedHash: string
-  }> = []
+    lineNumber: number;
+    expectedRef: string;
+    actualContent: string;
+    computedHash: string;
+  }> = [];
 
-  const lines = text.split('\n')
+  const lines = text.split('\n');
   for (const line of lines) {
-    const tagged = extractTaggedLine(line)
-    if (!tagged) continue
+    const tagged = extractTaggedLine(line);
+    if (!tagged) continue;
 
     if (!validateHashlineRef(tagged.ref, tagged.content)) {
-      const parts = tagged.ref.split('#')
-      const lineNumber = Number.parseInt(parts[0]!, 10)
-      const hash = computeLineHash(lineNumber, tagged.content)
+      const parts = tagged.ref.split('#');
+      const lineNumber = Number.parseInt(parts[0]!, 10);
+      const hash = computeLineHash(lineNumber, tagged.content);
       mismatches.push({
         lineNumber,
         expectedRef: tagged.ref,
         actualContent: tagged.content,
         computedHash: hash,
-      })
+      });
     }
   }
 
-  return mismatches
+  return mismatches;
 }
 
 /**
@@ -122,10 +120,10 @@ function stripTags(text: string): string {
   return text
     .split('\n')
     .map((line) => {
-      const tagged = extractTaggedLine(line)
-      return tagged ? tagged.content : line
+      const tagged = extractTaggedLine(line);
+      return tagged ? tagged.content : line;
     })
-    .join('\n')
+    .join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -143,59 +141,55 @@ function stripTags(text: string): string {
  * // plugin.hook('tool.execute.before', hook['tool.execute.before'])
  * ```
  */
-export function createHashlineEditHook(
-  config: HashlineEditHookOptions = {},
-) {
-  const enabled = config.enabled !== false
+export function createHashlineEditHook(config: HashlineEditHookOptions = {}) {
+  const enabled = config.enabled !== false;
 
   return {
     'tool.execute.before': async (
       input: ToolExecuteBeforeInput,
       output: ToolExecuteBeforeOutput,
     ): Promise<void> => {
-      if (!enabled) return
-      if (!EDIT_TOOL_NAMES.has(input.tool)) return
+      if (!enabled) return;
+      if (!EDIT_TOOL_NAMES.has(input.tool)) return;
 
-      const args = output.args
-      if (!args) return
+      const args = output.args;
+      if (!args) return;
 
       const oldString =
-        typeof args.oldString === 'string' ? args.oldString : null
+        typeof args.oldString === 'string' ? args.oldString : null;
       const newString =
-        typeof args.newString === 'string' ? args.newString : null
+        typeof args.newString === 'string' ? args.newString : null;
 
-      if (!oldString) return
+      if (!oldString) return;
 
-      const hasTags = oldString.split('\n').some((l) =>
-        HASHLINE_RE.test(l),
-      )
-      if (!hasTags) return
+      const hasTags = oldString.split('\n').some((l) => HASHLINE_RE.test(l));
+      if (!hasTags) return;
 
       log('[hashline-edit] Validating tags in edit oldString', {
         hasOldTags: true,
         oldStringLines: oldString.split('\n').length,
-      })
+      });
 
-      const mismatches = validateAllTags(oldString)
+      const mismatches = validateAllTags(oldString);
       if (mismatches.length > 0) {
-        const first = mismatches[0]!
+        const first = mismatches[0]!;
         log('[hashline-edit] MISMATCH detected', {
           mismatchCount: mismatches.length,
           firstLine: first.lineNumber,
-        })
-        throw new HashlineMismatchError(first)
+        });
+        throw new HashlineMismatchError(first);
       }
 
       // Strip tags so the native edit works with clean content
-      args.oldString = stripTags(oldString)
+      args.oldString = stripTags(oldString);
       if (newString) {
-        args.newString = stripTags(newString)
+        args.newString = stripTags(newString);
       }
 
       log('[hashline-edit] Tags validated and stripped', {
         oldLines: oldString.split('\n').length,
         newLines: newString ? newString.split('\n').length : 0,
-      })
+      });
     },
 
     'tool.execute.after': async (
@@ -204,5 +198,5 @@ export function createHashlineEditHook(
     ): Promise<void> => {
       // Reserved for future use: e.g. re-tagging output content
     },
-  }
+  };
 }

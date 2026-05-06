@@ -7,72 +7,72 @@
  * file at `.sisyphus/ralph-loop.local.md`.
  */
 
-import type { PluginInput } from '@opencode-ai/plugin'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { log } from './logger'
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { PluginInput } from '@opencode-ai/plugin';
+import { log } from './logger';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /** Hook identifier used for logging and file paths. */
-const HOOK_NAME = 'ralph-loop'
+const HOOK_NAME = 'ralph-loop';
 
 /** Default path for the state file (relative to project root). */
-const DEFAULT_STATE_FILE = '.sisyphus/ralph-loop.local.md'
+const DEFAULT_STATE_FILE = '.sisyphus/ralph-loop.local.md';
 
 /** Maximum iterations for standard Ralph Loop. */
-const DEFAULT_MAX_ITERATIONS = 100
+const DEFAULT_MAX_ITERATIONS = 100;
 
 /** Maximum iterations for ULW (ultrawork) mode. */
-const ULTRAWORK_MAX_ITERATIONS = 500
+const ULTRAWORK_MAX_ITERATIONS = 500;
 
 /** Default completion promise tag content. */
-const DEFAULT_COMPLETION_PROMISE = 'DONE'
+const DEFAULT_COMPLETION_PROMISE = 'DONE';
 
 /** ULW verification promise tag content. */
-const ULTRAWORK_VERIFICATION_PROMISE = 'VERIFIED'
+const ULTRAWORK_VERIFICATION_PROMISE = 'VERIFIED';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 /** Strategy for continuing after a max-iteration limit is reached. */
-export type LoopStrategy = 'reset' | 'continue'
+export type LoopStrategy = 'reset' | 'continue';
 
 /** Persisted state for an active Ralph Loop session. */
 export interface RalphLoopState {
   /** Whether the loop is currently active. */
-  active: boolean
+  active: boolean;
   /** Current iteration number (1-indexed). */
-  iteration: number
+  iteration: number;
   /** Maximum allowed iterations before auto-stop. */
-  max_iterations: number
+  max_iterations: number;
   /** Expected promise tag content (e.g. "DONE"). */
-  completion_promise: string
+  completion_promise: string;
   /** ISO-8601 timestamp when the loop was started. */
-  started_at: string
+  started_at: string;
   /** The original task prompt. */
-  prompt: string
+  prompt: string;
   /** OpenCode session ID bound to this loop. */
-  session_id?: string
+  session_id?: string;
   /** Whether ULW (ultrawork) mode is enabled. */
-  ultrawork?: boolean
+  ultrawork?: boolean;
   /** Strategy when max iterations are exhausted. */
-  strategy?: LoopStrategy
+  strategy?: LoopStrategy;
 }
 
 /** Options for starting a new Ralph Loop. */
 export interface StartLoopOptions {
   /** Maximum iterations (defaults to 100 or 500 in ULW mode). */
-  maxIterations?: number
+  maxIterations?: number;
   /** Whether to enable ULW mode (500 iterations + verified promise). */
-  ultrawork?: boolean
+  ultrawork?: boolean;
   /** Completion promise string override. */
-  completionPromise?: string
+  completionPromise?: string;
   /** Strategy when max iterations are exhausted. */
-  strategy?: LoopStrategy
+  strategy?: LoopStrategy;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ export interface StartLoopOptions {
 // ---------------------------------------------------------------------------
 
 /** Regex to detect `<promise>VALUE</promise>` tags in agent output. */
-const COMPLETION_TAG_PATTERN = /<promise>\s*(\S+?)\s*<\/promise>/is
+const COMPLETION_TAG_PATTERN = /<promise>\s*(\S+?)\s*<\/promise>/is;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,14 +91,14 @@ const COMPLETION_TAG_PATTERN = /<promise>\s*(\S+?)\s*<\/promise>/is
  * Creates the `.sisyphus/` directory if it does not exist.
  */
 function resolveStatePath(directory: string): string {
-  const stateDir = path.join(directory, '.sisyphus')
+  const stateDir = path.join(directory, '.sisyphus');
   try {
-    fs.mkdirSync(stateDir, { recursive: true })
+    fs.mkdirSync(stateDir, { recursive: true });
   } catch {
     // Directory creation may fail on read-only FS — callers will
     // see the error on write.
   }
-  return path.join(stateDir, 'ralph-loop.local.md')
+  return path.join(stateDir, 'ralph-loop.local.md');
 }
 
 /**
@@ -122,20 +122,20 @@ function serializeState(state: RalphLoopState): string {
     `max_iterations: ${state.max_iterations}`,
     `completion_promise: "${state.completion_promise}"`,
     `started_at: "${state.started_at}"`,
-  ]
+  ];
 
   if (state.session_id) {
-    lines.push(`session_id: "${state.session_id}"`)
+    lines.push(`session_id: "${state.session_id}"`);
   }
   if (state.ultrawork !== undefined) {
-    lines.push(`ultrawork: ${state.ultrawork}`)
+    lines.push(`ultrawork: ${state.ultrawork}`);
   }
   if (state.strategy) {
-    lines.push(`strategy: ${state.strategy}`)
+    lines.push(`strategy: ${state.strategy}`);
   }
 
-  lines.push('---', state.prompt)
-  return lines.join('\n')
+  lines.push('---', state.prompt);
+  return lines.join('\n');
 }
 
 /**
@@ -143,30 +143,30 @@ function serializeState(state: RalphLoopState): string {
  * Returns `null` if the file content is malformed.
  */
 function parseState(content: string): RalphLoopState | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-  if (!match) return null
+  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!match) return null;
 
-  const [, frontmatter, body] = match
-  if (!frontmatter || body === undefined) return null
+  const [, frontmatter, body] = match;
+  if (!frontmatter || body === undefined) return null;
 
   const get = (key: string): string | undefined => {
-    const re = new RegExp(`^${key}:\\s*(.+)$`, 'm')
-    const m = frontmatter.match(re)
-    return m?.[1]?.trim()
-  }
+    const re = new RegExp(`^${key}:\\s*(.+)$`, 'm');
+    const m = frontmatter.match(re);
+    return m?.[1]?.trim();
+  };
 
-  const rawActive = get('active')
-  const rawIteration = get('iteration')
-  const rawMax = get('max_iterations')
-  const rawPromise = get('completion_promise')
-  const rawStarted = get('started_at')
+  const rawActive = get('active');
+  const rawIteration = get('iteration');
+  const rawMax = get('max_iterations');
+  const rawPromise = get('completion_promise');
+  const rawStarted = get('started_at');
 
   if (!rawActive || !rawIteration || !rawMax || !rawPromise || !rawStarted) {
-    return null
+    return null;
   }
 
   // Strip surrounding quotes from values
-  const unquote = (v: string) => v.replace(/^["']|["']$/g, '')
+  const unquote = (v: string) => v.replace(/^["']|["']$/g, '');
 
   return {
     active: rawActive === 'true',
@@ -178,7 +178,7 @@ function parseState(content: string): RalphLoopState | null {
     session_id: get('session_id')?.replace(/^["']|["']$/g, ''),
     ultrawork: get('ultrawork') === 'true',
     strategy: get('strategy') as LoopStrategy | undefined,
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -210,10 +210,10 @@ function parseState(content: string): RalphLoopState | null {
  * ```
  */
 export function createRalphLoopManager(ctx: PluginInput) {
-  const { directory } = ctx
+  const { directory } = ctx;
 
   // In-memory cache — avoids re-parsing the file on every check.
-  let cachedState: RalphLoopState | null = null
+  let cachedState: RalphLoopState | null = null;
 
   // -----------------------------------------------------------------------
   // File I/O
@@ -224,15 +224,15 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * Returns `null` if no state file exists or parsing fails.
    */
   function readState(): RalphLoopState | null {
-    const filePath = resolveStatePath(directory)
+    const filePath = resolveStatePath(directory);
     try {
-      const content = fs.readFileSync(filePath, 'utf-8')
-      cachedState = parseState(content)
-      return cachedState
+      const content = fs.readFileSync(filePath, 'utf-8');
+      cachedState = parseState(content);
+      return cachedState;
     } catch {
       // File doesn't exist or unreadable — no active loop
-      cachedState = null
-      return null
+      cachedState = null;
+      return null;
     }
   }
 
@@ -242,16 +242,16 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * Returns `true` on success, `false` on I/O error.
    */
   function writeState(state: RalphLoopState): boolean {
-    const filePath = resolveStatePath(directory)
+    const filePath = resolveStatePath(directory);
     try {
-      fs.writeFileSync(filePath, serializeState(state), 'utf-8')
-      cachedState = state
-      return true
+      fs.writeFileSync(filePath, serializeState(state), 'utf-8');
+      cachedState = state;
+      return true;
     } catch (err) {
       log(`[${HOOK_NAME}] Failed to write state`, {
         error: err instanceof Error ? err.message : String(err),
-      })
-      return false
+      });
+      return false;
     }
   }
 
@@ -260,14 +260,14 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * Returns `true` on success (or if the file didn't exist).
    */
   function clearState(): boolean {
-    const filePath = resolveStatePath(directory)
+    const filePath = resolveStatePath(directory);
     try {
-      fs.unlinkSync(filePath)
+      fs.unlinkSync(filePath);
     } catch {
       // File doesn't exist — that's fine
     }
-    cachedState = null
-    return true
+    cachedState = null;
+    return true;
   }
 
   // -----------------------------------------------------------------------
@@ -279,8 +279,8 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * Returns `null` if no active loop.
    */
   function getState(): RalphLoopState | null {
-    if (cachedState?.active) return cachedState
-    return readState()
+    if (cachedState?.active) return cachedState;
+    return readState();
   }
 
   // -----------------------------------------------------------------------
@@ -300,13 +300,13 @@ export function createRalphLoopManager(ctx: PluginInput) {
     prompt: string,
     options?: StartLoopOptions,
   ): boolean {
-    const ultrawork = options?.ultrawork ?? false
+    const ultrawork = options?.ultrawork ?? false;
     const maxIterations =
       options?.maxIterations ??
-      (ultrawork ? ULTRAWORK_MAX_ITERATIONS : DEFAULT_MAX_ITERATIONS)
+      (ultrawork ? ULTRAWORK_MAX_ITERATIONS : DEFAULT_MAX_ITERATIONS);
     const completionPromise =
       options?.completionPromise ??
-      (ultrawork ? ULTRAWORK_VERIFICATION_PROMISE : DEFAULT_COMPLETION_PROMISE)
+      (ultrawork ? ULTRAWORK_VERIFICATION_PROMISE : DEFAULT_COMPLETION_PROMISE);
 
     const state: RalphLoopState = {
       active: true,
@@ -318,9 +318,9 @@ export function createRalphLoopManager(ctx: PluginInput) {
       session_id: sessionID,
       ultrawork,
       strategy: options?.strategy,
-    }
+    };
 
-    const ok = writeState(state)
+    const ok = writeState(state);
     if (ok) {
       log(`[${HOOK_NAME}] Loop started`, {
         sessionID,
@@ -328,9 +328,9 @@ export function createRalphLoopManager(ctx: PluginInput) {
         maxIterations,
         completionPromise,
         ultrawork,
-      })
+      });
     }
-    return ok
+    return ok;
   }
 
   /**
@@ -340,26 +340,26 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * @returns `true` if a loop was found and cancelled.
    */
   function cancelLoop(sessionID: string): boolean {
-    const state = getState()
+    const state = getState();
     if (!state || !state.active) {
-      log(`[${HOOK_NAME}] Cancel failed — no active loop`, { sessionID })
-      return false
+      log(`[${HOOK_NAME}] Cancel failed — no active loop`, { sessionID });
+      return false;
     }
     if (state.session_id && state.session_id !== sessionID) {
       log(`[${HOOK_NAME}] Cancel failed — session mismatch`, {
         sessionID,
         boundSession: state.session_id,
-      })
-      return false
+      });
+      return false;
     }
 
-    state.active = false
-    writeState(state)
+    state.active = false;
+    writeState(state);
     log(`[${HOOK_NAME}] Loop cancelled`, {
       sessionID,
       iteration: state.iteration,
-    })
-    return true
+    });
+    return true;
   }
 
   // -----------------------------------------------------------------------
@@ -379,8 +379,8 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * ```
    */
   function detectCompletion(text: string): string | null {
-    const match = text.match(COMPLETION_TAG_PATTERN)
-    return match?.[1] ?? null
+    const match = text.match(COMPLETION_TAG_PATTERN);
+    return match?.[1] ?? null;
   }
 
   /**
@@ -390,27 +390,27 @@ export function createRalphLoopManager(ctx: PluginInput) {
    * @returns Updated state, or `null` if no active loop or after max iterations.
    */
   function incrementIteration(): RalphLoopState | null {
-    const state = getState()
-    if (!state || !state.active) return null
+    const state = getState();
+    if (!state || !state.active) return null;
 
-    state.iteration += 1
+    state.iteration += 1;
 
     if (state.iteration > state.max_iterations) {
-      state.active = false
-      writeState(state)
+      state.active = false;
+      writeState(state);
       log(`[${HOOK_NAME}] Max iterations reached — loop stopped`, {
         maxIterations: state.max_iterations,
         sessionID: state.session_id,
-      })
-      return null
+      });
+      return null;
     }
 
-    writeState(state)
+    writeState(state);
     log(`[${HOOK_NAME}] Iteration incremented`, {
       iteration: state.iteration,
       maxIterations: state.max_iterations,
-    })
-    return state
+    });
+    return state;
   }
 
   // -----------------------------------------------------------------------
@@ -438,7 +438,7 @@ export function createRalphLoopManager(ctx: PluginInput) {
       '',
       'Original task:',
       state.prompt,
-    ].join('\n')
+    ].join('\n');
   }
 
   // -----------------------------------------------------------------------
@@ -455,14 +455,14 @@ export function createRalphLoopManager(ctx: PluginInput) {
     detectCompletion,
     incrementIteration,
     buildContinuationPrompt,
-  }
+  };
 }
 
 // Re-export constants for use in hooks
 export {
-  HOOK_NAME,
-  DEFAULT_MAX_ITERATIONS,
   DEFAULT_COMPLETION_PROMISE,
+  DEFAULT_MAX_ITERATIONS,
+  HOOK_NAME,
   ULTRAWORK_MAX_ITERATIONS,
   ULTRAWORK_VERIFICATION_PROMISE,
-}
+};

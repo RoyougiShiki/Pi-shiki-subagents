@@ -27,48 +27,43 @@ export function resolvePrompt(
 // Agent descriptions for the orchestrator prompt
 const AGENT_DESCRIPTIONS: Record<string, string> = {
   explorer: `@explorer
-- Role: Parallel search specialist for discovering unknowns across the codebase
+- Role: Parallel search specialist. "Where is X?" → @explorer. "Implement X" → yourself.
 - Permissions: Read files
 - Delegate when: Prefer for codebase search/investigation • Broad/uncertain scope • Need summarized map vs full contents
 - Don't delegate when: Know the path and need actual content • About to edit the file`,
 
   librarian: `@librarian
-- Role: Authoritative source for current library docs and API references
+- Role: Research specialist for docs/examples. "How does this library work?" → @librarian. General programming → yourself.
 - Permissions: None
 - Delegate when: Prefer for external library docs/API references • Unfamiliar library • Version-specific behavior matters
-- Don't delegate when: Standard usage you're confident • General programming knowledge • Built-in language features
-- Rule of thumb: "How does this library work?" → @librarian. "How does programming work?" → yourself.`,
+- Don't delegate when: Standard usage you're confident • General programming knowledge • Built-in language features`,
 
   oracle: `@oracle
-- Role: Strategic advisor for high-stakes decisions, code reviewer
+- Role: Strategic advisor / code reviewer. Need architect review? → @oracle. Routine → yourself.
 - Permissions: Read files
 - Delegate when: Major architectural decisions • Problems persisting after 2+ fix attempts • High-risk refactors • Costly trade-offs (performance vs maintainability) • Security/scalability decisions • Code needs simplification or YAGNI scrutiny
-- Don't delegate when: Routine decisions • First bug fix attempt • Straightforward trade-offs
-- Rule of thumb: Need senior architect review? → @oracle. Just do it and PR? → yourself.`,
+- Don't delegate when: Routine decisions • First bug fix attempt • Straightforward trade-offs`,
 
   designer: `@designer
-- Role: UI/UX specialist for intentional, polished experiences
+- Role: UI/UX specialist. Users see it? → @designer. Headless/functional? → yourself.
 - Permissions: Read/write files
 - Delegate when: User-facing interfaces needing polish • Responsive layouts • UX-critical components (forms, nav, dashboards) • Animations/micro-interactions • Landing/marketing pages
-- Don't delegate when: Backend/logic with no visual • Quick prototypes where design doesn't matter yet
-- Rule of thumb: Users see it and polish matters? → @designer. Headless/functional? → yourself.`,
+- Don't delegate when: Backend/logic with no visual • Quick prototypes where design doesn't matter yet`,
 
   fixer: `@fixer
-- Role: Fast execution specialist for well-defined tasks
+- Role: Fast execution specialist. "Explaining > doing?" → yourself. Bounded implementation → @fixer.
 - Permissions: Read/write files
 - Tools/Constraints: Execution-focused—no research, no architectural decisions
 - Delegate when: Non-trivial or multi-file implementation (especially 2+ files) • Writing/updating tests • Parallelization: multiple folders, spawn parallel @fixers
-- Don't delegate when: Needs discovery/research/decisions • Single small change (<20 lines, one file) • Sequential dependencies
-- Rule of thumb: Explaining > doing? → yourself. Bounded implementation work → @fixer.`,
+- Don't delegate when: Needs discovery/research/decisions • Single small change (<20 lines, one file) • Sequential dependencies`,
 
   council: `@council
-- Role: Multi-LLM consensus engine — runs several councillors, synthesizes views, returns structured report
+- Role: Multi-LLM consensus engine. Need multiple perspectives? → @council. One expert? → specialist.
 - Permissions: Read files
 - Delegate when: Critical decisions need multiple independent perspectives • High-stakes architectural/security choices • Ambiguous problems where disagreement is useful signal • User explicitly asks for consensus
 - Don't delegate when: Straightforward tasks • Speed matters more than confidence • Routine implementation
 - How to call: Send the full question/task with context. Be explicit about what decision to resolve.
-- Result handling: Preserve council's structured response. Before acting, state the recommendation, then proceed.
-- Rule of thumb: Need second/third opinions from different models? → @council. Need one expert? → use the specialist or yourself.`,
+- Result handling: Preserve council's structured response. Before acting, state the recommendation, then proceed.`,
 
   observer: `@observer
 - Role: Visual analysis specialist for images, PDFs, and diagrams

@@ -12,52 +12,17 @@
  * - Injects a "synthesize" cap reminder at round 3+
  */
 
+import {
+  findLastAssistant,
+  findLastUser,
+  getTextFromMessage,
+  type MessageWithParts,
+} from '../shared-message-types';
+
 const MAX_CLARIFY_ROUNDS = 3;
 
 // Module-level state: sessionId → clarify round counter
 const clarifyRounds = new Map<string, number>();
-
-interface MessageInfo {
-  role: string;
-  agent?: string;
-  sessionID?: string;
-}
-
-interface MessagePart {
-  type: string;
-  text?: string;
-  [key: string]: unknown;
-}
-
-interface MessageWithParts {
-  info: MessageInfo;
-  parts: MessagePart[];
-}
-
-function getTextFromMessage(msg: MessageWithParts): string {
-  return (msg.parts ?? [])
-    .filter((p): p is MessagePart & { text: string } => p.type === 'text' && typeof p.text === 'string')
-    .map((p) => p.text)
-    .join('\n');
-}
-
-function findLastAssistant(messages: MessageWithParts[]): MessageWithParts | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === 'assistant') {
-      return messages[i];
-    }
-  }
-  return null;
-}
-
-function findLastUser(messages: MessageWithParts[]): MessageWithParts | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === 'user') {
-      return messages[i];
-    }
-  }
-  return null;
-}
 
 /** Count question marks in a text (rough heuristic for "asked questions"). */
 function hasQuestions(text: string): boolean {
@@ -75,13 +40,13 @@ const CLARIFY_REMINDER =
   '\n\n<internal_reminder>\n' +
   '[Clarify Needed] The request may lack critical context (requirements, constraints, target users).\n' +
   'Consider asking targeted clarifying question(s) before implementing.\n' +
-  'If the user\'s response remains vague, summarize what you know and proceed with best assumptions.\n' +
+  "If the user's response remains vague, summarize what you know and proceed with best assumptions.\n" +
   '</internal_reminder>';
 
 const CAP_REMINDER =
   '\n\n<internal_reminder>\n' +
   '[Clarify Cap] You have asked several clarifying questions. If the user has provided essential information,\n' +
-  'synthesize what you know and proceed. Do not ask another round unless the user\'s latest response\n' +
+  "synthesize what you know and proceed. Do not ask another round unless the user's latest response\n" +
   'introduces new ambiguity.\n' +
   '</internal_reminder>';
 
@@ -129,7 +94,11 @@ export function createClarifyLoopHook() {
               const textPart = lastUser.parts.find(
                 (p) => p.type === 'text' && typeof p.text === 'string',
               );
-              if (textPart && typeof textPart.text === 'string' && !textPart.text.includes(CAP_REMINDER.trim().slice(0, 30))) {
+              if (
+                textPart &&
+                typeof textPart.text === 'string' &&
+                !textPart.text.includes(CAP_REMINDER.trim().slice(0, 30))
+              ) {
                 textPart.text += CAP_REMINDER;
               }
             }
@@ -147,7 +116,11 @@ export function createClarifyLoopHook() {
           const textPart = lastUser.parts.find(
             (p) => p.type === 'text' && typeof p.text === 'string',
           );
-          if (textPart && typeof textPart.text === 'string' && !textPart.text.includes(CLARIFY_REMINDER.trim().slice(0, 30))) {
+          if (
+            textPart &&
+            typeof textPart.text === 'string' &&
+            !textPart.text.includes(CLARIFY_REMINDER.trim().slice(0, 30))
+          ) {
             textPart.text += CLARIFY_REMINDER;
           }
         }

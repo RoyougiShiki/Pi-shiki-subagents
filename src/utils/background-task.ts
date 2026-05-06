@@ -7,10 +7,10 @@
  * through session events.
  */
 
-import type { PluginInput } from '@opencode-ai/plugin'
-import { log } from './logger'
+import type { PluginInput } from '@opencode-ai/plugin';
+import { log } from './logger';
 
-type OpencodeClient = PluginInput['client']
+type OpencodeClient = PluginInput['client'];
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -23,67 +23,67 @@ export type BackgroundTaskStatus =
   | 'completed'
   | 'error'
   | 'cancelled'
-  | 'interrupt'
+  | 'interrupt';
 
 /** Tracked state for a single background task. */
 export interface BackgroundTask {
   /** Unique task identifier (prefixed `bg_`). */
-  id: string
+  id: string;
   /** Current lifecycle status. */
-  status: BackgroundTaskStatus
+  status: BackgroundTaskStatus;
   /** OpenCode session ID once the session has been created. */
-  sessionID?: string
+  sessionID?: string;
   /** Session that spawned this task. */
-  parentSessionID: string
+  parentSessionID: string;
   /** Message ID in the parent session that triggered the task. */
-  parentMessageID: string
+  parentMessageID: string;
   /** Agent name used for the prompt. */
-  agent: string
+  agent: string;
   /** Short human-readable description. */
-  description: string
+  description: string;
   /** Full prompt text sent to the agent. */
-  prompt: string
+  prompt: string;
   /** Optional model override. */
-  model?: { providerID: string; modelID: string }
+  model?: { providerID: string; modelID: string };
   /** Timestamp when the task was queued. */
-  queuedAt?: Date
+  queuedAt?: Date;
   /** Timestamp when the session started processing. */
-  startedAt?: Date
+  startedAt?: Date;
   /** Timestamp when the task reached a terminal state. */
-  completedAt?: Date
+  completedAt?: Date;
   /** Error message if the task failed. */
-  error?: string
+  error?: string;
   /** Number of tool-use calls observed via events. */
-  toolCalls: number
+  toolCalls: number;
   /** Timestamp of the last status update. */
-  lastUpdate: Date
+  lastUpdate: Date;
 }
 
 /** Input for launching a new background task. */
 export interface LaunchInput {
   /** Short human-readable description. */
-  description: string
+  description: string;
   /** Full prompt text to send to the agent. */
-  prompt: string
+  prompt: string;
   /** Agent name to use. */
-  agent: string
+  agent: string;
   /** Parent session ID that owns this task. */
-  parentSessionID: string
+  parentSessionID: string;
   /** Message ID in the parent session (optional — generated if omitted). */
-  parentMessageID?: string
+  parentMessageID?: string;
   /** Optional model override. */
-  model?: { providerID: string; modelID: string }
+  model?: { providerID: string; modelID: string };
 }
 
 /** Shape of an OpenCode plugin event passed to {@link SlimBackgroundManager.handleEvent}. */
 interface PluginEvent {
-  type: string
+  type: string;
   properties?: {
-    sessionID?: string
-    info?: { id?: string; parentID?: string }
-    status?: { type?: string }
-    part?: { type?: string; sessionID?: string }
-  }
+    sessionID?: string;
+    info?: { id?: string; parentID?: string };
+    status?: { type?: string };
+    part?: { type?: string; sessionID?: string };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +92,12 @@ interface PluginEvent {
 
 /** Generate a task ID: `bg_` + 8 hex characters. */
 function generateTaskId(): string {
-  const bytes = new Uint8Array(4)
-  crypto.getRandomValues(bytes)
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
   const hex = Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-  return `bg_${hex}`
+    .join('');
+  return `bg_${hex}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,20 +127,20 @@ function generateTaskId(): string {
  * ```
  */
 export class SlimBackgroundManager {
-  private client: OpencodeClient
-  private directory: string
-  private tasks = new Map<string, BackgroundTask>()
-  private sessionIndex = new Map<string, string>() // sessionID → taskID
-  private pollingTimer: ReturnType<typeof setInterval> | null = null
-  private onComplete?: (task: BackgroundTask) => void
+  private client: OpencodeClient;
+  private directory: string;
+  private tasks = new Map<string, BackgroundTask>();
+  private sessionIndex = new Map<string, string>(); // sessionID → taskID
+  private pollingTimer: ReturnType<typeof setInterval> | null = null;
+  private onComplete?: (task: BackgroundTask) => void;
 
   constructor(
     ctx: PluginInput,
     options?: { onComplete?: (task: BackgroundTask) => void },
   ) {
-    this.client = ctx.client
-    this.directory = ctx.directory
-    this.onComplete = options?.onComplete
+    this.client = ctx.client;
+    this.directory = ctx.directory;
+    this.onComplete = options?.onComplete;
   }
 
   // -------------------------------------------------------------------------
@@ -155,8 +155,8 @@ export class SlimBackgroundManager {
    * `error` immediately.
    */
   async launch(input: LaunchInput): Promise<BackgroundTask> {
-    const taskId = generateTaskId()
-    const now = new Date()
+    const taskId = generateTaskId();
+    const now = new Date();
 
     const task: BackgroundTask = {
       id: taskId,
@@ -170,15 +170,15 @@ export class SlimBackgroundManager {
       queuedAt: now,
       toolCalls: 0,
       lastUpdate: now,
-    }
+    };
 
-    this.tasks.set(taskId, task)
+    this.tasks.set(taskId, task);
 
     log('[background-task] Launching task', {
       taskId,
       agent: input.agent,
       description: input.description,
-    })
+    });
 
     try {
       // Create child session
@@ -188,29 +188,29 @@ export class SlimBackgroundManager {
           title: `${input.description} (@${input.agent})`,
         },
         query: { directory: this.directory },
-      })
+      });
 
       if (!session.data?.id) {
-        throw new Error('Failed to create session: no session ID returned')
+        throw new Error('Failed to create session: no session ID returned');
       }
 
-      const sessionID = session.data.id
-      task.sessionID = sessionID
-      this.sessionIndex.set(sessionID, taskId)
+      const sessionID = session.data.id;
+      task.sessionID = sessionID;
+      this.sessionIndex.set(sessionID, taskId);
 
-      task.status = 'running'
-      task.startedAt = new Date()
-      task.lastUpdate = new Date()
+      task.status = 'running';
+      task.startedAt = new Date();
+      task.lastUpdate = new Date();
 
-      log('[background-task] Session created', { taskId, sessionID })
+      log('[background-task] Session created', { taskId, sessionID });
 
       // Dispatch prompt — fire-and-forget, but await the initial
       // call so we can catch immediate errors (e.g. invalid agent).
       // promptAsync is not in the plugin TypeScript types — cast at
       // runtime (same pattern as foreground-fallback/index.ts).
       const sessionClient = this.client.session as unknown as {
-        promptAsync: (args: unknown) => Promise<unknown>
-      }
+        promptAsync: (args: unknown) => Promise<unknown>;
+      };
 
       await sessionClient
         .promptAsync({
@@ -222,27 +222,27 @@ export class SlimBackgroundManager {
           },
         })
         .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err)
-          task.status = 'error'
-          task.error = msg
-          task.completedAt = new Date()
-          task.lastUpdate = new Date()
+          const msg = err instanceof Error ? err.message : String(err);
+          task.status = 'error';
+          task.error = msg;
+          task.completedAt = new Date();
+          task.lastUpdate = new Date();
           log('[background-task] promptAsync failed', {
             taskId,
             sessionID,
             error: msg,
-          })
-        })
+          });
+        });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      task.status = 'error'
-      task.error = msg
-      task.completedAt = new Date()
-      task.lastUpdate = new Date()
-      log('[background-task] Launch failed', { taskId, error: msg })
+      const msg = err instanceof Error ? err.message : String(err);
+      task.status = 'error';
+      task.error = msg;
+      task.completedAt = new Date();
+      task.lastUpdate = new Date();
+      log('[background-task] Launch failed', { taskId, error: msg });
     }
 
-    return task
+    return task;
   }
 
   /**
@@ -250,7 +250,7 @@ export class SlimBackgroundManager {
    * Returns `undefined` if the task does not exist.
    */
   getTask(id: string): BackgroundTask | undefined {
-    return this.tasks.get(id)
+    return this.tasks.get(id);
   }
 
   /**
@@ -258,8 +258,8 @@ export class SlimBackgroundManager {
    * Returns `undefined` if no task matches.
    */
   findBySession(sessionID: string): BackgroundTask | undefined {
-    const taskId = this.sessionIndex.get(sessionID)
-    return taskId ? this.tasks.get(taskId) : undefined
+    const taskId = this.sessionIndex.get(sessionID);
+    return taskId ? this.tasks.get(taskId) : undefined;
   }
 
   /**
@@ -268,10 +268,10 @@ export class SlimBackgroundManager {
    * `false` if the task was not found or not in a cancellable state.
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    const task = this.tasks.get(taskId)
+    const task = this.tasks.get(taskId);
     if (!task) {
-      log('[background-task] Cancel failed — task not found', { taskId })
-      return false
+      log('[background-task] Cancel failed — task not found', { taskId });
+      return false;
     }
 
     if (
@@ -282,34 +282,34 @@ export class SlimBackgroundManager {
       log('[background-task] Cancel skipped — already terminal', {
         taskId,
         status: task.status,
-      })
-      return false
+      });
+      return false;
     }
 
     if (!task.sessionID) {
       // No session yet — mark cancelled directly
-      task.status = 'cancelled'
-      task.completedAt = new Date()
-      task.lastUpdate = new Date()
-      log('[background-task] Cancelled (no session)', { taskId })
-      return true
+      task.status = 'cancelled';
+      task.completedAt = new Date();
+      task.lastUpdate = new Date();
+      log('[background-task] Cancelled (no session)', { taskId });
+      return true;
     }
 
     try {
-      await this.client.session.abort({ path: { id: task.sessionID } })
+      await this.client.session.abort({ path: { id: task.sessionID } });
     } catch (err: unknown) {
       log('[background-task] Abort call failed (proceeding)', {
         taskId,
         sessionID: task.sessionID,
         error: err instanceof Error ? err.message : String(err),
-      })
+      });
     }
 
-    task.status = 'cancelled'
-    task.completedAt = new Date()
-    task.lastUpdate = new Date()
-    log('[background-task] Cancelled', { taskId, sessionID: task.sessionID })
-    return true
+    task.status = 'cancelled';
+    task.completedAt = new Date();
+    task.lastUpdate = new Date();
+    log('[background-task] Cancelled', { taskId, sessionID: task.sessionID });
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -327,20 +327,19 @@ export class SlimBackgroundManager {
    * @param event - The raw event from the plugin's `event` hook.
    */
   handleEvent(event: PluginEvent): void {
-    if (!event?.type) return
+    if (!event?.type) return;
 
     // Resolve session ID — OpenCode uses two shapes:
     //   { properties: { sessionID } }   — subagent / task sessions
     //   { properties: { info: { id } } } — top-level session events
-    const sessionID =
-      event.properties?.sessionID ?? event.properties?.info?.id
-    if (!sessionID) return
+    const sessionID = event.properties?.sessionID ?? event.properties?.info?.id;
+    if (!sessionID) return;
 
-    const taskId = this.sessionIndex.get(sessionID)
-    if (!taskId) return
+    const taskId = this.sessionIndex.get(sessionID);
+    if (!taskId) return;
 
-    const task = this.tasks.get(taskId)
-    if (!task) return
+    const task = this.tasks.get(taskId);
+    if (!task) return;
 
     // Ignore events after terminal state
     if (
@@ -348,53 +347,53 @@ export class SlimBackgroundManager {
       task.status === 'error' ||
       task.status === 'cancelled'
     ) {
-      return
+      return;
     }
 
-    const now = new Date()
+    const now = new Date();
 
     switch (event.type) {
       // Session became idle — task finished successfully
       case 'session.status': {
         if (event.properties?.status?.type === 'idle') {
-          task.status = 'completed'
-          task.completedAt = now
-          task.lastUpdate = now
+          task.status = 'completed';
+          task.completedAt = now;
+          task.lastUpdate = now;
           log('[background-task] Completed (session idle)', {
             taskId,
             sessionID,
-          })
+          });
           if (this.onComplete) {
-            this.onComplete(task)
+            this.onComplete(task);
           }
         }
-        break
+        break;
       }
 
       // Session deleted — treat as completed
       case 'session.deleted': {
-        task.status = 'completed'
-        task.completedAt = now
-        task.lastUpdate = now
+        task.status = 'completed';
+        task.completedAt = now;
+        task.lastUpdate = now;
         log('[background-task] Completed (session deleted)', {
           taskId,
           sessionID,
           status: task.status,
-        })
+        });
         if (this.onComplete) {
-          this.onComplete(task)
+          this.onComplete(task);
         }
-        break
+        break;
       }
 
       // Tool-use observed — increment counter
       case 'message.part.updated': {
-        const partType = event.properties?.part?.type
+        const partType = event.properties?.part?.type;
         if (partType === 'tool_use' || partType === 'tool-result') {
-          task.toolCalls += 1
-          task.lastUpdate = now
+          task.toolCalls += 1;
+          task.lastUpdate = now;
         }
-        break
+        break;
       }
     }
   }
@@ -404,14 +403,14 @@ export class SlimBackgroundManager {
    * Used when a tool receives `session_id` to continue an existing session.
    */
   resume(sessionID: string): BackgroundTask | undefined {
-    return this.findBySession(sessionID)
+    return this.findBySession(sessionID);
   }
 
   /**
    * Return all tracked tasks (for inspection / UI display).
    */
   getAllTasks(): BackgroundTask[] {
-    return Array.from(this.tasks.values())
+    return Array.from(this.tasks.values());
   }
 
   /**
@@ -423,7 +422,7 @@ export class SlimBackgroundManager {
         t.status === 'pending' ||
         t.status === 'running' ||
         t.status === 'interrupt',
-    )
+    );
   }
 
   /**
@@ -431,8 +430,8 @@ export class SlimBackgroundManager {
    * Returns the number of tasks pruned.
    */
   prune(maxAgeMs: number): number {
-    const now = Date.now()
-    let pruned = 0
+    const now = Date.now();
+    let pruned = 0;
 
     for (const [id, task] of this.tasks) {
       if (
@@ -440,21 +439,21 @@ export class SlimBackgroundManager {
         task.status !== 'error' &&
         task.status !== 'cancelled'
       ) {
-        continue
+        continue;
       }
 
       const completedAt =
-        task.completedAt?.getTime() ?? task.lastUpdate.getTime()
+        task.completedAt?.getTime() ?? task.lastUpdate.getTime();
       if (now - completedAt > maxAgeMs) {
         if (task.sessionID) {
-          this.sessionIndex.delete(task.sessionID)
+          this.sessionIndex.delete(task.sessionID);
         }
-        this.tasks.delete(id)
-        pruned++
+        this.tasks.delete(id);
+        pruned++;
       }
     }
 
-    return pruned
+    return pruned;
   }
 
   // -------------------------------------------------------------------------
@@ -467,23 +466,27 @@ export class SlimBackgroundManager {
    * that were not caught by events.
    */
   startPolling(intervalMs = 8_000): void {
-    if (this.pollingTimer) return
+    if (this.pollingTimer) return;
 
     this.pollingTimer = setInterval(() => {
       this.pollRunningTasks().catch((err) => {
         log('[background-task] Poll error', {
           error: err instanceof Error ? err.message : String(err),
-        })
-      })
-      this.prune(30 * 60 * 1000) // prune tasks older than 30 min
-    }, intervalMs)
+        });
+      });
+      this.prune(30 * 60 * 1000); // prune tasks older than 30 min
+    }, intervalMs);
 
     // Prevent the timer from keeping the process alive
-    if (this.pollingTimer && typeof this.pollingTimer === 'object' && 'unref' in this.pollingTimer) {
-      this.pollingTimer.unref()
+    if (
+      this.pollingTimer &&
+      typeof this.pollingTimer === 'object' &&
+      'unref' in this.pollingTimer
+    ) {
+      this.pollingTimer.unref();
     }
 
-    log('[background-task] Polling started', { intervalMs })
+    log('[background-task] Polling started', { intervalMs });
   }
 
   /**
@@ -491,9 +494,9 @@ export class SlimBackgroundManager {
    */
   stopPolling(): void {
     if (this.pollingTimer) {
-      clearInterval(this.pollingTimer)
-      this.pollingTimer = null
-      log('[background-task] Polling stopped')
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+      log('[background-task] Polling stopped');
     }
   }
 
@@ -502,19 +505,21 @@ export class SlimBackgroundManager {
    * If a session is idle and no completion was detected, mark it completed.
    */
   private async pollRunningTasks(): Promise<void> {
-    const running = this.getActiveTasks()
-    if (running.length === 0) return
+    const running = this.getActiveTasks();
+    if (running.length === 0) return;
 
-    const statusResult = await this.client.session.status().catch(() => null)
-    if (!statusResult?.data) return
+    const statusResult = await this.client.session.status().catch(() => null);
+    if (!statusResult?.data) return;
 
-    const sessionStatusMap = new Map<string, string>()
-    for (const [sid, status] of Object.entries(statusResult.data as Record<string, { type?: string }>)) {
-      sessionStatusMap.set(sid, status?.type ?? 'unknown')
+    const sessionStatusMap = new Map<string, string>();
+    for (const [sid, status] of Object.entries(
+      statusResult.data as Record<string, { type?: string }>,
+    )) {
+      sessionStatusMap.set(sid, status?.type ?? 'unknown');
     }
 
     for (const task of running) {
-      if (!task.sessionID) continue
+      if (!task.sessionID) continue;
 
       // Re-check status: handleEvent may have already marked this task
       // as completed since getActiveTasks() took the snapshot. Without
@@ -522,34 +527,34 @@ export class SlimBackgroundManager {
       // <system-reminder> into the parent session — either immediately
       // via promptAsync or, if that fails, delayed via handleMessagesTransform
       // on the next unrelated user message.
-      if (task.status !== 'running' && task.status !== 'pending') continue
+      if (task.status !== 'running' && task.status !== 'pending') continue;
 
-      const sessionType = sessionStatusMap.get(task.sessionID)
+      const sessionType = sessionStatusMap.get(task.sessionID);
       if (sessionType === 'idle') {
         // Session idle but no event caught it — complete now
-        const now = new Date()
-        task.status = 'completed'
-        task.completedAt = now
-        task.lastUpdate = now
+        const now = new Date();
+        task.status = 'completed';
+        task.completedAt = now;
+        task.lastUpdate = now;
         log('[background-task] Completed (poll detected idle)', {
           taskId: task.id,
           sessionID: task.sessionID,
-        })
+        });
         if (this.onComplete) {
-          this.onComplete(task)
+          this.onComplete(task);
         }
       } else if (!sessionType || sessionType === 'unknown') {
         // Session no longer exists — treat as completed
-        const now = new Date()
-        task.status = 'completed'
-        task.completedAt = now
-        task.lastUpdate = now
+        const now = new Date();
+        task.status = 'completed';
+        task.completedAt = now;
+        task.lastUpdate = now;
         log('[background-task] Completed (poll: session gone)', {
           taskId: task.id,
           sessionID: task.sessionID,
-        })
+        });
         if (this.onComplete) {
-          this.onComplete(task)
+          this.onComplete(task);
         }
       }
     }

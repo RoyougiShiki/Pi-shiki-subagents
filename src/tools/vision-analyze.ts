@@ -1,16 +1,22 @@
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, join } from "node:path";
-import { type PluginInput, type ToolDefinition, tool } from "@opencode-ai/plugin";
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, join } from 'node:path';
+import {
+  type PluginInput,
+  type ToolDefinition,
+  tool,
+} from '@opencode-ai/plugin';
 
 const z = tool.schema;
 
 /** Read provider connection info from opencode.json. */
-function readProviderConfig(providerName: string): { baseURL: string; apiKey: string } | null {
+function readProviderConfig(
+  providerName: string,
+): { baseURL: string; apiKey: string } | null {
   try {
     const configDir = join(
       process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
-      'opencode'
+      'opencode',
     );
     const configPath = join(configDir, 'opencode.json');
     if (!existsSync(configPath)) return null;
@@ -33,7 +39,10 @@ function readProviderConfig(providerName: string): { baseURL: string; apiKey: st
 }
 
 /** Parse "provider/model" format into { provider, model }. */
-function parseVisionModel(visionModel: string): { provider: string; model: string } {
+function parseVisionModel(visionModel: string): {
+  provider: string;
+  model: string;
+} {
   const slashIndex = visionModel.indexOf('/');
   if (slashIndex === -1) {
     // No provider prefix — assume dmxapi and use as model ID directly
@@ -46,17 +55,17 @@ function parseVisionModel(visionModel: string): { provider: string; model: strin
 }
 
 function getMimeFromExt(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    bmp: "image/bmp",
-    svg: "image/svg+xml",
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml',
   };
-  return map[ext] ?? "image/png";
+  return map[ext] ?? 'image/png';
 }
 
 const DEFAULT_VISION_MODEL = 'dmxapi/glm-4.1v-thinking-flash';
@@ -90,19 +99,19 @@ The tool calls the vision model API directly, bypassing SDK limitations.`,
     args: {
       file_path: z
         .string()
-        .describe("Absolute path to the image file to analyze"),
+        .describe('Absolute path to the image file to analyze'),
       goal: z
         .string()
         .optional()
         .describe(
-          "What to extract from the image (default: thorough description)"
+          'What to extract from the image (default: thorough description)',
         ),
     },
     async execute(args, _toolContext) {
       const filePath = args.file_path;
       const goal =
         args.goal ??
-        "Describe what you see in this image in detail. Include all visible text, UI elements, layout, colors, and overall purpose.";
+        'Describe what you see in this image in detail. Include all visible text, UI elements, layout, colors, and overall purpose.';
 
       if (!existsSync(filePath)) {
         return `[vision_analyze error: File not found: ${filePath}]`;
@@ -116,16 +125,16 @@ The tool calls the vision model API directly, bypassing SDK limitations.`,
 
       // Read and encode image
       const fileBuffer = readFileSync(filePath);
-      const base64Data = fileBuffer.toString("base64");
+      const base64Data = fileBuffer.toString('base64');
       const mime = getMimeFromExt(filePath);
       const imageDataUrl = `data:${mime};base64,${base64Data}`;
       const displayName = basename(filePath);
 
       try {
         const response = await fetch(`${conn.baseURL}/chat/completions`, {
-          method: "POST",
+          method: 'POST',
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
             Authorization: `Bearer ${conn.apiKey}`,
           },
           body: JSON.stringify({
@@ -133,16 +142,16 @@ The tool calls the vision model API directly, bypassing SDK limitations.`,
             stream: false,
             messages: [
               {
-                role: "system",
+                role: 'system',
                 content:
-                  "You are a visual analysis specialist. Analyze images thoroughly and describe exactly what you see. Extract all text verbatim. Be precise and concise.",
+                  'You are a visual analysis specialist. Analyze images thoroughly and describe exactly what you see. Extract all text verbatim. Be precise and concise.',
               },
               {
-                role: "user",
+                role: 'user',
                 content: [
-                  { type: "text", text: goal },
+                  { type: 'text', text: goal },
                   {
-                    type: "image_url",
+                    type: 'image_url',
                     image_url: { url: imageDataUrl },
                   },
                 ],
@@ -154,13 +163,13 @@ The tool calls the vision model API directly, bypassing SDK limitations.`,
         });
 
         if (!response.ok) {
-          const errText = await response.text().catch(() => "");
+          const errText = await response.text().catch(() => '');
           return `[vision_analyze error: API returned HTTP ${response.status} - ${errText.substring(0, 500)}]`;
         }
 
         const responseText = await response.text();
         if (!responseText || responseText.trim().length === 0) {
-          return "[vision_analyze error: empty response from API]";
+          return '[vision_analyze error: empty response from API]';
         }
 
         let data: {
@@ -181,7 +190,7 @@ The tool calls the vision model API directly, bypassing SDK limitations.`,
 
         // Strip thinking tags if present
         const cleaned = content
-          .replace(/<think[^>]*>[\s\S]*?<\/think>/g, "")
+          .replace(/<think[^>]*>[\s\S]*?<\/think>/g, '')
           .trim();
         return cleaned || content;
       } catch (error) {

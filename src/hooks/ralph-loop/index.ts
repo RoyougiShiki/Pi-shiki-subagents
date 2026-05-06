@@ -6,14 +6,14 @@
  * promise tags and injects continuation prompts when tasks are not done.
  */
 
-import type { PluginInput } from '@opencode-ai/plugin'
+import type { PluginInput } from '@opencode-ai/plugin';
+import { log } from '../../utils/logger';
 import {
   createRalphLoopManager,
   HOOK_NAME,
   type RalphLoopState,
   type StartLoopOptions,
-} from '../../utils/ralph-loop'
-import { log } from '../../utils/logger'
+} from '../../utils/ralph-loop';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,34 +21,43 @@ import { log } from '../../utils/logger'
 
 /** Shape of an OpenCode plugin event. */
 interface PluginEvent {
-  type: string
-  properties?: Record<string, unknown>
+  type: string;
+  properties?: Record<string, unknown>;
 }
 
 /** Input shape for the `event` hook. */
 interface EventInput {
-  event: PluginEvent
+  event: PluginEvent;
 }
 
 /** Shape of the plugin command input. */
 interface CommandInput {
-  command: string
-  sessionID: string
-  arguments: string
+  command: string;
+  sessionID: string;
+  arguments: string;
 }
 
 /** Shape of the plugin command output. */
 interface CommandOutput {
-  parts: Array<{ type: string; text?: string }>
+  parts: Array<{ type: string; text?: string }>;
 }
 
 /** Result returned by {@link createRalphLoopHook}. */
 export interface RalphLoopHook {
-  event: (input: EventInput) => Promise<void>
-  startLoop: (sessionID: string, prompt: string, options?: StartLoopOptions) => boolean
-  cancelLoop: (sessionID: string) => boolean
-  getState: () => RalphLoopState | null
-  handleCommand: (command: string, args: string, sessionID: string, output?: CommandOutput) => Promise<boolean>
+  event: (input: EventInput) => Promise<void>;
+  startLoop: (
+    sessionID: string,
+    prompt: string,
+    options?: StartLoopOptions,
+  ) => boolean;
+  cancelLoop: (sessionID: string) => boolean;
+  getState: () => RalphLoopState | null;
+  handleCommand: (
+    command: string,
+    args: string,
+    sessionID: string,
+    output?: CommandOutput,
+  ) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,35 +71,35 @@ export interface RalphLoopHook {
  * @returns Hook object with `event` handler and control methods.
  */
 export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
-  const manager = createRalphLoopManager(ctx)
+  const manager = createRalphLoopManager(ctx);
 
   // Extract last assistant text from session messages
   function extractLastAssistantText(
     messages?: Array<{
-      info?: { role?: string }
-      parts?: Array<{ type?: string; text?: string }>
+      info?: { role?: string };
+      parts?: Array<{ type?: string; text?: string }>;
     }>,
   ): string | null {
-    if (!messages || messages.length === 0) return null
+    if (!messages || messages.length === 0) return null;
 
     for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg?.info?.role !== 'assistant') continue
+      const msg = messages[i];
+      if (msg?.info?.role !== 'assistant') continue;
 
-      const parts = msg.parts ?? []
-      const textParts: string[] = []
+      const parts = msg.parts ?? [];
+      const textParts: string[] = [];
       for (const part of parts) {
         if (part.type === 'text' && typeof part.text === 'string') {
-          textParts.push(part.text)
+          textParts.push(part.text);
         }
       }
 
       if (textParts.length > 0) {
-        return textParts.join('\n')
+        return textParts.join('\n');
       }
     }
 
-    return null
+    return null;
   }
 
   // -----------------------------------------------------------------------
@@ -98,60 +107,62 @@ export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
   // -----------------------------------------------------------------------
 
   async function event(input: EventInput): Promise<void> {
-    const event = input.event
-    if (event.type !== 'session.status') return
-    const props = event.properties as Record<string, unknown> | undefined
-    const status = props?.status as { type?: string } | undefined
-    if (status?.type !== 'idle') return
+    const event = input.event;
+    if (event.type !== 'session.status') return;
+    const props = event.properties as Record<string, unknown> | undefined;
+    const status = props?.status as { type?: string } | undefined;
+    if (status?.type !== 'idle') return;
 
-    const sessionID = props?.sessionID as string | undefined
-    if (!sessionID) return
+    const sessionID = props?.sessionID as string | undefined;
+    if (!sessionID) return;
 
-    const state = manager.getState()
-    if (!state || !state.active) return
-    if (state.session_id && state.session_id !== sessionID) return
+    const state = manager.getState();
+    if (!state || !state.active) return;
+    if (state.session_id && state.session_id !== sessionID) return;
 
-    const messages = props?.messages as Array<{
-      info?: { role?: string }
-      parts?: Array<{ type?: string; text?: string }>
-    }> | undefined
-    const lastText = extractLastAssistantText(messages)
+    const messages = props?.messages as
+      | Array<{
+          info?: { role?: string };
+          parts?: Array<{ type?: string; text?: string }>;
+        }>
+      | undefined;
+    const lastText = extractLastAssistantText(messages);
 
     if (!lastText) {
       log(`[${HOOK_NAME}] Session idle but no assistant text found`, {
         sessionID,
-      })
-      return
+      });
+      return;
     }
 
-    const completedPromise = manager.detectCompletion(lastText)
+    const completedPromise = manager.detectCompletion(lastText);
 
     if (completedPromise) {
       log(`[${HOOK_NAME}] Completion promise detected`, {
         sessionID,
         promise: completedPromise,
         iteration: state.iteration,
-      })
-      manager.clearState()
-      return
+      });
+      manager.clearState();
+      return;
     }
 
     log(`[${HOOK_NAME}] No completion promise — continuing loop`, {
       sessionID,
       iteration: state.iteration,
       maxIterations: state.max_iterations,
-    })
+    });
 
-    const updatedState = manager.incrementIteration()
+    const updatedState = manager.incrementIteration();
     if (!updatedState) {
       log(`[${HOOK_NAME}] Loop ended (max iterations or inactive)`, {
         sessionID,
-      })
-      return
+      });
+      return;
     }
 
     // Inject continuation prompt
-    const continuationPrompt = manager.buildContinuationPrompt(updatedState)
+    const continuationPrompt = manager.buildContinuationPrompt(updatedState);
 
     try {
       await ctx.client.session.prompt({
@@ -160,16 +171,16 @@ export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
           noReply: false,
           parts: [{ type: 'text', text: continuationPrompt }],
         },
-      })
+      });
       log(`[${HOOK_NAME}] Continuation prompt injected`, {
         sessionID,
         iteration: updatedState.iteration,
-      })
+      });
     } catch (err) {
       log(`[${HOOK_NAME}] Failed to inject continuation prompt`, {
         sessionID,
         error: err instanceof Error ? err.message : String(err),
-      })
+      });
     }
   }
 
@@ -182,15 +193,15 @@ export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
     prompt: string,
     options?: StartLoopOptions,
   ): boolean {
-    return manager.startLoop(sessionID, prompt, options)
+    return manager.startLoop(sessionID, prompt, options);
   }
 
   function cancelLoop(sessionID: string): boolean {
-    return manager.cancelLoop(sessionID)
+    return manager.cancelLoop(sessionID);
   }
 
   function getState(): RalphLoopState | null {
-    return manager.getState()
+    return manager.getState();
   }
 
   // -----------------------------------------------------------------------
@@ -208,28 +219,28 @@ export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
         if (!args.trim()) {
           log(`[${HOOK_NAME}] /ralph-loop requires a prompt argument`, {
             sessionID,
-          })
-          return false
+          });
+          return false;
         }
-        return startLoop(sessionID, args.trim())
+        return startLoop(sessionID, args.trim());
       }
 
       case 'ulw-loop': {
         if (!args.trim()) {
           log(`[${HOOK_NAME}] /ulw-loop requires a prompt argument`, {
             sessionID,
-          })
-          return false
+          });
+          return false;
         }
-        return startLoop(sessionID, args.trim(), { ultrawork: true })
+        return startLoop(sessionID, args.trim(), { ultrawork: true });
       }
 
       case 'cancel-ralph': {
-        return cancelLoop(sessionID)
+        return cancelLoop(sessionID);
       }
 
       default:
-        return false
+        return false;
     }
   }
 
@@ -239,5 +250,5 @@ export function createRalphLoopHook(ctx: PluginInput): RalphLoopHook {
     cancelLoop,
     getState,
     handleCommand,
-  }
+  };
 }

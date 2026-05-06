@@ -304,7 +304,7 @@ export const PluginConfigSchema = z
         'Agent names to disable completely. ' +
           'Disabled agents are not instantiated and cannot be delegated to. ' +
           'Orchestrator and council internal agents (councillor) cannot be disabled. ' +
-          "All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.",
+          'All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.',
       ),
     disabled_mcps: z.array(z.string()).optional(),
     // Multiplexer config (new unified config - preferred)

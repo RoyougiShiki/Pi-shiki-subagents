@@ -10,54 +10,19 @@
  * reminder before generating its next response.
  */
 
+import {
+  findLastAssistant,
+  findLastUser,
+  getTextFromMessage,
+  type MessageWithParts,
+} from '../shared-message-types';
+
 const INTENT_PATTERN = /Intent:\s*\[/;
-
-interface MessageInfo {
-  role: string;
-  agent?: string;
-  sessionID?: string;
-}
-
-interface MessagePart {
-  type: string;
-  text?: string;
-  [key: string]: unknown;
-}
-
-interface MessageWithParts {
-  info: MessageInfo;
-  parts: MessagePart[];
-}
-
-function getTextFromMessage(msg: MessageWithParts): string {
-  return (msg.parts ?? [])
-    .filter((p): p is MessagePart & { text: string } => p.type === 'text' && typeof p.text === 'string')
-    .map((p) => p.text)
-    .join('\n');
-}
-
-function findLastAssistant(messages: MessageWithParts[]): MessageWithParts | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === 'assistant') {
-      return messages[i];
-    }
-  }
-  return null;
-}
-
-function findLastUser(messages: MessageWithParts[]): MessageWithParts | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].info.role === 'user') {
-      return messages[i];
-    }
-  }
-  return null;
-}
 
 const REMINDER =
   '\n\n<internal_reminder>\n' +
   '[IntentGate] Your last response did not include an intent declaration.\n' +
-  'Before your next action, analyze the user\'s true intent and output:\n' +
+  "Before your next action, analyze the user's true intent and output:\n" +
   '> "Intent: [classification] → [routing decision]"\n' +
   'Keep it one line. Then act accordingly.\n' +
   '</internal_reminder>';
