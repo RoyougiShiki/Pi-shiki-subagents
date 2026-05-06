@@ -7,10 +7,14 @@
  *
  * Does NOT block when no options were presented (single obvious approach).
  *
+ * When a Ralph/ULW loop is active, the gate skips blocking entirely
+ * since there is no user in the loop to grant approval.
+ *
  * Combines two hooks:
  * 1. experimental.chat.messages.transform — detects "options presented"
  *    and "user approved" by scanning the message history.
- * 2. tool.execute.before — blocks edit/write until approval is granted.
+ * 2. tool.execute.before — blocks edit/write until approval is granted
+ *    (unless a Ralph/ULW loop is active).
  */
 
 // Module-level state: sessionId → pending approval?
@@ -19,14 +23,14 @@ const pendingApproval = new Map<string, boolean>();
 // Patterns that indicate the assistant presented options
 const OPTIONS_PRESENTED_PATTERNS = [
   /\b(方案|option|approach|alternative)\b/i,
-  /^[A-Z]\)\s/m, // "A) ..." at start of line
-  /^\d+\.\s/m, // "1. ..." at start of line
+  /^[A-Z]\)\s/m,    // "A) ..." at start of line
+  /^\d+\.\s/m,      // "1. ..." at start of line
   /\b(recommend|suggest|propose)\b/i,
 ];
 
 // Patterns indicating user approval
 const APPROVAL_PATTERNS = [
-  /\b(选|用|就|好|ok|yes|approve|选\s*方案|选\s*第|选\s*[A-Z\d]|方案\s*[A-Z\d])\b/i,
+  /\b(选|用|就|好|ok|yes|approve|批准|同意|方案\s*[A-Z\d])\b/i,
   /^\s*(方案\s*)?[A-D]\)?\s*$/im,
   /^\s*\d+\s*$/m,
 ];
@@ -50,17 +54,12 @@ interface MessageWithParts {
 
 function getTextFromMessage(msg: MessageWithParts): string {
   return (msg.parts ?? [])
-    .filter(
-      (p): p is MessagePart & { text: string } =>
-        p.type === 'text' && typeof p.text === 'string',
-    )
+    .filter((p): p is MessagePart & { text: string } => p.type === 'text' && typeof p.text === 'string')
     .map((p) => p.text)
     .join('\n');
 }
 
-function findLastAssistant(
-  messages: MessageWithParts[],
-): MessageWithParts | null {
+function findLastAssistant(messages: MessageWithParts[]): MessageWithParts | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].info.role === 'assistant') {
       return messages[i];
@@ -83,12 +82,21 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(text));
 }
 
+interface ApproachApprovalGateOptions {
+  /** Optional callback to check if a Ralph/ULW loop is active.
+   *  When active, the gate skips blocking to avoid interrupting
+   *  auto-continuation loops where no user is present to approve. */
+  isRalphLoopActive?: () => boolean;
+}
+
 const BLOCK_MESSAGE =
   '[ApprovalGate] You proposed multiple design/implementation approaches but the user has not yet approved one.\n' +
   'Do not implement until the user selects an option or explicitly directs you to proceed.\n' +
   "If the user's response is unclear, ask for clarification.";
 
-export function createApproachApprovalGateHook() {
+export function createApproachApprovalGateHook(
+  options?: ApproachApprovalGateOptions,
+) {
   return {
     /**
      * Scan messages to detect:
@@ -142,11 +150,15 @@ export function createApproachApprovalGateHook() {
 
     /**
      * Block implementation tools when approval is pending.
+     * Skips blocking if a Ralph/ULW loop is active (no user in the loop).
      */
     'tool.execute.before': async (
       input: { tool: string; sessionID?: string; callID?: string },
       output: { args?: Record<string, unknown> },
     ): Promise<void> => {
+      // Skip blocking if a Ralph/ULW loop is active
+      if (options?.isRalphLoopActive?.()) return;
+
       // Only gate significant implementation tools
       const gatedTools = new Set(['edit', 'Write', 'write', 'apply_patch']);
       if (!gatedTools.has(input.tool)) return;

@@ -285,7 +285,9 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Initialize approach approval gate — blocks implementation pending user
     // approval when multiple design approaches were presented
-    approachApprovalGateHook = createApproachApprovalGateHook();
+    approachApprovalGateHook = createApproachApprovalGateHook({
+      isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+    });
 
     // Initialize available skills filter hook
     filterAvailableSkillsHook = createFilterAvailableSkillsHook(ctx, config);
