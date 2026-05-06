@@ -17,12 +17,15 @@ import {
 import { CouncilManager } from './council';
 import {
   createApplyPatchHook,
+  createApproachApprovalGateHook,
   createAutoUpdateCheckerHook,
   createBackgroundTaskHook,
   createChatHeadersHook,
+  createClarifyLoopHook,
   createDelegateTaskRetryHook,
   createFilterAvailableSkillsHook,
   createHashlineEditHook,
+  createIntentGuardHook,
   createJsonErrorRecoveryHook,
   createPhaseReminderHook,
   createPostFileToolNudgeHook,
@@ -124,6 +127,11 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let multiplexerSessionManager: MultiplexerSessionManager;
   let autoUpdateChecker: ReturnType<typeof createAutoUpdateCheckerHook>;
   let phaseReminderHook: ReturnType<typeof createPhaseReminderHook>;
+  let intentGuardHook: ReturnType<typeof createIntentGuardHook>;
+  let clarifyLoopHook: ReturnType<typeof createClarifyLoopHook>;
+  let approachApprovalGateHook: ReturnType<
+    typeof createApproachApprovalGateHook
+  >;
   let filterAvailableSkillsHook: ReturnType<
     typeof createFilterAvailableSkillsHook
   >;
@@ -270,6 +278,16 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     // Initialize phase reminder hook for workflow compliance
     phaseReminderHook = createPhaseReminderHook();
+
+    // Initialize intent guard hook — checks Intent declaration before action
+    intentGuardHook = createIntentGuardHook();
+
+    // Initialize clarify loop — reminds to ask questions when context is thin
+    clarifyLoopHook = createClarifyLoopHook();
+
+    // Initialize approach approval gate — blocks implementation pending user
+    // approval when multiple design approaches were presented
+    approachApprovalGateHook = createApproachApprovalGateHook();
 
     // Initialize available skills filter hook
     filterAvailableSkillsHook = createFilterAvailableSkillsHook(ctx, config);
@@ -856,6 +874,15 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         },
         output as { args?: unknown },
       );
+
+      await approachApprovalGateHook['tool.execute.before'](
+        input as {
+          tool: string;
+          sessionID?: string;
+          callID?: string;
+        },
+        output as { args?: Record<string, unknown> },
+      );
     },
 
     // Direct interception of /auto-continue command — bypasses LLM
@@ -1041,6 +1068,19 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         typedOutput,
       );
       await filterAvailableSkillsHook['experimental.chat.messages.transform'](
+        input,
+        typedOutput,
+      );
+
+      await intentGuardHook['experimental.chat.messages.transform'](
+        input,
+        typedOutput,
+      );
+      await clarifyLoopHook['experimental.chat.messages.transform'](
+        input,
+        typedOutput,
+      );
+      await approachApprovalGateHook['experimental.chat.messages.transform'](
         input,
         typedOutput,
       );

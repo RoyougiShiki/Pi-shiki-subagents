@@ -480,6 +480,7 @@ Use this section as a map: start with installation, then jump to features, confi
 | **[Todo Continuation](docs/todo-continuation.md)** | Auto-continue orchestrator sessions with cooldowns and safety checks |
 | **[Preset Switching](docs/preset-switching.md)** | Switch agent model presets at runtime with `/preset` |
 | **[Codemap](docs/codemap.md)** | Generate hierarchical codemaps to understand large codebases faster |
+| Orchestrator Guards | IntentGate, Approach Approval Gate, and Clarify Loop — three lightweight hooks that enforce instruction-following discipline |
 
 ### ⚙️ Config & Reference
 

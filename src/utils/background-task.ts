@@ -516,6 +516,14 @@ export class SlimBackgroundManager {
     for (const task of running) {
       if (!task.sessionID) continue
 
+      // Re-check status: handleEvent may have already marked this task
+      // as completed since getActiveTasks() took the snapshot. Without
+      // this guard, onComplete fires a second time, which re-injects a
+      // <system-reminder> into the parent session — either immediately
+      // via promptAsync or, if that fails, delayed via handleMessagesTransform
+      // on the next unrelated user message.
+      if (task.status !== 'running' && task.status !== 'pending') continue
+
       const sessionType = sessionStatusMap.get(task.sessionID)
       if (sessionType === 'idle') {
         // Session idle but no event caught it — complete now
