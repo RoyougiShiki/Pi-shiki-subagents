@@ -1,10 +1,16 @@
 export { createApplyPatchHook } from './apply-patch';
-export { createApproachApprovalGateHook } from './approach-approval-gate';
 export type { AutoUpdateCheckerOptions } from './auto-update-checker';
 export { createAutoUpdateCheckerHook } from './auto-update-checker';
 export { createBackgroundTaskHook } from './background-task';
 export { createChatHeadersHook } from './chat-headers';
-export { createClarifyLoopHook } from './clarify-loop';
+// Declaration gates — replaces old approach-approval-gate, clarify-loop,
+// and intent-gate with hard script-side enforcement
+export {
+  createApprovalGateHook,
+  createClarifyGateHook,
+  createIntentGateHook,
+  createOrchestrationGateHook,
+} from './declaration-gate';
 export { createDelegateTaskRetryHook } from './delegate-task-retry';
 export { createFilterAvailableSkillsHook } from './filter-available-skills';
 export {
@@ -13,7 +19,6 @@ export {
 } from './foreground-fallback';
 export { createHashlineEditHook } from './hashline-edit';
 export { processImageAttachments } from './image-hook';
-export { createIntentGuardHook } from './intent-gate';
 export { createJsonErrorRecoveryHook } from './json-error-recovery';
 export { createPhaseReminderHook } from './phase-reminder';
 export { createRalphLoopHook } from './ralph-loop';

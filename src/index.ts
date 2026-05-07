@@ -17,16 +17,17 @@ import {
 import { CouncilManager } from './council';
 import {
   createApplyPatchHook,
-  createApproachApprovalGateHook,
+  createApprovalGateHook,
   createAutoUpdateCheckerHook,
   createBackgroundTaskHook,
   createChatHeadersHook,
-  createClarifyLoopHook,
+  createClarifyGateHook,
   createDelegateTaskRetryHook,
   createFilterAvailableSkillsHook,
   createHashlineEditHook,
-  createIntentGuardHook,
+  createIntentGateHook,
   createJsonErrorRecoveryHook,
+  createOrchestrationGateHook,
   createPhaseReminderHook,
   createRalphLoopHook,
   createTaskSessionManagerHook,
@@ -126,11 +127,10 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let multiplexerSessionManager: MultiplexerSessionManager;
   let autoUpdateChecker: ReturnType<typeof createAutoUpdateCheckerHook>;
   let phaseReminderHook: ReturnType<typeof createPhaseReminderHook>;
-  let intentGuardHook: ReturnType<typeof createIntentGuardHook>;
-  let clarifyLoopHook: ReturnType<typeof createClarifyLoopHook>;
-  let approachApprovalGateHook: ReturnType<
-    typeof createApproachApprovalGateHook
-  >;
+  let approvalGateHook: ReturnType<typeof createApprovalGateHook>;
+  let clarifyGateHook: ReturnType<typeof createClarifyGateHook>;
+  let intentGateHook: ReturnType<typeof createIntentGateHook>;
+  let orchestrationGateHook: ReturnType<typeof createOrchestrationGateHook>;
   let filterAvailableSkillsHook: ReturnType<
     typeof createFilterAvailableSkillsHook
   >;
@@ -277,17 +277,25 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     // Initialize phase reminder hook for workflow compliance
     phaseReminderHook = createPhaseReminderHook();
 
-    // Initialize intent guard hook — checks Intent declaration before action
-    intentGuardHook = createIntentGuardHook();
+    // Initialize declaration gates — LLM-declares, script-enforces pattern.
+    // These replace the old regex-based approach-approval-gate, clarify-loop,
+    // and soft-reminder intent-gate.
 
-    // Initialize clarify loop — reminds to ask questions when context is thin
-    clarifyLoopHook = createClarifyLoopHook();
-
-    // Initialize approach approval gate — blocks implementation pending user
-    // approval when multiple design approaches were presented
-    approachApprovalGateHook = createApproachApprovalGateHook({
+    // Approval gate: LLM must declare APPROVED: before edit/write tools
+    approvalGateHook = createApprovalGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
     });
+
+    // Clarify gate: LLM must declare PROCEEDING:/CLARIFYING:, caps at 3 rounds
+    clarifyGateHook = createClarifyGateHook({
+      isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+    });
+
+    // Intent gate: LLM must declare Intent: [...] before any tool
+    intentGateHook = createIntentGateHook();
+
+    // Orchestration gate: LLM must declare ORCHESTRATION: before task tool
+    orchestrationGateHook = createOrchestrationGateHook();
 
     // Initialize available skills filter hook
     filterAvailableSkillsHook = createFilterAvailableSkillsHook(ctx, config);
@@ -855,7 +863,33 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         output as { args?: unknown },
       );
 
-      await approachApprovalGateHook['tool.execute.before'](
+      // Declaration gates — order matters: check orchestration before
+      // approval (task tool vs edit tools)
+      await orchestrationGateHook['tool.execute.before'](
+        input as {
+          tool: string;
+          sessionID?: string;
+          callID?: string;
+        },
+        output as { args?: Record<string, unknown> },
+      );
+      await intentGateHook['tool.execute.before'](
+        input as {
+          tool: string;
+          sessionID?: string;
+          callID?: string;
+        },
+        output as { args?: Record<string, unknown> },
+      );
+      await approvalGateHook['tool.execute.before'](
+        input as {
+          tool: string;
+          sessionID?: string;
+          callID?: string;
+        },
+        output as { args?: Record<string, unknown> },
+      );
+      await clarifyGateHook['tool.execute.before'](
         input as {
           tool: string;
           sessionID?: string;
@@ -1052,15 +1086,20 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         typedOutput,
       );
 
-      await intentGuardHook['experimental.chat.messages.transform'](
+      // Declaration gates — evaluate all so each can update its state
+      await orchestrationGateHook['experimental.chat.messages.transform'](
         input,
         typedOutput,
       );
-      await clarifyLoopHook['experimental.chat.messages.transform'](
+      await intentGateHook['experimental.chat.messages.transform'](
         input,
         typedOutput,
       );
-      await approachApprovalGateHook['experimental.chat.messages.transform'](
+      await approvalGateHook['experimental.chat.messages.transform'](
+        input,
+        typedOutput,
+      );
+      await clarifyGateHook['experimental.chat.messages.transform'](
         input,
         typedOutput,
       );
