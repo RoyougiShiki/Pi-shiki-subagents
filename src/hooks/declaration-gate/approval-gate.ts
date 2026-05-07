@@ -1,42 +1,32 @@
-/**
- * Approval Gate.
- *
- * Requires the LLM to declare "APPROVED:" at the start of a line before
- * calling edit/write tools. The LLM uses semantic understanding to decide
- * when the user has given the go-ahead (whether by selecting an option,
- * saying "ok", "好", or simply asking for implementation).
- *
- * Negative: "NOT_APPROVED" — explicitly marks as not approved, blocking
- * further tool calls until the user clarifies.
- */
-
-import { createDeclarationGate } from './gate-factory';
+import { createGate } from './gate-factory';
 
 const INSTRUCTION = `[ApprovalGate]
-Before calling any edit/write tool, your response MUST begin with one of these declarations:
-- "APPROVED: <brief description>" — the user has given you the go-ahead to implement
-- "NOT_APPROVED" — the user has not yet decided or is still discussing
+方案评审：如果你提出了多个方案需要用户选择，在回复文本开头写：
+"AWAITING_APPROVAL: 方案摘要"
+用户批准后，在回复文本开头写：
+"APPROVED: 选定的方案"
+当前方案完成时，在回复文本开头写：
+"DONE: 完成内容"
+也可以委托子代理审查不同方案后给出推荐。
 
-Wait for the user to choose before declaring APPROVED. False APPROVED declarations will
-cause tool execution errors and wasted effort.`;
+声明必须写在回复文本中，不是思考或代码块里。`;
 
 const BLOCK_MESSAGE =
-  '[ApprovalGate] Your last response did not declare APPROVED: before calling edit/write tools.\n' +
-  'Respond with "APPROVED: <description>" first, then call the tool.\n' +
-  'If the user has not yet approved, respond with "NOT_APPROVED" and wait for their decision.';
+  '[ApprovalGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
+  '当前有待批准的方案，请先获取用户批准。\n' +
+  '在回复文本开头写 "APPROVED: <方案>" 或继续等待用户选择。';
 
 export function createApprovalGateHook(options?: {
   isRalphLoopActive?: () => boolean;
-  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
 }) {
-  return createDeclarationGate({
+  return createGate({
     name: 'approval',
     checkPattern: /^\s*APPROVED:\s/m,
-    notPattern: /^\s*NOT_APPROVED\b/m,
+    notPattern: /^\s*AWAITING_APPROVAL:\s/m,
     instruction: INSTRUCTION,
     gatedTools: ['edit', 'Write', 'write', 'apply_patch'],
     blockMessage: BLOCK_MESSAGE,
+    oneShot: true,
     isRalphLoopActive: options?.isRalphLoopActive,
-    fetchCurrentAsstText: options?.fetchCurrentAsstText,
   });
 }

@@ -1,42 +1,25 @@
-/**
- * Orchestration Gate.
- *
- * Requires the LLM to declare "ORCHESTRATION: <decision>" before calling
- * the `task` tool. This ensures the orchestrator consciously decides on
- * delegation vs self-execution rather than defaulting to one or the other.
- */
-
-import { createDeclarationGate } from './gate-factory';
+import { createGate } from './gate-factory';
 
 const INSTRUCTION = `[OrchestrationGate]
-Before calling the task tool, your response MUST include an orchestration declaration:
-> "ORCHESTRATION: <decision>"
+在调用 task 工具前，回复文本中必须声明编排决策：
+"ORCHESTRATION: self" — 自己做
+"ORCHESTRATION: delegate to <agent>" — 委托给子代理
+"ORCHESTRATION: background <agent>" — 后台任务
 
-Valid decisions:
-- "ORCHESTRATION: delegate to <agent>" — delegates to a specialist (fixer, explorer, oracle, etc.)
-- "ORCHESTRATION: self" — you will do this yourself without delegation
-- "ORCHESTRATION: background <agent>" — delegates as a background task
-
-Examples:
-- ORCHESTRATION: delegate to fixer
-- ORCHESTRATION: self
-- ORCHESTRATION: background explorer
-- ORCHESTRATION: delegate to council`;
+声明必须写在回复文本中，不是思考或代码块里。`;
 
 const BLOCK_MESSAGE =
-  '[OrchestrationGate] Your last response did not include an "ORCHESTRATION:" declaration.\n' +
-  'Before calling the task tool, add "ORCHESTRATION: <decision>" to your response.\n' +
-  'Valid values: delegate to <agent>, self, background <agent>.';
+  '[OrchestrationGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
+  '在回复文本中写 "ORCHESTRATION: <决策>" 后再调 task 工具。\n' +
+  '可选：self / delegate to <agent> / background <agent>';
 
-export function createOrchestrationGateHook(options?: {
-  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
-}) {
-  return createDeclarationGate({
+export function createOrchestrationGateHook() {
+  return createGate({
     name: 'orchestration',
     checkPattern: /^\s*ORCHESTRATION:\s/m,
     instruction: INSTRUCTION,
     gatedTools: ['task'],
     blockMessage: BLOCK_MESSAGE,
-    fetchCurrentAsstText: options?.fetchCurrentAsstText,
+    oneShot: false,
   });
 }

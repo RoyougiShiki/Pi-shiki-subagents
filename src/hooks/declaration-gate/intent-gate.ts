@@ -1,58 +1,27 @@
-/**
- * Intent Gate.
- *
- * Requires the LLM to declare "Intent: [...]" in its response before
- * calling any tools. This ensures the LLM has classified the user's true
- * intent and chosen a routing decision before taking action.
- *
- * This replaces the old soft-reminder IntentGuard with hard enforcement.
- */
-
-import { createDeclarationGate } from './gate-factory';
+import { createGate } from './gate-factory';
 
 const INSTRUCTION = `[IntentGate]
-Before calling any tool, your response MUST contain an intent declaration on its own line:
-> "Intent: [classification] → [routing decision]"
+在调用任何工具前，你的回复文本必须以 "UNDERSTOOD: <用户需求>" 开头，
+确认你已理解用户的需求。
 
-Examples:
-- Intent: [research] → explore
-- Intent: [implementation] → delegate to fixer
-- Intent: [evaluation] → propose and wait for confirmation
-- Intent: [fix] → diagnose then fix
-- Intent: [investigation] → explore then report
-
-Keep it one line. Then act accordingly.`;
+声明必须写在回复文本中，不是思考或代码块里。`;
 
 const BLOCK_MESSAGE =
-  '[IntentGate] Your last response did not include an "Intent: [...]" declaration.\n' +
-  'Add "Intent: [classification] → [routing decision]" to your response, then call the tool.\n' +
-  'See the IntentGate section in your instructions for valid classifications.';
+  '[IntentGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
+  '在回复文本开头写 "UNDERSTOOD: <需求描述>"，确认已理解用户需求。';
 
-export function createIntentGateHook(options?: {
-  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
-}) {
-  return createDeclarationGate({
+export function createIntentGateHook() {
+  return createGate({
     name: 'intent',
-    checkPattern: /Intent:\s*\[/,
+    checkPattern: /^UNDERSTOOD:\s/m,
     instruction: INSTRUCTION,
     gatedTools: [
-      'edit',
-      'Write',
-      'write',
-      'apply_patch',
-      'task',
-      'read',
-      'grep',
-      'glob',
-      'bash',
-      'question',
-      'webfetch',
-      'todowrite',
-      'ast_grep_search',
-      'ast_grep_replace',
+      'edit', 'Write', 'write', 'apply_patch',
+      'task', 'read', 'grep', 'glob', 'bash', 'question',
+      'webfetch', 'todowrite', 'ast_grep_search', 'ast_grep_replace',
       'vision_analyze',
     ],
     blockMessage: BLOCK_MESSAGE,
-    fetchCurrentAsstText: options?.fetchCurrentAsstText,
+    oneShot: false,
   });
 }

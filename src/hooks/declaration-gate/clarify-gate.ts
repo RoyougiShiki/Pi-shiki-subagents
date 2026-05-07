@@ -1,14 +1,109 @@
-/**
- * Clarify Gate.
- *
- * Requires the LLM to declare "PROCEEDING:" or "CLARIFYING:" at the start
- * of a line when in a clarification loop. Tracks rounds via CLARIFYING
- * declarations and blocks edit/write tools when rounds exceed 3 without a
- * PROCEEDING declaration.
- *
- * This replaces the old clarify-loop that counted question marks with a
- * more reliable LLM-declaration-based approach.
- */
+import { createGate } from './gate-factory';
+
+const MAX_ROUNDS = 3;
+
+const INSTRUCTION = `[ReadinessGate]
+开始实现前，必须确认已掌握足够上下文。
+在回复文本开头写：
+"READY: confirmed" — 已完全理解需求、涉及文件、依赖关系，可以开始实现
+"READY: need to check <具体内容>" — 还需要确认某些信息
+也可以委托子代理（explorer/oracle）帮助分析代码和影响面。
+
+声明必须写在回复文本中，不是思考或代码块里。`;
+
+const BLOCK_MESSAGE =
+  '[ReadinessGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
+  `已超过 ${MAX_ROUNDS} 轮仍未确认就绪。\n` +
+  '请确认已完全理解需求后再写 "READY: confirmed"。';
+
+export function createClarifyGateHook(options?: {
+  isRalphLoopActive?: () => boolean;
+}) {
+  // 单独的状态（clarify 逻辑与标准一次性门略有不同）
+  const injected = new Set<string>();
+  const opened = new Set<string>();    // 已就绪，永久开门
+  const rounds = new Map<string, number>();  // 当前轮次
+  const pending = new Set<string>();   // 等待确认中
+
+  return {
+    'experimental.chat.messages.transform': async (_i: any, o: any): Promise<void> => {
+      const msgs = o.messages as MessageWithParts[];
+      if (msgs.length < 2) return;
+      const lu = findLastUser(msgs);
+      if (!lu) return;
+      if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
+
+      let sid = '';
+      for (const m of msgs) { if (m.info.sessionID) { sid = m.info.sessionID; break; } }
+      if (!sid) return;
+
+      if (!injected.has(sid)) {
+        const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
+        if (tp && typeof tp.text === 'string') {
+          tp.text += `\n\n<internal_reminder>\n${INSTRUCTION}\n</internal_reminder>`;
+        }
+        injected.add(sid);
+        return;
+      }
+
+      const la = findLastAssistant(msgs);
+      if (!la) return;
+      const t = getTextFromMessage(la);
+
+      // DONE: 重置门
+      if (/^\s*DONE:\s/m.test(t)) {
+        opened.delete(sid);
+        rounds.delete(sid);
+        pending.delete(sid);
+        return;
+      }
+
+      // READY: confirmed → 永久开门
+      if (/^\s*READY:\s+confirmed\b/m.test(t)) {
+        opened.add(sid);
+        rounds.delete(sid);
+        pending.delete(sid);
+        return;
+      }
+
+      // READY: need to check → 计数
+      if (/^\s*READY:\s+need\s+to\s+check\b/m.test(t)) {
+        const r = (rounds.get(sid) ?? 0) + 1;
+        rounds.set(sid, r);
+        pending.add(sid);
+        if (r >= MAX_ROUNDS) {
+          // 注入提醒
+          const up = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
+          if (up && typeof up.text === 'string' && !up.text.includes('ReadinessGate')) {
+            up.text += `\n\n<internal_reminder>\n[ReadinessGate] 已超过${MAX_ROUNDS}轮，请确认后就绪。\n</internal_reminder>`;
+          }
+        }
+        return;
+      }
+
+      // 其他声明 → 不改变状态
+    },
+
+    'tool.execute.before': async (i: any, o: any): Promise<void> => {
+      if (options?.isRalphLoopActive?.()) return;
+      const escapeT = new Set(['read', 'grep', 'glob', 'skill']);
+      if (escapeT.has(i.tool)) return;
+      const gated = new Set(['edit', 'Write', 'write', 'apply_patch']);
+      if (!gated.has(i.tool)) return;
+
+      const sid = i.sessionID;
+      if (sid && opened.has(sid)) return;      // 已就绪
+      if (!sid || !pending.has(sid)) return;     // 未激活
+
+      // ≥3轮未就绪 → 拦截
+      const r = rounds.get(sid) ?? 0;
+      if (r >= MAX_ROUNDS) {
+        o.args = undefined;
+        throw new Error(BLOCK_MESSAGE);
+      }
+    },
+  };
+}
 
 import {
   findLastAssistant,
@@ -16,128 +111,3 @@ import {
   getTextFromMessage,
   type MessageWithParts,
 } from '../shared-message-types';
-
-const MAX_CLARIFY_ROUNDS = 3;
-
-const INSTRUCTION = `[ClarifyGate]
-If you have enough information to begin implementing, start your response with:
-> "PROCEEDING: <brief description>"
-
-If you still need more information from the user, start your response with:
-> "CLARIFYING: <what you need>"
-
-You have a maximum of ${MAX_CLARIFY_ROUNDS} CLARIFYING rounds. After that, edit/write tools will be blocked
-until you declare PROCEEDING. Make your clarifying questions targeted and efficient.`;
-
-const BLOCK_MESSAGE =
-  '[ClarifyGate] You have exceeded the maximum clarify rounds without declaring PROCEEDING.\n' +
-  'Synthesize what you know and declare "PROCEEDING: <description>", or ask a final\n' +
-  'targeted question. Edit/write tools are blocked until you declare PROCEEDING.';
-
-export function createClarifyGateHook(options?: {
-  isRalphLoopActive?: () => boolean;
-  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
-}) {
-  // SessionId → clarify round count
-  const clarifyRounds = new Map<string, number>();
-  const injected = new Set<string>();
-
-  return {
-    'experimental.chat.messages.transform': async (
-      _input: Record<string, never>,
-      output: { messages: unknown[] },
-    ): Promise<void> => {
-      const messages = output.messages as MessageWithParts[];
-      if (messages.length < 2) return;
-
-      // Only process orchestrator messages
-      const lastUser = findLastUser(messages);
-      if (!lastUser) return;
-      if (lastUser.info.agent && lastUser.info.agent !== 'orchestrator') return;
-
-      // Extract session ID
-      let sessionId = '';
-      for (const m of messages) {
-        if (m.info.sessionID) {
-          sessionId = m.info.sessionID;
-          break;
-        }
-      }
-      if (!sessionId) return;
-
-      // Inject instruction once per session
-      if (!injected.has(sessionId)) {
-        const textPart = lastUser.parts.find(
-          (p) => p.type === 'text' && typeof p.text === 'string',
-        );
-        if (textPart && typeof textPart.text === 'string') {
-          textPart.text += `\n\n<internal_reminder>\n${INSTRUCTION}\n</internal_reminder>`;
-        }
-        injected.add(sessionId);
-      }
-
-      // Check last assistant for declaration
-      const lastAssistant = findLastAssistant(messages);
-      if (!lastAssistant) return;
-
-      const asstText = getTextFromMessage(lastAssistant);
-
-      if (/^\s*PROCEEDING:\s/m.test(asstText)) {
-        // LLM has enough info — reset clarify counter
-        clarifyRounds.delete(sessionId);
-        return;
-      }
-
-      if (/^\s*CLARIFYING:\s/m.test(asstText)) {
-        // LLM needs more info — increment round counter
-        const current = clarifyRounds.get(sessionId) ?? 0;
-        const next = current + 1;
-        clarifyRounds.set(sessionId, next);
-
-        if (next >= MAX_CLARIFY_ROUNDS) {
-          // Inject cap reminder into the last user message
-          const userTextPart = lastUser.parts.find(
-            (p) => p.type === 'text' && typeof p.text === 'string',
-          );
-          if (
-            userTextPart &&
-            typeof userTextPart.text === 'string' &&
-            !userTextPart.text.includes('ClarifyGate] You have exceeded')
-          ) {
-            userTextPart.text +=
-              '\n\n<internal_reminder>\n' +
-              `[ClarifyGate] You have exceeded ${MAX_CLARIFY_ROUNDS} clarify rounds.\n` +
-              'Synthesize what you know and declare PROCEEDING, or ask one final targeted question.\n' +
-              '</internal_reminder>';
-          }
-        }
-        return;
-      }
-
-      // Neither PROCEEDING nor CLARIFYING declared
-      // If LLM has been clarifying, this is ambiguous — keep state as-was
-    },
-
-    'tool.execute.before': async (
-      input: { tool: string; sessionID?: string; callID?: string },
-      output: { args?: Record<string, unknown> },
-    ): Promise<void> => {
-      // Skip blocking if Ralph loop active
-      if (options?.isRalphLoopActive?.()) return;
-
-      // Only gate significant implementation tools
-      const gatedTools = new Set(['edit', 'Write', 'write', 'apply_patch']);
-      if (!gatedTools.has(input.tool)) return;
-
-      const sessionId = input.sessionID;
-      if (!sessionId) return;
-
-      // Block if rounds >= 3 (LLM stuck clarifying without proceeding)
-      const rounds = clarifyRounds.get(sessionId) ?? 0;
-      if (rounds >= MAX_CLARIFY_ROUNDS) {
-        output.args = undefined;
-        throw new Error(BLOCK_MESSAGE);
-      }
-    },
-  };
-}
