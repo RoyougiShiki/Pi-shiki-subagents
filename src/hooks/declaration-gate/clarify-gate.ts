@@ -1,4 +1,9 @@
-import { createGate } from './gate-factory';
+import {
+  findLastAssistant,
+  findLastUser,
+  getTextFromMessage,
+  type MessageWithParts,
+} from '../shared-message-types';
 
 const MAX_ROUNDS = 3;
 
@@ -19,11 +24,10 @@ const BLOCK_MESSAGE =
 export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
 }) {
-  // 单独的状态（clarify 逻辑与标准一次性门略有不同）
   const injected = new Set<string>();
-  const opened = new Set<string>();    // 已就绪，永久开门
-  const rounds = new Map<string, number>();  // 当前轮次
-  const pending = new Set<string>();   // 等待确认中
+  const opened = new Set<string>();
+  const rounds = new Map<string, number>();
+  const pending = new Set<string>();
 
   return {
     'experimental.chat.messages.transform': async (_i: any, o: any): Promise<void> => {
@@ -50,7 +54,6 @@ export function createClarifyGateHook(options?: {
       if (!la) return;
       const t = getTextFromMessage(la);
 
-      // DONE: 重置门
       if (/^\s*DONE:\s/m.test(t)) {
         opened.delete(sid);
         rounds.delete(sid);
@@ -58,7 +61,6 @@ export function createClarifyGateHook(options?: {
         return;
       }
 
-      // READY: confirmed → 永久开门
       if (/^\s*READY:\s+confirmed\b/m.test(t)) {
         opened.add(sid);
         rounds.delete(sid);
@@ -66,13 +68,11 @@ export function createClarifyGateHook(options?: {
         return;
       }
 
-      // READY: need to check → 计数
       if (/^\s*READY:\s+need\s+to\s+check\b/m.test(t)) {
         const r = (rounds.get(sid) ?? 0) + 1;
         rounds.set(sid, r);
         pending.add(sid);
         if (r >= MAX_ROUNDS) {
-          // 注入提醒
           const up = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
           if (up && typeof up.text === 'string' && !up.text.includes('ReadinessGate')) {
             up.text += `\n\n<internal_reminder>\n[ReadinessGate] 已超过${MAX_ROUNDS}轮，请确认后就绪。\n</internal_reminder>`;
@@ -80,8 +80,6 @@ export function createClarifyGateHook(options?: {
         }
         return;
       }
-
-      // 其他声明 → 不改变状态
     },
 
     'tool.execute.before': async (i: any, o: any): Promise<void> => {
@@ -92,10 +90,9 @@ export function createClarifyGateHook(options?: {
       if (!gated.has(i.tool)) return;
 
       const sid = i.sessionID;
-      if (sid && opened.has(sid)) return;      // 已就绪
-      if (!sid || !pending.has(sid)) return;     // 未激活
+      if (sid && opened.has(sid)) return;
+      if (!sid || !pending.has(sid)) return;
 
-      // ≥3轮未就绪 → 拦截
       const r = rounds.get(sid) ?? 0;
       if (r >= MAX_ROUNDS) {
         o.args = undefined;
@@ -104,10 +101,3 @@ export function createClarifyGateHook(options?: {
     },
   };
 }
-
-import {
-  findLastAssistant,
-  findLastUser,
-  getTextFromMessage,
-  type MessageWithParts,
-} from '../shared-message-types';
