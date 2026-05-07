@@ -168,15 +168,10 @@ export function createDeclarationGate(
       }
 
       // 3. No pattern matched.
-      const assistantCount = messages.filter(
-        (m: MessageWithParts) => m.info.role === 'assistant',
-      ).length;
-
-      if (assistantCount > 1 || config.requirePrefixFromFirstMessage) {
-        // The LLM has had a chance to include the prefix but didn't.
-        stateMap.set(sessionId, false);
-      }
-      // else: first assistant message, first-turn pass — leave state unchanged.
+      // The instruction was already injected into the user message BEFORE
+      // the last assistant response was generated. The LLM has seen it.
+      // If the response still lacks the declaration, it's a violation.
+      stateMap.set(sessionId, false);
     },
 
     /**
