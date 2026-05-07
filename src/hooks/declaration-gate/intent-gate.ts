@@ -28,7 +28,9 @@ const BLOCK_MESSAGE =
   'Add "Intent: [classification] → [routing decision]" to your response, then call the tool.\n' +
   'See the IntentGate section in your instructions for valid classifications.';
 
-export function createIntentGateHook() {
+export function createIntentGateHook(options?: {
+  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
+}) {
   return createDeclarationGate({
     name: 'intent',
     checkPattern: /Intent:\s*\[/,
@@ -51,6 +53,6 @@ export function createIntentGateHook() {
       'vision_analyze',
     ],
     blockMessage: BLOCK_MESSAGE,
-    requirePrefixFromFirstMessage: false,
+    fetchCurrentAsstText: options?.fetchCurrentAsstText,
   });
 }

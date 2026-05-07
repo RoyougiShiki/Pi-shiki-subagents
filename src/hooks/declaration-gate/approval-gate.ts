@@ -27,6 +27,7 @@ const BLOCK_MESSAGE =
 
 export function createApprovalGateHook(options?: {
   isRalphLoopActive?: () => boolean;
+  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
 }) {
   return createDeclarationGate({
     name: 'approval',
@@ -35,7 +36,7 @@ export function createApprovalGateHook(options?: {
     instruction: INSTRUCTION,
     gatedTools: ['edit', 'Write', 'write', 'apply_patch'],
     blockMessage: BLOCK_MESSAGE,
-    requirePrefixFromFirstMessage: false,
     isRalphLoopActive: options?.isRalphLoopActive,
+    fetchCurrentAsstText: options?.fetchCurrentAsstText,
   });
 }

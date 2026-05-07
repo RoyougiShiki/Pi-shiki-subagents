@@ -28,13 +28,15 @@ const BLOCK_MESSAGE =
   'Before calling the task tool, add "ORCHESTRATION: <decision>" to your response.\n' +
   'Valid values: delegate to <agent>, self, background <agent>.';
 
-export function createOrchestrationGateHook() {
+export function createOrchestrationGateHook(options?: {
+  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
+}) {
   return createDeclarationGate({
     name: 'orchestration',
     checkPattern: /^\s*ORCHESTRATION:\s/m,
     instruction: INSTRUCTION,
     gatedTools: ['task'],
     blockMessage: BLOCK_MESSAGE,
-    requirePrefixFromFirstMessage: false,
+    fetchCurrentAsstText: options?.fetchCurrentAsstText,
   });
 }

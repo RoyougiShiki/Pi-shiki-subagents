@@ -36,6 +36,7 @@ const BLOCK_MESSAGE =
 
 export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
+  fetchCurrentAsstText?: (sessionId: string) => Promise<string | null>;
 }) {
   // SessionId → clarify round count
   const clarifyRounds = new Map<string, number>();

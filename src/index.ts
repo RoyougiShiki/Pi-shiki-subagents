@@ -284,18 +284,84 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     // Approval gate: LLM must declare APPROVED: before edit/write tools
     approvalGateHook = createApprovalGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+      fetchCurrentAsstText: async (sid: string) => {
+        try {
+          const sess = await (ctx.client.session as any).get({ path: { id: sid } });
+          const msgs = sess?.data?.messages;
+          if (!msgs || !msgs.length) return null;
+          for (let i = msgs.length-1; i>=0; i--) {
+            if (msgs[i]?.info?.role === 'assistant') {
+              const t = (msgs[i]?.parts??[])
+                .filter((p:any)=>p.type==='text'&&typeof p.text==='string')
+                .map((p:any)=>p.text).join('\n');
+              return t||null;
+            }
+          }
+          return null;
+        } catch { return null; }
+      },
     });
 
     // Clarify gate: LLM must declare PROCEEDING:/CLARIFYING:, caps at 3 rounds
     clarifyGateHook = createClarifyGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+      fetchCurrentAsstText: async (sid: string) => {
+        try {
+          const sess = await (ctx.client.session as any).get({ path: { id: sid } });
+          const msgs = sess?.data?.messages;
+          if (!msgs || !msgs.length) return null;
+          for (let i = msgs.length-1; i>=0; i--) {
+            if (msgs[i]?.info?.role === 'assistant') {
+              const t = (msgs[i]?.parts??[])
+                .filter((p:any)=>p.type==='text'&&typeof p.text==='string')
+                .map((p:any)=>p.text).join('\n');
+              return t||null;
+            }
+          }
+          return null;
+        } catch { return null; }
+      },
     });
 
     // Intent gate: LLM must declare Intent: [...] before any tool
-    intentGateHook = createIntentGateHook();
+    intentGateHook = createIntentGateHook({
+      fetchCurrentAsstText: async (sid: string) => {
+        try {
+          const sess = await (ctx.client.session as any).get({ path: { id: sid } });
+          const msgs = sess?.data?.messages;
+          if (!msgs || !msgs.length) return null;
+          for (let i = msgs.length-1; i>=0; i--) {
+            if (msgs[i]?.info?.role === 'assistant') {
+              const t = (msgs[i]?.parts??[])
+                .filter((p:any)=>p.type==='text'&&typeof p.text==='string')
+                .map((p:any)=>p.text).join('\n');
+              return t||null;
+            }
+          }
+          return null;
+        } catch { return null; }
+      },
+});
 
     // Orchestration gate: LLM must declare ORCHESTRATION: before task tool
-    orchestrationGateHook = createOrchestrationGateHook();
+    orchestrationGateHook = createOrchestrationGateHook({
+      fetchCurrentAsstText: async (sid: string) => {
+        try {
+          const sess = await (ctx.client.session as any).get({ path: { id: sid } });
+          const msgs = sess?.data?.messages;
+          if (!msgs || !msgs.length) return null;
+          for (let i = msgs.length-1; i>=0; i--) {
+            if (msgs[i]?.info?.role === 'assistant') {
+              const t = (msgs[i]?.parts??[])
+                .filter((p:any)=>p.type==='text'&&typeof p.text==='string')
+                .map((p:any)=>p.text).join('\n');
+              return t||null;
+            }
+          }
+          return null;
+        } catch { return null; }
+      },
+});
 
     // Initialize available skills filter hook
     filterAvailableSkillsHook = createFilterAvailableSkillsHook(ctx, config);
