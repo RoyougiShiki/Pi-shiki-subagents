@@ -21,10 +21,16 @@ export interface GateConfig {
   gatedTools: string[];
   blockMessage: string;
   /**
-   * true = 一次性门。APPROVED/READY/PROCEEDING 后永久开门。
+   * true = 一次性门。checkPattern 匹配后永久开门，DONE 重置。
    * false = 每轮检查门。每个回复都需要声明。
    */
   oneShot: boolean;
+  /**
+   * 一次性门模式下：true = 指令注入后立即进入等待状态（需要声明才能开门）
+   * false = 保持未激活，等待 notPattern 激活
+   * 每轮检查门模式下：不生效
+   */
+  startActive?: boolean;
   isRalphLoopActive?: () => boolean;
 }
 
@@ -63,7 +69,7 @@ export function createGate(cfg: GateConfig): GateHooks {
       for (const m of msgs) { if (m.info.sessionID) { sid = m.info.sessionID; break; } }
       if (!sid) return;
 
-      // 首次注入指令
+      // 首次注入指令：不会激活门，首回合免检
       if (!injected.has(sid)) {
         const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
         if (tp && typeof tp.text === 'string') {
@@ -79,10 +85,11 @@ export function createGate(cfg: GateConfig): GateHooks {
         if (!la) return;
         const t = getTextFromMessage(la);
 
-        // DONE: 重置门（重新关闭）
+        // DONE: 重置门（下轮用户消息后重新开始检查）
         if (/^\s*DONE:\s/m.test(t)) {
           opened.delete(sid);
           pending.delete(sid);
+          // 不留 pending，下轮 transform 的 fallthrough 会根据 startActive 设 pending
           return;
         }
 
@@ -95,6 +102,12 @@ export function createGate(cfg: GateConfig): GateHooks {
 
         // 等待（激活门）
         if (cfg.notPattern?.test(t)) {
+          pending.add(sid);
+          return;
+        }
+
+        // startActive 且未开门 → 激活
+        if (cfg.startActive && !opened.has(sid)) {
           pending.add(sid);
           return;
         }
