@@ -22,8 +22,8 @@ export interface GateHooks {
 }
 
 export function createGate(cfg: GateConfig): GateHooks {
-  const injected = new Set<string>();
-  // 模块级状态（不使用 session ID key，避免 m.info.sessionID 和 input.sessionID 不一致）
+  // 完全不用 session ID，每轮都处理
+  let firstTurn = true;
   let gateOpened = false;
   let gatePending = false;
   let lastAsstText: string | null = null;
@@ -42,18 +42,14 @@ export function createGate(cfg: GateConfig): GateHooks {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      let sid = '';
-      for (const m of msgs) { if (m.info.sessionID) { sid = m.info.sessionID; break; } }
-      if (!sid) return;
-
-      // 首次注入指令：使用 session ID 判断，避免重复注入
-      if (!injected.has(sid)) {
+      // 首回合：注入指令 + 免检
+      if (firstTurn) {
         const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
         if (tp && typeof tp.text === 'string') {
           tp.text += `\n\n<internal_reminder>\n${cfg.instruction}\n</internal_reminder>`;
         }
-        injected.add(sid);
-        return; // 首回合免检
+        firstTurn = false;
+        return;
       }
 
       // 检查 LLM 声明

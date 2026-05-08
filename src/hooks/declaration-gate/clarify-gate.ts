@@ -24,8 +24,8 @@ const BLOCK_MESSAGE =
 export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
 }) {
-  const injected = new Set<string>();
-  // 模块级状态（不使用 session ID）
+  // 完全不用 session ID
+  let firstTurn = true;
   let gateOpened = false;
   let gatePending = false;
   let needToCheckRounds = 0;
@@ -38,16 +38,12 @@ export function createClarifyGateHook(options?: {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      let sid = '';
-      for (const m of msgs) { if (m.info.sessionID) { sid = m.info.sessionID; break; } }
-      if (!sid) return;
-
-      if (!injected.has(sid)) {
+      if (firstTurn) {
         const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
         if (tp && typeof tp.text === 'string') {
           tp.text += `\n\n<internal_reminder>\n${INSTRUCTION}\n</internal_reminder>`;
         }
-        injected.add(sid);
+        firstTurn = false;
         return;
       }
 
