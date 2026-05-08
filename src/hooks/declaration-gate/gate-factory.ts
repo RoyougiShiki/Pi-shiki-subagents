@@ -22,8 +22,7 @@ export interface GateHooks {
 }
 
 export function createGate(cfg: GateConfig): GateHooks {
-  // 完全不用 session ID，每轮都处理
-  let firstTurn = true;
+  let injected = false;
   let gateOpened = false;
   let gatePending = false;
   let lastAsstText: string | null = null;
@@ -42,40 +41,36 @@ export function createGate(cfg: GateConfig): GateHooks {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      // 首回合：注入指令 + 免检
-      if (firstTurn) {
-        const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
-        if (tp && typeof tp.text === 'string') {
-          tp.text += `\n\n<internal_reminder>\n${cfg.instruction}\n</internal_reminder>`;
+      // 没有助理消息 → 首回合，注入指令后免检
+      const la = findLastAssistant(msgs);
+      if (!la) {
+        if (!injected) {
+          const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
+          if (tp && typeof tp.text === 'string') {
+            tp.text += `\n\n<internal_reminder>\n${cfg.instruction}\n</internal_reminder>`;
+          }
+          injected = true;
         }
-        firstTurn = false;
         return;
       }
 
-      // 检查 LLM 声明
-      const la = findLastAssistant(msgs);
-      if (!la) return;
       const t = getTextFromMessage(la);
 
       if (cfg.oneShot) {
-        // DONE: 重置
         if (/^\s*DONE:\s/m.test(t)) {
           gateOpened = false;
           gatePending = false;
           return;
         }
-        // checkPattern 匹配 → 开门
         if (cfg.checkPattern.test(t)) {
           gateOpened = true;
           gatePending = false;
           return;
         }
-        // notPattern 匹配 → 激活等待
         if (cfg.notPattern?.test(t)) {
           gatePending = true;
           return;
         }
-        // startActive 且未开门 → 激活
         if (cfg.startActive && !gateOpened) {
           gatePending = true;
           return;
