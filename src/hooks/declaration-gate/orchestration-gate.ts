@@ -20,7 +20,6 @@ export function createOrchestrationGateHook() {
     instruction: INSTRUCTION,
     gatedTools: ['task'],
     blockMessage: BLOCK_MESSAGE,
-    oneShot: true,
-    startActive: true,
+    oneShot: false,
   });
 }
