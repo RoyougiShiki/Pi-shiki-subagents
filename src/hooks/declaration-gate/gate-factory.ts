@@ -34,11 +34,11 @@ export function createGate(cfg: GateConfig): GateHooks {
   };
 
   const getAsst = (msgs: MessageWithParts[]): string | null => {
-    const firstUserIdx = msgs.findIndex((m: any) => m.info?.role === 'user');
-    if (firstUserIdx < 0) return null;
-    for (let i = msgs.length - 1; i >= firstUserIdx; i--) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
-      if (m.info.role === 'assistant') return getTextFromMessage(m);
+      if (m.info?.role === 'assistant' && m.info?.agent) {
+        return getTextFromMessage(m);
+      }
     }
     return null;
   };
@@ -56,7 +56,10 @@ export function createGate(cfg: GateConfig): GateHooks {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      const la = findLastAssistant(msgs);
+      let la: MessageWithParts | null = null;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].info?.role === 'assistant' && msgs[i].info?.agent) { la = msgs[i]; break; }
+      }
       if (!la) {
         gateOpened = false;
         gatePending = false;
