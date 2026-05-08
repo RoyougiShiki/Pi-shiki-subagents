@@ -34,13 +34,11 @@ export function createGate(cfg: GateConfig): GateHooks {
   };
 
   const getAsst = (msgs: MessageWithParts[]): string | null => {
-    for (let i = msgs.length - 1; i >= 0; i--) {
+    const firstUserIdx = msgs.findIndex((m: any) => m.info?.role === 'user');
+    if (firstUserIdx < 0) return null;
+    for (let i = msgs.length - 1; i >= firstUserIdx; i--) {
       const m = msgs[i];
-      if (m.info.role === 'assistant') {
-        const text = getTextFromMessage(m);
-        if (!text || text.startsWith('<Role>')) continue;
-        return text;
-      }
+      if (m.info.role === 'assistant') return getTextFromMessage(m);
     }
     return null;
   };
