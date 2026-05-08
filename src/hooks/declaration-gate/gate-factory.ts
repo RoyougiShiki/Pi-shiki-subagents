@@ -1,4 +1,5 @@
-import { findLastAssistant, findLastUser, getTextFromMessage, type MessageWithParts } from '../shared-message-types';
+
+import { findLastUser, getTextFromMessage, type MessageWithParts } from '../shared-message-types';
 
 export interface GateConfig {
   name: string;
@@ -34,11 +35,16 @@ export function createGate(cfg: GateConfig): GateHooks {
   };
 
   const getAsst = (msgs: MessageWithParts[]): string | null => {
-    for (let i = msgs.length - 1; i >= 0; i--) {
+    // 找第一条用户消息的索引（手动循环，避免 findIndex 在非标准 Array 上不可用）
+    let firstUserIdx = -1;
+    for (let i = 0; i < msgs.length; i++) {
+      if ((msgs[i] as any)?.info?.role === 'user') { firstUserIdx = i; break; }
+    }
+    if (firstUserIdx < 0) return null;
+    // 从后往前检查 firstUserIdx 之后的助理消息
+    for (let i = msgs.length - 1; i >= firstUserIdx; i--) {
       const m = msgs[i];
-      if (m.info?.role === 'assistant' && m.info?.agent) {
-        return getTextFromMessage(m);
-      }
+      if (m.info?.role === 'assistant') return getTextFromMessage(m);
     }
     return null;
   };
@@ -56,11 +62,18 @@ export function createGate(cfg: GateConfig): GateHooks {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      let la: MessageWithParts | null = null;
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].info?.role === 'assistant' && msgs[i].info?.agent) { la = msgs[i]; break; }
+      // 找第一条用户消息的索引
+      let firstUserIdx2 = -1;
+      for (let i = 0; i < msgs.length; i++) {
+        if ((msgs[i] as any)?.info?.role === 'user') { firstUserIdx2 = i; break; }
       }
-      if (!la) {
+      // 找最后一条助理消息
+      let lastAsstIdx = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if ((msgs[i] as any)?.info?.role === 'assistant') { lastAsstIdx = i; break; }
+      }
+      // 首回合：没有助理消息，或助理消息在第一条用户消息之前
+      if (lastAsstIdx < 0 || (firstUserIdx2 >= 0 && lastAsstIdx < firstUserIdx2)) {
         gateOpened = false;
         gatePending = false;
         if (!injected) {
@@ -75,7 +88,7 @@ export function createGate(cfg: GateConfig): GateHooks {
 
       if (!cfg.oneShot) return;
 
-      const t = getTextFromMessage(la);
+      const t = getTextFromMessage(msgs[lastAsstIdx]);
       if (noB(t)) { gateOpened = false; gatePending = false; }
       else if (yes(t)) { gateOpened = true; gatePending = false; }
       else if (act(t)) { gatePending = true; }
