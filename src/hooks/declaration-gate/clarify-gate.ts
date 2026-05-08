@@ -8,18 +8,23 @@ import {
 const MAX_ROUNDS = 3;
 
 const INSTRUCTION = `[ReadinessGate]
-开始实现前，必须确认已掌握足够上下文。
-在回复文本开头写：
-"READY: confirmed" — 已完全理解需求、涉及文件、依赖关系，可以开始实现
+开始实现前，先确认是否已掌握足够上下文。
+如果需求模糊、信息不足，就应该：
+- 问用户要更多信息
+- 查代码/查文档
+- 调用工具搜索
+- 派子代理去调研
+确认充分后，在回复文本开头写：
+"READY: <你已掌握的信息>" — 已完全理解，可以开始实现
 "READY: need to check <具体内容>" — 还需要确认某些信息
-也可以委托子代理（explorer/oracle）帮助分析代码和影响面。
 
 声明必须写在回复文本中，不是思考或代码块里。`;
 
 const BLOCK_MESSAGE =
   '[ReadinessGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
   `已超过 ${MAX_ROUNDS} 轮仍未确认就绪。\n` +
-  '请确认已完全理解需求后再写 "READY: confirmed"。';
+  '如果信息不够，就去问用户、查代码或搜索获取充足信息。\n' +
+  '确认完毕后，在回复开头写 "READY: <你已掌握的信息>"。';
 
 export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
@@ -58,13 +63,6 @@ export function createClarifyGateHook(options?: {
         return;
       }
 
-      if (/^\s*READY:\s+confirmed\b/m.test(t)) {
-        gateOpened = true;
-        gatePending = false;
-        needToCheckRounds = 0;
-        return;
-      }
-
       if (/^\s*READY:\s+need\s+to\s+check\b/m.test(t)) {
         needToCheckRounds++;
         gatePending = true;
@@ -74,6 +72,14 @@ export function createClarifyGateHook(options?: {
             up.text += `\n\n<internal_reminder>\n[ReadinessGate] 已超过${MAX_ROUNDS}轮，请确认后就绪。\n</internal_reminder>`;
           }
         }
+        return;
+      }
+
+      // catch-all: any READY: <描述> opens the gate (includes "confirmed", "检查完毕", etc.)
+      if (/^\s*READY:\s/m.test(t)) {
+        gateOpened = true;
+        gatePending = false;
+        needToCheckRounds = 0;
         return;
       }
     },

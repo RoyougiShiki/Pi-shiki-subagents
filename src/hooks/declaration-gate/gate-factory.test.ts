@@ -24,7 +24,7 @@ const TEST_BLOCK = '[TestGate] blocked';
 function oneShotFalseGate(overrides?: Partial<GateConfig>) {
   return createGate({
     name: 'test-oneshot-false',
-    checkPattern: /^(UNDERSTOOD|APPROVED|READY|DONE):\s/m,
+    checkPattern: /^\s*(UNDERSTOOD|APPROVED|READY|DONE):\s/m,
     instruction: TEST_INSTRUCTION,
     gatedTools: ['bash', 'edit', 'write'],
     blockMessage: TEST_BLOCK,
@@ -162,6 +162,20 @@ describe('oneShot=false gate', () => {
     await gate['experimental.chat.messages.transform']({}, output);
 
     // DONE: matches checkPattern (it's in the alternation) → passes
+    await gate['tool.execute.before']({ tool: 'bash' }, { args: {} });
+  });
+
+  test('leading whitespace before declaration is accepted', async () => {
+    const gate = oneShotFalseGate();
+    const output = {
+      messages: [
+        makeMsg('user', 'hello'),
+        makeMsg('assistant', '  UNDERSTOOD: spaces before declaration'),
+      ],
+    };
+    await gate['experimental.chat.messages.transform']({}, output);
+
+    // Should not throw despite leading spaces
     await gate['tool.execute.before']({ tool: 'bash' }, { args: {} });
   });
 

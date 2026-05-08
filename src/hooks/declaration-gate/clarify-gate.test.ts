@@ -45,6 +45,20 @@ describe('createClarifyGateHook', () => {
     expect(await callTool(hook, 'edit')).toBe('passed');
   });
 
+  test('READY: with custom description opens gate', async () => {
+    const hook = createClarifyGateHook();
+    let o = { messages: [makeMsg('system', ''), makeMsg('user', 'hi')] };
+    await hook['experimental.chat.messages.transform']({}, o);
+    o = {
+      messages: [
+        makeMsg('user', 'ready'),
+        makeMsg('assistant', 'READY: 检查完 SVN 状态，所有依赖已确认'),
+      ],
+    };
+    await hook['experimental.chat.messages.transform']({}, o);
+    expect(await callTool(hook, 'edit')).toBe('passed');
+  });
+
   test('3 need-to-check rounds block edit', async () => {
     const hook = createClarifyGateHook();
     let o = { messages: [makeMsg('system', ''), makeMsg('user', 'hi')] };
