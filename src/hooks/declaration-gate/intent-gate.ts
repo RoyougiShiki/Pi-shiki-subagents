@@ -21,6 +21,7 @@ export function createIntentGateHook() {
   return createGate({
     name: 'intent',
     checkPattern: /^(UNDERSTOOD|APPROVED|AWAITING_APPROVAL|READY|ORCHESTRATION|DONE):\s/m,
+    instruction: INSTRUCTION,
     gatedTools: [
       'edit', 'Write', 'write', 'apply_patch',
       'task', 'bash', 'question',
