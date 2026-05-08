@@ -1,17 +1,4 @@
-/**
- * 声明门框架。每个门包含两个钩子：
- *   - messages.transform: 注入指令 + 更新状态
- *   - tool.execute.before: 检查状态 + 拦截
- *
- * 每个门独立实例，独立状态。
- */
-
-import {
-  findLastAssistant,
-  findLastUser,
-  getTextFromMessage,
-  type MessageWithParts,
-} from '../shared-message-types';
+import { findLastAssistant, findLastUser, getTextFromMessage, type MessageWithParts } from '../shared-message-types';
 
 export interface GateConfig {
   name: string;
@@ -20,16 +7,7 @@ export interface GateConfig {
   instruction: string;
   gatedTools: string[];
   blockMessage: string;
-  /**
-   * true = 一次性门。checkPattern 匹配后永久开门，DONE 重置。
-   * false = 每轮检查门。每个回复都需要声明。
-   */
   oneShot: boolean;
-  /**
-   * 一次性门模式下：true = 指令注入后立即进入等待状态（需要声明才能开门）
-   * false = 保持未激活，等待 notPattern 激活
-   * 每轮检查门模式下：不生效
-   */
   startActive?: boolean;
   isRalphLoopActive?: () => boolean;
 }
@@ -45,10 +23,9 @@ export interface GateHooks {
 
 export function createGate(cfg: GateConfig): GateHooks {
   const injected = new Set<string>();
-  // 一次性门的状态
-  const opened = new Set<string>();   // 已永久开门
-  const pending = new Set<string>();  // 等待批准/就绪
-  // 每轮检查门的状态
+  // 模块级状态（不使用 session ID key，避免 m.info.sessionID 和 input.sessionID 不一致）
+  let gateOpened = false;
+  let gatePending = false;
   let lastAsstText: string | null = null;
 
   const checkText = (t: string): 'pass' | 'reject' | 'block' => {
@@ -69,7 +46,7 @@ export function createGate(cfg: GateConfig): GateHooks {
       for (const m of msgs) { if (m.info.sessionID) { sid = m.info.sessionID; break; } }
       if (!sid) return;
 
-      // 首次注入指令：不会激活门，首回合免检
+      // 首次注入指令：使用 session ID 判断，避免重复注入
       if (!injected.has(sid)) {
         const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
         if (tp && typeof tp.text === 'string') {
@@ -79,67 +56,52 @@ export function createGate(cfg: GateConfig): GateHooks {
         return; // 首回合免检
       }
 
+      // 检查 LLM 声明
+      const la = findLastAssistant(msgs);
+      if (!la) return;
+      const t = getTextFromMessage(la);
+
       if (cfg.oneShot) {
-        // 一次性门：检查 LLM 声明
-        const la = findLastAssistant(msgs);
-        if (!la) return;
-        const t = getTextFromMessage(la);
-
-        // DONE: 重置门（下轮用户消息后重新开始检查）
+        // DONE: 重置
         if (/^\s*DONE:\s/m.test(t)) {
-          opened.delete(sid);
-          pending.delete(sid);
-          // 不留 pending，下轮 transform 的 fallthrough 会根据 startActive 设 pending
+          gateOpened = false;
+          gatePending = false;
           return;
         }
-
-        // 批准/就绪 → 永久开门
+        // checkPattern 匹配 → 开门
         if (cfg.checkPattern.test(t)) {
-          opened.add(sid);
-          pending.delete(sid);
+          gateOpened = true;
+          gatePending = false;
           return;
         }
-
-        // 等待（激活门）
+        // notPattern 匹配 → 激活等待
         if (cfg.notPattern?.test(t)) {
-          pending.add(sid);
+          gatePending = true;
           return;
         }
-
         // startActive 且未开门 → 激活
-        if (cfg.startActive && !opened.has(sid)) {
-          pending.add(sid);
+        if (cfg.startActive && !gateOpened) {
+          gatePending = true;
           return;
         }
       } else {
-        // 每轮检查门：存上一条助理文本
-        const la = findLastAssistant(msgs);
-        if (!la) return;
-        lastAsstText = getTextFromMessage(la);
+        lastAsstText = t;
       }
     },
 
     'tool.execute.before': async (i: BI, o: BO): Promise<void> => {
       if (cfg.isRalphLoopActive?.()) return;
 
-      // 逃生通道：read/grep/glob/skill 不拦截
       const escapeTools = new Set(['read', 'grep', 'glob', 'skill']);
       if (escapeTools.has(i.tool)) return;
-
       if (!cfg.gatedTools.includes(i.tool)) return;
 
-      const sid = i.sessionID;
-
       if (cfg.oneShot) {
-        // 已开门 → 放行
-        if (sid && opened.has(sid)) return;
-        // 未激活 → 放行
-        if (!sid || !pending.has(sid)) return;
-        // 等待中 → 拦截
+        if (gateOpened) return;
+        if (!gatePending) return;
         o.args = undefined;
         throw new Error(cfg.blockMessage);
       } else {
-        // 每轮检查门
         if (!lastAsstText) return;
         const r = checkText(lastAsstText);
         if (r === 'pass') return;

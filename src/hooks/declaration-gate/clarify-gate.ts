@@ -25,9 +25,10 @@ export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
 }) {
   const injected = new Set<string>();
-  const opened = new Set<string>();
-  const rounds = new Map<string, number>();
-  const pending = new Set<string>();
+  // 模块级状态（不使用 session ID）
+  let gateOpened = false;
+  let gatePending = false;
+  let needToCheckRounds = 0;
 
   return {
     'experimental.chat.messages.transform': async (_i: any, o: any): Promise<void> => {
@@ -55,24 +56,23 @@ export function createClarifyGateHook(options?: {
       const t = getTextFromMessage(la);
 
       if (/^\s*DONE:\s/m.test(t)) {
-        opened.delete(sid);
-        rounds.delete(sid);
-        pending.delete(sid);
+        gateOpened = false;
+        gatePending = false;
+        needToCheckRounds = 0;
         return;
       }
 
       if (/^\s*READY:\s+confirmed\b/m.test(t)) {
-        opened.add(sid);
-        rounds.delete(sid);
-        pending.delete(sid);
+        gateOpened = true;
+        gatePending = false;
+        needToCheckRounds = 0;
         return;
       }
 
       if (/^\s*READY:\s+need\s+to\s+check\b/m.test(t)) {
-        const r = (rounds.get(sid) ?? 0) + 1;
-        rounds.set(sid, r);
-        pending.add(sid);
-        if (r >= MAX_ROUNDS) {
+        needToCheckRounds++;
+        gatePending = true;
+        if (needToCheckRounds >= MAX_ROUNDS) {
           const up = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
           if (up && typeof up.text === 'string' && !up.text.includes('ReadinessGate')) {
             up.text += `\n\n<internal_reminder>\n[ReadinessGate] 已超过${MAX_ROUNDS}轮，请确认后就绪。\n</internal_reminder>`;
@@ -89,12 +89,9 @@ export function createClarifyGateHook(options?: {
       const gated = new Set(['edit', 'Write', 'write', 'apply_patch']);
       if (!gated.has(i.tool)) return;
 
-      const sid = i.sessionID;
-      if (sid && opened.has(sid)) return;
-      if (!sid || !pending.has(sid)) return;
-
-      const r = rounds.get(sid) ?? 0;
-      if (r >= MAX_ROUNDS) {
+      if (gateOpened) return;
+      if (!gatePending) return;
+      if (needToCheckRounds >= MAX_ROUNDS) {
         o.args = undefined;
         throw new Error(BLOCK_MESSAGE);
       }
