@@ -293,10 +293,14 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     });
 
     // Intent gate: LLM must declare UNDERSTOOD: before any tool
-    intentGateHook = createIntentGateHook();
+    intentGateHook = createIntentGateHook({
+      isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+    });
 
     // Orchestration gate: LLM must declare ORCHESTRATION: before task tool
-    orchestrationGateHook = createOrchestrationGateHook();
+    orchestrationGateHook = createOrchestrationGateHook({
+      isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
+    });
 
     // Initialize available skills filter hook
     filterAvailableSkillsHook = createFilterAvailableSkillsHook(ctx, config);

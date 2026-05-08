@@ -62,37 +62,42 @@ export function createGate(cfg: GateConfig): GateHooks {
       if (!lu) return;
       if (lu.info.agent && lu.info.agent !== 'orchestrator') return;
 
-      // 找第一条用户消息的索引
-      let firstUserIdx2 = -1;
-      for (let i = 0; i < msgs.length; i++) {
-        if ((msgs[i] as any)?.info?.role === 'user') { firstUserIdx2 = i; break; }
+      // 注入门禁指令（首次且仅一次）
+      if (!injected) {
+        const tp = lu.parts.find(
+          (p: any) => p.type === 'text' && typeof p.text === 'string',
+        );
+        if (tp && typeof tp.text === 'string') {
+          tp.text += `\n\n<internal_reminder>\n${cfg.instruction}\n</internal_reminder>`;
+        }
+        injected = true;
       }
+
       // 找最后一条助理消息
       let lastAsstIdx = -1;
       for (let i = msgs.length - 1; i >= 0; i--) {
-        if ((msgs[i] as any)?.info?.role === 'assistant') { lastAsstIdx = i; break; }
-      }
-      // 首回合：没有助理消息，或助理消息在第一条用户消息之前
-      if (lastAsstIdx < 0 || (firstUserIdx2 >= 0 && lastAsstIdx < firstUserIdx2)) {
-        gateOpened = false;
-        gatePending = false;
-        if (!injected) {
-          const tp = lu.parts.find((p: any) => p.type === 'text' && typeof p.text === 'string');
-          if (tp && typeof tp.text === 'string') {
-            tp.text += `\n\n<internal_reminder>\n${cfg.instruction}\n</internal_reminder>`;
-          }
-          injected = true;
+        if ((msgs[i] as any)?.info?.role === 'assistant') {
+          lastAsstIdx = i;
+          break;
         }
-        return;
       }
+      // 没有助理消息 → 无声明可检查，直接放行
+      if (lastAsstIdx < 0) return;
 
       if (!cfg.oneShot) return;
 
       const t = getTextFromMessage(msgs[lastAsstIdx]);
-      if (noB(t)) { gateOpened = false; gatePending = false; }
-      else if (yes(t)) { gateOpened = true; gatePending = false; }
-      else if (act(t)) { gatePending = true; }
-      else if (cfg.startActive && !gateOpened) { gatePending = true; }
+      if (noB(t)) {
+        gateOpened = false;
+        gatePending = false;
+      } else if (yes(t)) {
+        gateOpened = true;
+        gatePending = false;
+      } else if (act(t)) {
+        gatePending = true;
+      } else if (cfg.startActive && !gateOpened) {
+        gatePending = true;
+      }
     },
 
     'tool.execute.before': async (i: BI, o: BO): Promise<void> => {

@@ -17,7 +17,9 @@ const BLOCK_MESSAGE =
   '"UNDERSTOOD: <需求>" / "AWAITING_APPROVAL: <方案>" / "READY: confirmed" / "ORCHESTRATION: <决策>"\n' +
   '表明你已理解需求并决定行动方向后再调用工具。';
 
-export function createIntentGateHook() {
+export function createIntentGateHook(options?: {
+  isRalphLoopActive?: () => boolean;
+}) {
   return createGate({
     name: 'intent',
     checkPattern: /^(UNDERSTOOD|APPROVED|AWAITING_APPROVAL|READY|ORCHESTRATION|DONE):\s/m,
@@ -29,7 +31,7 @@ export function createIntentGateHook() {
       'vision_analyze',
     ],
     blockMessage: BLOCK_MESSAGE,
-    oneShot: true,
-    startActive: true,
+    oneShot: false,
+    isRalphLoopActive: options?.isRalphLoopActive,
   });
 }

@@ -13,7 +13,9 @@ const BLOCK_MESSAGE =
   '在回复文本中写 "ORCHESTRATION: <决策>" 后再调 task 工具。\n' +
   '可选：self / delegate to <agent> / background <agent>';
 
-export function createOrchestrationGateHook() {
+export function createOrchestrationGateHook(options?: {
+  isRalphLoopActive?: () => boolean;
+}) {
   return createGate({
     name: 'orchestration',
     checkPattern: /^\s*ORCHESTRATION:\s/m,
@@ -21,5 +23,6 @@ export function createOrchestrationGateHook() {
     gatedTools: ['task'],
     blockMessage: BLOCK_MESSAGE,
     oneShot: false,
+    isRalphLoopActive: options?.isRalphLoopActive,
   });
 }
