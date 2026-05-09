@@ -72,7 +72,7 @@ describe('task-session-manager hook', () => {
     expect(userMessage.parts[0].text).toContain('<resumable_sessions>');
     expect(userMessage.parts[0].text).toContain('### Resumable Sessions');
     expect(userMessage.parts[0].text).toContain(
-      'The aliases below are task_id shortcuts, not session_id values.',
+      'Aliases are task_id shortcuts, not session_id values. If unsure, start fresh.',
     );
     expect(userMessage.parts[0].text).toContain(
       'explorer: exp-1 config schema',
