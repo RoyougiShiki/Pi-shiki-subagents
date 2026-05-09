@@ -295,6 +295,11 @@ export class SlimBackgroundManager {
       return true;
     }
 
+    // Set status BEFORE abort to prevent race with event handler
+    // (handleEvent skips terminal states; cancel could race with
+    // session.deleted / session.status(idle) events)
+    task.status = 'cancelled';
+
     try {
       await this.client.session.abort({ path: { id: task.sessionID } });
     } catch (err: unknown) {
@@ -305,7 +310,6 @@ export class SlimBackgroundManager {
       });
     }
 
-    task.status = 'cancelled';
     task.completedAt = new Date();
     task.lastUpdate = new Date();
     log('[background-task] Cancelled', { taskId, sessionID: task.sessionID });
