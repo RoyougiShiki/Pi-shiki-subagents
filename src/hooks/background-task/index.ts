@@ -144,7 +144,9 @@ Returns task_id. Use background_output to check results.`,
       session_id: z
         .string()
         .optional()
-        .describe('Resume existing session by ID'),
+        .describe(
+          'Resume an existing successfully created child session by raw session_id (not a resumable alias)',
+        ),
     },
     async execute(args: TaskToolArgs, toolContext?: unknown) {
       const ctx_ = toolContext as { sessionID?: string } | undefined;
@@ -157,42 +159,46 @@ Returns task_id. Use background_output to check results.`,
       // Resume an existing session by re-sending a prompt to it
       if (args.session_id) {
         const existingTask = bgManager.getTask(args.session_id);
-        if (!existingTask) {
-          // Not a tracked background task — try to find by session ID
-          const bySession = bgManager.findBySession(args.session_id);
-          if (!bySession) {
-            return `Task ${args.session_id} not found or already completed.`;
-          }
+        const matchedSessionId = existingTask?.sessionID ?? args.session_id;
+        if (!existingTask && !bgManager.findBySession(args.session_id)) {
+          return [
+            `Session ${args.session_id} is not available for reuse.`,
+            '',
+            'This does not mean the sub-agent is unavailable. It usually means the previous delegation never created a reusable child session, or that session has already ended.',
+            'If the earlier delegation was blocked (for example by OrchestrationGate), start a fresh task in the same message after writing ORCHESTRATION: delegate to <agent>.',
+            'Do not pass resumable aliases here — aliases shown under <resumable_sessions> are task_id shortcuts, not session_id values.',
+          ].join('\n');
         }
 
         // Re-prompt the existing session
         try {
           await ctx.client.session.prompt({
-            path: { id: args.session_id },
+            path: { id: matchedSessionId },
             body: {
               parts: [{ type: 'text', text: args.prompt ?? '' }],
             },
           });
           log(`[${HOOK_NAME}] Resumed session`, {
-            sessionId: args.session_id,
+            sessionId: matchedSessionId,
           });
           return [
             'Task resumed.',
             '',
-            `session_id: ${args.session_id}`,
+            `session_id: ${matchedSessionId}`,
             '',
             'Reusing existing child session — context intact.',
           ].join('\n');
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
           log(`[${HOOK_NAME}] Resume failed`, {
-            sessionId: args.session_id,
+            sessionId: matchedSessionId,
             error: msg,
           });
           return [
-            `Failed to resume session ${args.session_id}: ${msg}`,
+            `Failed to resume session ${matchedSessionId}: ${msg}`,
             '',
-            'Recommended next step: retry with the same session_id after fixing the issue so you keep existing sub-agent context.',
+            'This does not mean the sub-agent is unavailable.',
+            'If you are not certain this child session still exists, start a fresh task in the same message after writing ORCHESTRATION: delegate to <agent>.',
           ].join('\n');
         }
       }
@@ -244,7 +250,7 @@ Returns task_id. Use background_output to check results.`,
         `session_id: ${launched.sessionID ?? 'pending'}`,
         '',
         `Synchronous task — use background_output to check status.`,
-        'Reuse session_id to continue with same child agent.',
+        'Reuse session_id only for direct continuation of this successfully created child session.',
       ].join('\n');
     },
   });

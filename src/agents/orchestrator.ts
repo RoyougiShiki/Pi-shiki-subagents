@@ -197,8 +197,9 @@ Delegation is blocking — results return after the specialist completes. Only p
 
 ### Session Reuse & Continuity
 - Reuse specialist sessions when possible — context reuse saves tokens.
-- Task tool returns session_id. USE IT: resume with session_id for follow-ups, multi-turn work, or after failures.
-- Reuse session_id only when the follow-up is directly related; start a fresh session for unrelated work to avoid context pollution.
+- Task tool returns session_id when a child session is successfully created. Use session_id only to continue that exact child session.
+- Resumable aliases shown later (eg. exp-1, ora-2) are task_id shortcuts for remembered sessions — they are not raw session_id values.
+- If a previous delegation was blocked before session creation, or resume says the session is unavailable, start a fresh delegation in the same turn after writing ORCHESTRATION: delegate to <agent>.
 - If relation is unclear, prefer a fresh session and pass a concise summary.
 
 ### Auto-Continue

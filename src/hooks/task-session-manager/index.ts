@@ -178,11 +178,16 @@ export function createTaskSessionManagerHook(
   }
 
   function isMissingRememberedSessionError(output: string): boolean {
-    const firstLine = output.split(/\r?\n/, 1)[0]?.trim().toLowerCase() ?? '';
+    const normalized = output.trim().toLowerCase();
+    const firstLine = normalized.split(/\r?\n/, 1)[0] ?? '';
     return (
-      firstLine.startsWith('[error]') &&
-      firstLine.includes('session') &&
-      (firstLine.includes('not found') || firstLine.includes('no session'))
+      ((firstLine.startsWith('[error]') &&
+        firstLine.includes('session') &&
+        (firstLine.includes('not found') || firstLine.includes('no session'))) ||
+        (normalized.includes('is not available for reuse') &&
+          normalized.includes('previous delegation')) ||
+        (firstLine.startsWith('task ') &&
+          firstLine.includes('not found or already completed')))
     );
   }
 

@@ -258,7 +258,8 @@ export class SessionManager {
 
     return [
       '### Resumable Sessions',
-      'Reuse only for clear continuation of the same thread. Otherwise start fresh.',
+      'Reuse only successfully created sessions for clear continuation of the same thread. The aliases below are task_id shortcuts, not session_id values.',
+      'If a previous delegation was blocked or failed before session creation, start fresh.',
       '',
       ...lines,
     ].join('\n');
