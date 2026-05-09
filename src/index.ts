@@ -292,7 +292,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
     });
 
-    // Intent gate: LLM must declare UNDERSTOOD: before any tool
+    // Intent gate: LLM must declare Intent: before any tool
     intentGateHook = createIntentGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
     });

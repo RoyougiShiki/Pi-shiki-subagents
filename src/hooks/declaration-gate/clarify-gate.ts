@@ -8,12 +8,13 @@ import {
 const MAX_ROUNDS = 3;
 
 const INSTRUCTION = `[ReadinessGate]
-开始实现前，先确认是否已掌握足够上下文。
+开始实现前，先说明自己是否已掌握足够上下文。
 如果需求模糊、信息不足，就应该：
 - 问用户要更多信息
 - 查代码/查文档
 - 调用工具搜索
 - 派子代理去调研
+这一步是为了避免在信息不足时直接实现。
 确认充分后，在回复文本开头写：
 "READY: <你已掌握的信息>" — 已完全理解，可以开始实现
 "READY: need to check <具体内容>" — 还需要确认某些信息
@@ -21,10 +22,9 @@ const INSTRUCTION = `[ReadinessGate]
 声明必须写在回复文本中，不是思考或代码块里。`;
 
 const BLOCK_MESSAGE =
-  '[ReadinessGate] 声明必须写在回复文本中，不是思考或代码块里。\n' +
-  `已超过 ${MAX_ROUNDS} 轮仍未确认就绪。\n` +
-  '如果信息不够，就去问用户、查代码或搜索获取充足信息。\n' +
-  '确认完毕后，在回复开头写 "READY: <你已掌握的信息>"。';
+  '[ReadinessGate] 你还没有先说明自己是否已经掌握足够上下文。\n' +
+  `已超过 ${MAX_ROUNDS} 轮仍未确认就绪；如果现在直接实现，容易返工或做错。\n` +
+  '请先补充调查、提问或搜索，并在回复开头写 "READY: <你已掌握的信息>" 后再继续。';
 
 export function createClarifyGateHook(options?: {
   isRalphLoopActive?: () => boolean;
