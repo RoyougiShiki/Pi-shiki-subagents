@@ -111,53 +111,76 @@ export function createBackgroundTaskHook(ctx: PluginInput): {
   });
   bgManager.startPolling(8_000);
 
-  /**
-   * Inject a SubtaskPart into the parent session so the OpenCode TUI
-   * renders a clickable subagent navigation link and tracks tool call
-   * count correctly — no direct OpenCode-1.14.48-SDK interaction needed.
-   */
-  async function injectSubtaskPart(
-    pluginCtx: PluginInput,
-    parentSessionId: string,
-    task: { id: string; sessionID?: string; description: string },
-    taskArgs: { description?: string; prompt?: string; subagent_type?: string },
-  ): Promise<void> {
-    const sid = task.sessionID;
-    if (!sid) return;
+  // ── Sync-completion helper ───────────────────────────────────────
+  // Polls task status until completion, then fetches assistant output.
 
-    try {
-      await (
-        pluginCtx.client.session as unknown as {
-          promptAsync: (args: {
-            path: { id: string };
-            body: { parts: Array<Record<string, unknown>> };
-          }) => Promise<unknown>;
+  async function waitForSyncCompletion(
+    pluginCtx: PluginInput,
+    manager: SlimBackgroundManager,
+    task: BackgroundTask,
+    _taskArgs: TaskToolArgs,
+  ): Promise<string> {
+    const deadline = Date.now() + 120_000; // 2 min timeout
+    const pollIntervalMs = 500;
+
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+
+      const current = manager.getTask(task.id);
+      if (!current) break;
+
+      if (current.status === 'completed') {
+        if (current.sessionID) {
+          try {
+            const msgs = await pluginCtx.client.session.messages({
+              path: { id: current.sessionID },
+            });
+            const list = msgs.data as Array<{
+              info?: { role?: string };
+              parts?: Array<{ type?: string; text?: string }>;
+            }>;
+            const asstMsg = list
+              .filter((m) => m.info?.role === 'assistant')
+              .reverse()
+              .at(0);
+            const text = asstMsg?.parts
+              ?.filter((p) => p.type === 'text')
+              .map((p) => p.text ?? '')
+              .join('');
+            if (text) {
+              return `Task ${task.id} completed:\n\n${text}`;
+            }
+            return `Task ${task.id} completed (no assistant output). Use background_output(task_id="${task.id}") for full session.`;
+          } catch {
+            return `Task ${task.id} completed. Use background_output(task_id="${task.id}") to retrieve output.`;
+          }
         }
-      ).promptAsync({
-        path: { id: parentSessionId },
-        body: {
-          parts: [
-            {
-              type: 'subtask',
-              sessionID: sid,
-              description: task.description || taskArgs.description || '',
-              prompt: taskArgs.prompt ?? '',
-              agent: taskArgs.subagent_type ?? DEFAULT_AGENT,
-            },
-          ],
-        },
-      });
-    } catch {
-      // Subtask injection is best-effort — failure must not break
-      // the parent task execution. If the parent session cannot
-      // accept the subtask part (e.g. already ended), we skip.
+        return `Task ${task.id} completed but no session ID.`;
+      }
+
+      if (current.status === 'error') {
+        return `Task ${task.id} failed: ${current.error ?? 'unknown error'}`;
+      }
+
+      if (current.status === 'cancelled') {
+        return `Task ${task.id} was cancelled.`;
+      }
     }
+
+    return [
+      `Task ${task.id} did not complete within 2 minutes.`,
+      task.sessionID
+        ? `Use background_output(task_id="${task.id}") to check later.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   // ── task tool ────────────────────────────────────────────────────
 
   const taskTool = tool({
-    description: `Spawn a sub-agent. Use run_in_background=true for async.
+    description: `Spawn a sub-agent. Default: async (non-blocking). Use run_in_background=false for synchronous blocking execution.
 
 Returns task_id. Use background_output to check results.`,
     args: {
@@ -183,7 +206,7 @@ Returns task_id. Use background_output to check results.`,
       run_in_background: z
         .boolean()
         .optional()
-        .describe('Async (default: false)'),
+        .describe('Async (default: true). Set to false for synchronous blocking execution'),
       session_id: z
         .string()
         .optional()
@@ -248,36 +271,7 @@ Returns task_id. Use background_output to check results.`,
 
       const agent = args.subagent_type ?? DEFAULT_AGENT;
 
-      // Launch a background (async) task
-      if (args.run_in_background === true) {
-        const launched = await bgManager.launch({
-          description: args.description ?? '',
-          prompt: args.prompt ?? '',
-          agent,
-          parentSessionID: parentSessionId,
-        });
-
-        log(`[${HOOK_NAME}] Launched background task`, {
-          taskId: launched.id,
-          description: args.description,
-        });
-
-        // Inject subtask part into parent session so the TUI shows
-        // a clickable subagent link and tool call counter.
-        await injectSubtaskPart(ctx, parentSessionId, launched, args);
-
-        return [
-          'Task created.',
-          '',
-          `task_id: ${launched.id}`,
-          `session_id: ${launched.sessionID ?? 'pending'}`,
-          '',
-          'Background child session — use background_output to retrieve results.',
-        ].join('\n');
-      }
-
-      // Foreground (synchronous) task — still goes through the manager
-      // for tracking, but the caller blocks on the result.
+      // Launch the task (shared between async and sync)
       const launched = await bgManager.launch({
         description: args.description ?? '',
         prompt: args.prompt ?? '',
@@ -285,22 +279,24 @@ Returns task_id. Use background_output to check results.`,
         parentSessionID: parentSessionId,
       });
 
-      log(`[${HOOK_NAME}] Launched foreground task`, {
+      log(`[${HOOK_NAME}] Launched task`, {
         taskId: launched.id,
         description: args.description,
       });
 
-      // Inject subtask part into parent session for TUI navigation.
-      await injectSubtaskPart(ctx, parentSessionId, launched, args);
+      // SYNC mode: opt-in with run_in_background=false
+      if (args.run_in_background === false) {
+        return await waitForSyncCompletion(ctx, bgManager, launched, args);
+      }
 
+      // ASYNC mode (default): return immediately, non-blocking.
       return [
         'Task created.',
         '',
         `task_id: ${launched.id}`,
         `session_id: ${launched.sessionID ?? 'pending'}`,
         '',
-        `Synchronous task — use background_output to check status.`,
-        'Reuse session_id only for direct continuation of this successfully created child session.',
+        'Background child session — use background_output to retrieve results.',
       ].join('\n');
     },
   });
