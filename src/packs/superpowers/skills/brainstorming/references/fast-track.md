@@ -14,10 +14,6 @@
 ## 准备阶段
 
 1. 基于已确认范围创建 3-6 条 TodoWrite
-2. 读取三个提示词模板（必须读取，禁止凭记忆构造）：
-   - `implementer-prompt.md`
-   - `spec-reviewer-prompt.md`
-   - `code-quality-reviewer-prompt.md`
 
 ## 任务执行循环
 
@@ -28,7 +24,7 @@ TodoWrite 标记 in_progress
     ↓
 实现/测试/提交
     ↓
-并行派发：规格审查 subagent + 质量审查 subagent（质量结果先暂存）
+并行派发：@oracle 规格审查 + @oracle 质量审查（质量结果先暂存）
     ↓
 等待规格审查结果（优先门禁）
     ↓
@@ -44,8 +40,8 @@ TodoWrite 标记 in_progress
 ## 并行审查门禁规则
 
 1. 规格审查是**硬门禁**；质量审查不是门禁入口。
-2. 质量审查可与规格审查并行启动，但结果在规格通过前仅为 **provisional（暂存）**。
-3. 规格审查失败 → 主 Agent **立即短路**并进入修复，不等待质量审查返回。
+2. 质量审查可与规格审查并行启动，派发 `@oracle` 执行，但结果在规格通过前仅为 **provisional（暂存）**。
+3. 规格审查派发 `@oracle` 执行—失败 → 主 Agent **立即短路**并进入修复，不等待质量审查返回。
 4. 修复后必须重新并行派发两类审查，旧的 provisional 质量结果作废。
 
 ## 主 Agent 约束
@@ -53,7 +49,7 @@ TodoWrite 标记 in_progress
 ### 允许
 - 创建/更新 TodoWrite
 - 派发 todo 内容给实现者 subagent
-- 并行派发规格/质量审查 subagent
+- 派发 `@oracle` 进行规格审查，派发 `@oracle` 进行质量审查
 
 ### 禁止
 - 直接修改代码文件
@@ -94,4 +90,3 @@ TodoWrite 标记 in_progress
 - 规格失败后仍等待质量审查再修复
 - 并行派发多个实现者 subagent
 - 用自审查替代正式审查
-- 凭记忆构造提示词
