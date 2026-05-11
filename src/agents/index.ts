@@ -22,6 +22,7 @@ import { createFixerAgent } from './fixer';
 import { createLibrarianAgent } from './librarian';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
+import type { OrchestratorPack } from '../core/workflow-pack';
 import {
   type AgentDefinition,
   createOrchestratorAgent,
@@ -217,7 +218,10 @@ const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
  * @param config - Optional plugin configuration with agent overrides
  * @returns Array of agent definitions (orchestrator first, then subagents)
  */
-export function createAgents(config?: PluginConfig): AgentDefinition[] {
+export function createAgents(
+  config?: PluginConfig,
+  packOrchestrator?: OrchestratorPack,
+): AgentDefinition[] {
   const disabled = getDisabledAgents(config);
 
   // TEMP: If fixer has no config, inherit from librarian's model to avoid breaking
@@ -335,6 +339,7 @@ export function createAgents(config?: PluginConfig): AgentDefinition[] {
     orchestratorPrompts.prompt,
     orchestratorPrompts.appendPrompt,
     disabled,
+    packOrchestrator,
   );
   applyDefaultPermissions(orchestrator, orchestratorOverride?.skills);
   if (orchestratorOverride) {

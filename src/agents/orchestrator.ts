@@ -1,4 +1,10 @@
 import type { AgentConfig } from '@opencode-ai/sdk/v2';
+import type { OrchestratorPack } from '../core/workflow-pack';
+import {
+  ORCHESTRATOR_AGENT_DESCRIPTIONS,
+  ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES,
+  ORCHESTRATOR_VALIDATION_ROUTING,
+} from '../core/workflow-templates';
 
 export interface AgentDefinition {
   name: string;
@@ -24,100 +30,37 @@ export function resolvePrompt(
   return base;
 }
 
-// Agent descriptions for the orchestrator prompt
-const AGENT_DESCRIPTIONS: Record<string, string> = {
-  explorer: `@explorer
-- Role: Parallel search specialist. "Where is X?" → @explorer. "Implement X" → yourself.
-- Permissions: Read files
-- Delegate when: Prefer for codebase search/investigation • Broad/uncertain scope • Need summarized map vs full contents
-- Don't delegate when: Know the path and need actual content • About to edit the file`,
-
-  librarian: `@librarian
-- Role: Research specialist for docs/examples. "How does this library work?" → @librarian. General programming → yourself.
-- Permissions: None
-- Delegate when: Prefer for external library docs/API references • Unfamiliar library • Version-specific behavior matters
-- Don't delegate when: Standard usage you're confident • General programming knowledge • Built-in language features`,
-
-  oracle: `@oracle
-- Role: Strategic advisor / code reviewer. Need architect review? → @oracle. Routine → yourself.
-- Permissions: Read files
-- Delegate when: Major architectural decisions • Problems persisting after 2+ fix attempts • High-risk refactors • Costly trade-offs (performance vs maintainability) • Security/scalability decisions • Code needs simplification or YAGNI scrutiny
-- Don't delegate when: Routine decisions • First bug fix attempt • Straightforward trade-offs`,
-
-  designer: `@designer
-- Role: UI/UX specialist. Users see it? → @designer. Headless/functional? → yourself.
-- Permissions: Read/write files
-- Delegate when: User-facing interfaces needing polish • Responsive layouts • UX-critical components (forms, nav, dashboards) • Animations/micro-interactions • Landing/marketing pages
-- Don't delegate when: Backend/logic with no visual • Quick prototypes where design doesn't matter yet`,
-
-  fixer: `@fixer
-- Role: Fast execution specialist. "Explaining > doing?" → yourself. Bounded implementation → @fixer.
-- Permissions: Read/write files
-- Tools/Constraints: Execution-focused—no research, no architectural decisions
-- Delegate when: Non-trivial or multi-file implementation (especially 2+ files) • Writing/updating tests • Parallelization: multiple folders, spawn parallel @fixers
-- Don't delegate when: Needs discovery/research/decisions • Single small change (<20 lines, one file) • Sequential dependencies`,
-
-  council: `@council
-- Role: Multi-LLM consensus engine. Need multiple perspectives? → @council. One expert? → specialist.
-- Permissions: Read files
-- Delegate when: Critical decisions need multiple independent perspectives • High-stakes architectural/security choices • Ambiguous problems where disagreement is useful signal • User explicitly asks for consensus
-- Don't delegate when: Straightforward tasks • Speed matters more than confidence • Routine implementation
-- How to call: Send the full question/task with context. Be explicit about what decision to resolve.
-- Result handling: Preserve council's structured response. Before acting, state the recommendation, then proceed.`,
-
-  observer: `@observer
-- Role: Visual analysis specialist for images, PDFs, and diagrams
-- Permissions: Read files
-- Delegate when: Need to analyze a multimedia file • Extract information from visual content
-- Don't delegate when: Plain text files that Read can handle • Files needing editing afterward
-- Rule of thumb: Delegate visual analysis to @observer — it isolates image/PDF bytes from your context window, returning only concise structured text.
-- IMPORTANT: Always include the **full file path** in the prompt. Example: "Analyze the screenshot at /path/to/file.png — describe the UI elements and error messages."`,
-};
-
-// Validation routing lines that reference agents
-const VALIDATION_ROUTING = [
-  '- Route UI/UX validation and review to @designer',
-  '- Route code review, simplification, maintainability review, and YAGNI checks to @oracle',
-  '- Route test writing, test updates, and changes touching test files to @fixer',
-  '- Route visual/media analysis and interpretation to @observer',
-  '- If a request spans multiple lanes, delegate only the lanes that add clear value',
-];
-
-// Parallel delegation examples
-const PARALLEL_DELEGATION_EXAMPLES = [
-  '- Multiple @explorer searches across different domains?',
-  '- @explorer + @librarian research in parallel?',
-  '- Multiple @fixer instances for faster, scoped implementation?',
-  '- @observer + @explorer in parallel (visual analysis + code search)?',
-];
-
 /**
  * Build the orchestrator prompt with dynamic agent filtering.
  * @param disabledAgents - Set of disabled agent names to exclude from the prompt
  * @returns The complete orchestrator prompt string
  */
-export function buildOrchestratorPrompt(disabledAgents?: Set<string>): string {
+export function buildOrchestratorPrompt(
+  disabledAgents?: Set<string>,
+  packOrchestrator?: OrchestratorPack,
+): string {
   // Filter agent descriptions
-  const enabledAgents = Object.entries(AGENT_DESCRIPTIONS)
+  const enabledAgents = Object.entries(ORCHESTRATOR_AGENT_DESCRIPTIONS)
     .filter(([name]) => !disabledAgents?.has(name))
     .map(([, desc]) => desc)
     .join('\n\n');
 
   // Filter validation routing lines — remove lines mentioning any disabled agent
-  const enabledValidationRouting = VALIDATION_ROUTING.filter((line) => {
+  const enabledValidationRouting = ORCHESTRATOR_VALIDATION_ROUTING.filter(
+    (line: string) => {
     const mentions = [...line.matchAll(/@(\w+)/g)].map((m) => m[1]);
     if (mentions.length === 0) return true;
     return mentions.every((name) => !disabledAgents?.has(name));
-  }).join('\n');
+  },
+  ).join('\n');
 
   // Filter parallel delegation examples — remove lines mentioning any disabled agent
-  const enabledParallelExamples = PARALLEL_DELEGATION_EXAMPLES.filter(
-    (line) => {
+  const enabledParallelExamples =
+    ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES.filter((line: string) => {
       const mentions = [...line.matchAll(/@(\w+)/g)].map((m) => m[1]);
       if (mentions.length === 0) return true;
       return mentions.every((name) => !disabledAgents?.has(name));
-    },
-  ).join('\n');
+    }).join('\n');
 
   return `<Role>
 You are an AI coding orchestrator that optimizes for quality, speed, cost, and reliability by delegating to specialists when it provides net efficiency gains.
@@ -217,6 +160,7 @@ ${enabledValidationRouting}
 - Confirm specialists completed successfully
 - Verify solution meets requirements
 
+${packOrchestrator?.workflowAdditions ?? ''}
 </Workflow>
 
 <Communication>
@@ -243,6 +187,7 @@ When user's approach seems problematic: state concern + alternative concisely, a
 **Good:** "Checking Next.js App Router docs via @librarian..."
 [proceeds with implementation]
 
+${packOrchestrator?.communicationAdditions ?? ''}
 </Communication>
 
 <Constraints>
@@ -250,6 +195,7 @@ When user's approach seems problematic: state concern + alternative concisely, a
 - Commit without explicit request — Never
 - Speculate about unread code — Never
 - Leave code in broken state after failures — Never
+${packOrchestrator?.constraintAdditions ?? ''}
 </Constraints>`;
 }
 
@@ -261,8 +207,9 @@ export function createOrchestratorAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
   disabledAgents?: Set<string>,
+  packOrchestrator?: OrchestratorPack,
 ): AgentDefinition {
-  const basePrompt = buildOrchestratorPrompt(disabledAgents);
+  const basePrompt = buildOrchestratorPrompt(disabledAgents, packOrchestrator);
   const prompt = resolvePrompt(basePrompt, customPrompt, customAppendPrompt);
 
   const definition: AgentDefinition = {

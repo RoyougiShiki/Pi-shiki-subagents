@@ -480,12 +480,14 @@ Use this section as a map: start with installation, then jump to features, confi
 | **[Todo Continuation](docs/todo-continuation.md)** | Auto-continue orchestrator sessions with cooldowns and safety checks |
 | **[Preset Switching](docs/preset-switching.md)** | Switch agent model presets at runtime with `/preset` |
 | **[Codemap](docs/codemap.md)** | Generate hierarchical codemaps to understand large codebases faster |
-| Orchestrator Guards | IntentGate, Approach Approval Gate, and Clarify Loop — three lightweight hooks that enforce instruction-following discipline |
+| Orchestrator Guards | IntentGate, ReadinessGate, Approach Approval Gate, and Orchestration Gate — code-level hard guards enforced on every tool call |
+| **[Workflow Packs](ROADMAP.md)** | Optional workflow methodology packs (`"workflowPacks": ["superpowers"]`). Deploys brainstorming, resume-plan, and specproductdesign skills on demand |
 
 ### ⚙️ Config & Reference
 
 | Doc | What it covers |
 |-----|----------------|
+| **Workflow Packs** (`workflowPacks`) | Optional workflow enhancement packs. Enable with `"workflowPacks": ["superpowers"]` to deploy brainstorming, resume-plan, and specproductdesign skills. See [ROADMAP](ROADMAP.md). |
 | **[Configuration](docs/configuration.md)** | Config file locations, JSONC support, prompt overrides, and full option reference |
 | **[Maintainer Guide](docs/maintainers.md)** | Issue triage rules, label meanings, support routing, and repo maintenance workflow |
 | **[Skills](docs/skills.md)** | Built-in and recommended skills such as `simplify`, `agent-browser`, and `codemap` |

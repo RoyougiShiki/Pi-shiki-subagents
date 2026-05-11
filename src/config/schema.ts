@@ -326,6 +326,16 @@ export const PluginConfigSchema = z
           'This model is used to analyze images via direct API call. ' +
           'Defaults to "dmxapi/glm-4.1v-thinking-flash" if not set.',
       ),
+    workflowPacks: z
+      .array(z.string())
+      .optional()
+      .describe(
+        'Optional workflow pack IDs to load at startup. ' +
+          'Built-in: "superpowers". When a pack is loaded, its gate ' +
+          'instructions, orchestrator-prompt sections, and workflow ' +
+          'reference documents are merged over the built-in defaults. ' +
+          'Default: [] (built-in only).',
+      ),
   })
   .superRefine((value, ctx) => {
     if (value.agents) {

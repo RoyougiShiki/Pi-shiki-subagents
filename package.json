@@ -31,6 +31,7 @@
   "files": [
     "dist",
     "src/skills",
+    "src/packs",
     "oh-my-opencode-slim.schema.json",
     "README.md",
     "LICENSE"

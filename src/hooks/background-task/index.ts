@@ -111,6 +111,49 @@ export function createBackgroundTaskHook(ctx: PluginInput): {
   });
   bgManager.startPolling(8_000);
 
+  /**
+   * Inject a SubtaskPart into the parent session so the OpenCode TUI
+   * renders a clickable subagent navigation link and tracks tool call
+   * count correctly — no direct OpenCode-1.14.48-SDK interaction needed.
+   */
+  async function injectSubtaskPart(
+    pluginCtx: PluginInput,
+    parentSessionId: string,
+    task: { id: string; sessionID?: string; description: string },
+    taskArgs: { description?: string; prompt?: string; subagent_type?: string },
+  ): Promise<void> {
+    const sid = task.sessionID;
+    if (!sid) return;
+
+    try {
+      await (
+        pluginCtx.client.session as unknown as {
+          promptAsync: (args: {
+            path: { id: string };
+            body: { parts: Array<Record<string, unknown>> };
+          }) => Promise<unknown>;
+        }
+      ).promptAsync({
+        path: { id: parentSessionId },
+        body: {
+          parts: [
+            {
+              type: 'subtask',
+              sessionID: sid,
+              description: task.description || taskArgs.description || '',
+              prompt: taskArgs.prompt ?? '',
+              agent: taskArgs.subagent_type ?? DEFAULT_AGENT,
+            },
+          ],
+        },
+      });
+    } catch {
+      // Subtask injection is best-effort — failure must not break
+      // the parent task execution. If the parent session cannot
+      // accept the subtask part (e.g. already ended), we skip.
+    }
+  }
+
   // ── task tool ────────────────────────────────────────────────────
 
   const taskTool = tool({
@@ -219,6 +262,10 @@ Returns task_id. Use background_output to check results.`,
           description: args.description,
         });
 
+        // Inject subtask part into parent session so the TUI shows
+        // a clickable subagent link and tool call counter.
+        await injectSubtaskPart(ctx, parentSessionId, launched, args);
+
         return [
           'Task created.',
           '',
@@ -242,6 +289,9 @@ Returns task_id. Use background_output to check results.`,
         taskId: launched.id,
         description: args.description,
       });
+
+      // Inject subtask part into parent session for TUI navigation.
+      await injectSubtaskPart(ctx, parentSessionId, launched, args);
 
       return [
         'Task created.',
