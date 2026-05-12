@@ -839,7 +839,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         const branch = ctx.sessionManager.getBranch();
         console.error("[OMO] BRANCH entries:", branch.length);
         for (const e of branch.slice(-3)) {
-          console.error("[OMO]   entry:", JSON.stringify({type: e.type, role: (e as any).role, content: typeof (e as any).content}));
+          const d: any = {type: e.type, role: (e as any).role, hasContent: 'content' in e};
+          const c = (e as any).content;
+          if (c !== undefined) {
+            d.contentType = typeof c;
+            d.contentIsArray = Array.isArray(c);
+            if (Array.isArray(c)) d.contentLen = c.length;
+            if (typeof c === 'object' && c !== null && !Array.isArray(c)) d.contentKeys = Object.keys(c).slice(0,5);
+            if (typeof c === 'string') d.contentPreview = c.slice(0, 50);
+          }
+          console.error("[OMO]   entry:", JSON.stringify(d));
         }
       } catch (be) {
         console.error("[OMO] BRANCH error:", be);
