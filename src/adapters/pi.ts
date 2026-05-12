@@ -802,41 +802,40 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool(tools.astGrepSearch);
   pi.registerTool(tools.astGrepReplace);
 
-  // ── Track current assistant text during streaming ──────────────────
-  // message_start (assistant) → reset
-  // message_update (assistant, text) → accumulate
-  // tool_call → check accumulated text for declarations
-  let currentAssistantText = "";
-
-  pi.on("message_start", async (event: any) => {
-    if (event.message?.role === "assistant") {
-      currentAssistantText = "";
-      console.error("[oh-my-opencode-slim] DEBUG: message_start (assistant)");
-    }
-  });
-
-  pi.on("message_update", async (event: any) => {
-    if (event.message?.role === "assistant") {
-      const parts = event.message.content ?? [];
-      const prevLen = currentAssistantText.length;
-      for (const part of parts) {
-        if (part.type === "text" && typeof part.text === "string") {
-          currentAssistantText = part.text;
+  // ── Declaration gates via tool_call blocking ───────────────────────
+  // Read the LAST COMPLETE assistant message from session.
+  // The current streaming message isn't in session yet, so we check the
+  // previous turn's message. On the first tool call of a session (no
+  // previous assistant message), gates are skipped.
+  function getLastAssistantText(ctx: ExtensionContext): string {
+    try {
+      const branch = ctx.sessionManager.getBranch();
+      for (let i = branch.length - 1; i >= 0; i--) {
+        const entry = branch[i];
+        if (entry.type === "message" && (entry as any).role === "assistant") {
+          const content = (entry as any).content;
+          if (typeof content === "string") return content;
+          if (Array.isArray(content)) {
+            return content
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text)
+              .join("\n");
+          }
+          return "";
         }
       }
-      if (currentAssistantText.length !== prevLen) {
-        console.error("[oh-my-opencode-slim] DEBUG: text accumulated, len=", currentAssistantText.length);
-      }
+    } catch {
+      // ignore
     }
-  });
+    return "";
+  }
 
-  // ── Declaration gates via tool_call blocking ───────────────────────
   pi.on("tool_call", async (event, ctx) => {
     try {
-      let lastText = currentAssistantText;
+      const lastText = getLastAssistantText(ctx);
 
-      // Log debug info
-      console.error("[oh-my-opencode-slim] DEBUG: tool_call:", event.toolName, "text_len=", lastText.length);
+      // First turn (no previous assistant message): skip gate
+      if (!lastText) return;
 
       // Intent Gate: required for ALL tool calls
       if (!/^Intent:/im.test(lastText)) {
@@ -861,6 +860,26 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       }
     } catch (err) {
       console.error("[oh-my-opencode-slim] Gate error:", err);
+    }
+  });
+
+  // ── Gate reminders in context ──────────────────────────────────────
+  pi.on("context", async (event, _ctx) => {
+    const reminder = {
+      role: "system" as const,
+      content: [{ type: "text" as const, text: `[Gate Rules]
+Before calling ANY tool, your response must include at the start:
+1. Intent: <classification> → <routing>
+2. ORCHESTRATION: self | delegate to <agent> (if using agent/workflow)
+3. READY: <context> + APPROVED: <plan> (if using edit/write)
+
+Example: "Intent: investigation → explore"` }],
+    };
+    const hasReminder = event.messages.some(
+      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
+    );
+    if (!hasReminder) {
+      return { messages: [...event.messages, reminder] };
     }
   });
 
