@@ -11,9 +11,21 @@ description: 执行已有的计划任务。触发条件：用户说"继续开发
 
 **Core principle:** Scan → Match → Resume
 
+## 参考文档
+
+执行过程中需要的参考文档位于 `../brainstorming/references/` 目录（与本技能平行的 brainstorming 技能下）：
+
+- `executing-plans.md` - 执行计划（批次间反馈）
+- `subagent-workflow.md` - 子代理驱动执行
+- `tdd.md` - TDD 流程
+- `safe-workspace.md` - 工作空间保护
+- `code-review.md` - 代码审查
+- `finishing-branch.md` - 完成分支处理
+
 ## When to Use
 
 - 用户说"继续"、"继续任务"、"继续开发"、"resume"
+- 用户说"执行计划"、"执行 feature-a"
 - 用户指定计划名"继续 feature-a"
 
 ## 任务状态模型
@@ -47,12 +59,26 @@ pending → implemented → spec_reviewed → completed
 如果没有找到，告知用户：
 ```
 未找到进行中的计划。
+
+可能原因：
+- 所有计划已完成
+- 尚未使用 extract-tasks 生成任务文件
 ```
 
 ### Step 3: 匹配用户输入
 
-- **用户指定计划名** → 在 planId 中匹配
+- **用户指定计划名** → 在 planId 中匹配，直接定位
 - **用户未指定** → 列出所有未完成计划供选择
+
+列出格式：
+```
+发现 N 个未完成的计划：
+
+1. feature-a (3/5 完成, 更新于 2026-02-17)
+2. feature-b (1/3 完成, 更新于 2026-02-16)
+
+请选择要继续的计划（输入编号或名称）：
+```
 
 ### Step 4: 展示进度 + 选择执行方式
 

@@ -4,7 +4,7 @@
 
 ## Overview
 
-Dispatch code-reviewer subagent to catch issues before they cascade.
+Dispatch @oracle to review code and catch issues before they cascade.
 
 **Core principle:** Review early, review often.
 
@@ -23,16 +23,19 @@ BASE_SHA=$(git rev-parse HEAD~1)  # or origin/main
 HEAD_SHA=$(git rev-parse HEAD)
 ```
 
-**2. Dispatch code-reviewer subagent:**
+**2. 派发 `@oracle` 进行代码审查：**
 
-Use Task tool with code-reviewer type, fill template.
+在 prompt 中说明：
+- 实现内容：修改了哪些文件、做了什么
+- 审查重点：逻辑错误、边界情况、安全隐患
+- 参考基线：`{BASE_SHA}` → `{HEAD_SHA}`
 
-**Placeholders:**
-- `{WHAT_WAS_IMPLEMENTED}` - What you just built
-- `{PLAN_OR_REQUIREMENTS}` - What it should do
-- `{BASE_SHA}` - Starting commit
-- `{HEAD_SHA}` - Ending commit
-- `{DESCRIPTION}` - Brief summary
+**Placeholders（填入 prompt）：**
+- `{WHAT_WAS_IMPLEMENTED}` - 本次实现了什么
+- `{PLAN_OR_REQUIREMENTS}` - 应该做什么（方案/需求依据）
+- `{BASE_SHA}` - 起始 commit
+- `{HEAD_SHA}` - 结束 commit
+- `{DESCRIPTION}` - 简要描述
 
 **3. Act on feedback:**
 - Fix Critical issues immediately

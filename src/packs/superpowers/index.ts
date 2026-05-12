@@ -14,7 +14,6 @@ When planning implementation, follow these principles:
 - Use \`docs/plans/{project-name}/plan.md\` for implementation plans
 - Each task should be 2-5 minutes, independently completable
 - Include complete code examples and verification commands
-- Follow TDD: RED→GREEN→REFACTOR for every behavior change
 
 ### Execution
 - After each task: subagent implements → spec review (hard gate) → quality review
@@ -23,7 +22,7 @@ When planning implementation, follow these principles:
 
 ### Available Skills
 The following methodology skills are installed and can be loaded via the \`skill\` tool:
-- \`brainstorming\` — design refinement workflow
+- \`brainstorming\` — design refinement workflow, TDD/BDD reference docs included
 - \`resume-plan\` — task recovery and continue
 - \`specproductdesign\` — requirement document generation with BDD scenarios
 `;
