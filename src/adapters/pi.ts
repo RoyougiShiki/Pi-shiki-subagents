@@ -842,6 +842,27 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Also check at before_agent_start time (more reliable if settings changed)
   let runtimeHasPiAgents = hasPiAgents;
 
+  // ── Track current assistant text for gate checking during streaming ─-
+  // Problem: when LLM outputs text + calls tool in one response,
+  // the text isn't in the session yet at tool_call time.
+  // We track it in-memory via message_update events.
+  let currentAssistantText = "";
+
+  pi.on("turn_start", async () => {
+    currentAssistantText = "";
+  });
+
+  pi.on("message_update", async (event: any) => {
+    if (event.message?.role === "assistant") {
+      const parts = event.message.content ?? [];
+      for (const part of parts) {
+        if (part.type === "text") {
+          currentAssistantText += part.text ?? "";
+        }
+      }
+    }
+  });
+
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, _ctx) => {
     ensureAgentFiles(config);
@@ -878,7 +899,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Declaration gates ───────────────────────────────────────────────
   pi.on("tool_call", async (event, ctx) => {
     try {
-      const lastText = getLastAssistantText(ctx);
+      // Use in-memory streaming text first (current response), fall back to session
+      const lastText = currentAssistantText || getLastAssistantText(ctx);
 
       // Intent Gate: required for ALL tool calls
       if (!hasDeclaration(lastText, GATE_PATTERNS.intent)) {
