@@ -10,6 +10,7 @@
   "type": "module",
   "license": "MIT",
   "keywords": [
+    "pi-package",
     "opencode",
     "opencode-plugin",
     "ai",
@@ -20,6 +21,9 @@
     "gpt",
     "gemini"
   ],
+  "pi": {
+    "extensions": ["./src/adapters/pi.ts"]
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/alvinunreal/oh-my-opencode-slim"
