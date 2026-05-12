@@ -393,8 +393,9 @@ ${agentDescriptions}
 </Available Agents>
 
 <IntentGate>
-Every message: classify intent FIRST, before any action. Write on the first line of your response:
+You MUST write your intent declaration at the start of your OWN assistant reply, before any tool call:
 "Intent: [research|implementation|investigation|evaluation|fix|open-ended] → [routing decision]."
+Example: "Intent: investigation → explore the repo"
 
 **Surface → True Intent:**
 - "explain X", "how does Y work" → Research → explore/librarian → synthesize → answer
@@ -812,16 +813,19 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const branch = ctx.sessionManager.getBranch();
       for (let i = branch.length - 1; i >= 0; i--) {
         const entry = branch[i];
-        if (entry.type === "message" && (entry as any).role === "assistant") {
-          const content = (entry as any).content;
-          if (typeof content === "string") return content;
-          if (Array.isArray(content)) {
-            return content
-              .filter((p: any) => p.type === "text")
-              .map((p: any) => p.text)
-              .join("\n");
+        if (entry.type === "message") {
+          const msg = (entry as any).message;
+          if (msg?.role === "assistant") {
+            const content = msg.content;
+            if (typeof content === "string") return content;
+            if (Array.isArray(content)) {
+              return content
+                .filter((p: any) => p.type === "text")
+                .map((p: any) => p.text)
+                .join("\n");
+            }
+            return "";
           }
-          return "";
         }
       }
     } catch {
@@ -833,27 +837,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     try {
       const lastText = getLastAssistantText(ctx);
-
-      // DEBUG: dump branch structure
-      try {
-        const branch = ctx.sessionManager.getBranch();
-        console.error("[OMO] BRANCH entries:", branch.length);
-        for (const e of branch.slice(-3)) {
-          const d: any = {type: e.type, role: (e as any).role, hasContent: 'content' in e};
-          const c = (e as any).content;
-          if (c !== undefined) {
-            d.contentType = typeof c;
-            d.contentIsArray = Array.isArray(c);
-            if (Array.isArray(c)) d.contentLen = c.length;
-            if (typeof c === 'object' && c !== null && !Array.isArray(c)) d.contentKeys = Object.keys(c).slice(0,5);
-            if (typeof c === 'string') d.contentPreview = c.slice(0, 50);
-          }
-          console.error("[OMO]   entry:", JSON.stringify(d));
-        }
-      } catch (be) {
-        console.error("[OMO] BRANCH error:", be);
-      }
-      console.error("[OMO] lastText:", JSON.stringify(lastText));
 
       // First turn (no previous assistant message): skip gate
       if (!lastText) return;
@@ -889,12 +872,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const reminder = {
       role: "system" as const,
       content: [{ type: "text" as const, text: `[Gate Rules]
-Before calling ANY tool, your response must include at the start:
+YOU MUST write these declarations in YOUR assistant reply before calling any tool:
 1. Intent: <classification> → <routing>
 2. ORCHESTRATION: self | delegate to <agent> (if using agent/workflow)
 3. READY: <context> + APPROVED: <plan> (if using edit/write)
 
-Example: "Intent: investigation → explore"` }],
+Example: "Intent: investigation → explore the repo"` }],
     };
     const hasReminder = event.messages.some(
       (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
