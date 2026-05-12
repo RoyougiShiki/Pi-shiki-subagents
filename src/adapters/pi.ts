@@ -8,8 +8,8 @@
  *   - OMO's orchestrator prompt is injected via before_agent_start
  *   - Declaration gates (Intent/Clarify/Approval/Orchestration) are enforced
  *     via system prompt instructions and context event reminders
- *   - OMO's custom tools (webfetch, ast-grep, council, vision) are registered
- *     as pi tools
+ *   - OMO's custom tools (delegate, council, ast-grep) are registered
+ *     as pi tools (webfetch omitted — pi-web-access provides better ones)
  *   - /preset command switches model presets at runtime
  *
  * Dependencies:
@@ -26,6 +26,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  INTENT_GATE_BLOCK_MESSAGE,
+  CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
+  APPROVAL_GATE_BLOCK_MESSAGE,
+  ORCHESTRATION_GATE_BLOCK_MESSAGE,
+} from "../core/workflow-templates";
 
 // ─── Agent Prompts (extracted from OMO src/agents/) ────────────────────────
 
@@ -462,56 +468,6 @@ Use omo_council when you need multiple models to analyze the same question indep
 
 function createToolImplementations(config: OmniMoConfig | null) {
   return {
-    webfetch: {
-      name: "omo_webfetch",
-      label: "OMO Web Fetch",
-      description: "Fetch a URL and extract readable content as markdown. Useful for documentation lookups.",
-      promptSnippet: "Fetch web content from URLs and extract readable text",
-      parameters: Type.Object({
-        url: Type.String({ description: "URL to fetch" }),
-        maxChars: Type.Optional(
-          Type.Integer({ description: "Maximum characters to extract", default: 10000 }),
-        ),
-      }),
-      async execute(
-        _toolCallId: string,
-        params: { url: string; maxChars?: number },
-        _signal: AbortSignal | undefined,
-        _onUpdate: any,
-        _ctx: ExtensionContext,
-      ) {
-        try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 15000);
-          const response = await fetch(params.url, {
-            signal: controller.signal,
-            headers: { "User-Agent": "omo-pi-adapter/1.0" },
-          });
-          clearTimeout(timer);
-          if (!response.ok) {
-            return {
-              content: [{ type: "text" as const, text: `HTTP ${response.status}: ${response.statusText}` }],
-              details: {},
-              isError: true,
-            };
-          }
-          const text = await response.text();
-          const maxChars = params.maxChars ?? 10000;
-          const extracted = text.replace(/<[^>]+>/g, "").slice(0, maxChars);
-          return {
-            content: [{ type: "text" as const, text: extracted }],
-            details: { url: params.url, length: text.length },
-          };
-        } catch (err: any) {
-          return {
-            content: [{ type: "text" as const, text: `Fetch failed: ${err.message ?? String(err)}` }],
-            details: {},
-            isError: true,
-          };
-        }
-      },
-    },
-
     delegate: {
       name: "omo_delegate",
       label: "OMO Delegate",
@@ -841,43 +797,70 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Register custom tools ───────────────────────────────────────────
   const tools = createToolImplementations(config);
-  pi.registerTool(tools.webfetch);
   pi.registerTool(tools.delegate);
   pi.registerTool(tools.council);
   pi.registerTool(tools.astGrepSearch);
   pi.registerTool(tools.astGrepReplace);
 
-  // ── Gate reminders via context injection ───────────────────────────
-  // Instead of blocking tool calls (which doesn't work because the current
-  // assistant message isn't in session at tool_call time), we inject
-  // gate reminder messages into the LLM context before each response.
-  // This is the same approach as OpenCode's experimental.chat.messages.transform.
-  pi.on("context", async (event, _ctx) => {
-    // Inject a structured reminder as a system message before each LLM call
-    const reminder = {
-      role: "system" as const,
-      content: [
-        {
-          type: "text" as const,
-          text: `[Gate Reminder]
-Before calling any tool, your previous response MUST include:
-1. "Intent: <classification> → <routing>" - what you intend to do
-2. "ORCHESTRATION: self | delegate to <agent>" - before agent/workflow calls
-3. "READY: <context>" - before edit/write (confirm you understand)
-4. "APPROVED: <plan>" - before edit/write (plan confirmed)
+  // ── Track current assistant text during streaming ──────────────────
+  // message_start (assistant) → reset
+  // message_update (assistant, text) → accumulate
+  // tool_call → check accumulated text for declarations
+  let currentAssistantText = "";
 
-Example:"Intent: investigation → explore the repo. ORCHESTRATION: delegate to explorer. READY: looking for auth files."`,
-        },
-      ],
-    };
+  pi.on("message_start", async (event: any) => {
+    if (event.message?.role === "assistant") {
+      currentAssistantText = "";
+      console.error("[oh-my-opencode-slim] DEBUG: message_start (assistant)");
+    }
+  });
 
-    // Add reminder at the end of messages (before LLM sees them)
-    // Don't add if already present
-    const hasReminder = event.messages.some(
-      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Reminder]")),
-    );
-    if (!hasReminder) {
-      return { messages: [...event.messages, reminder] };
+  pi.on("message_update", async (event: any) => {
+    if (event.message?.role === "assistant") {
+      const parts = event.message.content ?? [];
+      const prevLen = currentAssistantText.length;
+      for (const part of parts) {
+        if (part.type === "text" && typeof part.text === "string") {
+          currentAssistantText = part.text;
+        }
+      }
+      if (currentAssistantText.length !== prevLen) {
+        console.error("[oh-my-opencode-slim] DEBUG: text accumulated, len=", currentAssistantText.length);
+      }
+    }
+  });
+
+  // ── Declaration gates via tool_call blocking ───────────────────────
+  pi.on("tool_call", async (event, ctx) => {
+    try {
+      let lastText = currentAssistantText;
+
+      // Log debug info
+      console.error("[oh-my-opencode-slim] DEBUG: tool_call:", event.toolName, "text_len=", lastText.length);
+
+      // Intent Gate: required for ALL tool calls
+      if (!/^Intent:/im.test(lastText)) {
+        return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
+      }
+
+      // Orchestration Gate: required for agent/workflow
+      if (event.toolName === "agent" || event.toolName === "workflow") {
+        if (!/^ORCHESTRATION:/im.test(lastText)) {
+          return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
+        }
+      }
+
+      // Readiness + Approval Gates: required before edit/write
+      if (event.toolName === "edit" || event.toolName === "write") {
+        if (!/^READY:/im.test(lastText) && !/^AWAITING_APPROVAL:/im.test(lastText)) {
+          return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
+        }
+        if (!/^APPROVED:/im.test(lastText)) {
+          return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
+        }
+      }
+    } catch (err) {
+      console.error("[oh-my-opencode-slim] Gate error:", err);
     }
   });
 
