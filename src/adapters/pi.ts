@@ -834,6 +834,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     try {
       const lastText = getLastAssistantText(ctx);
 
+      // DEBUG: dump branch structure
+      try {
+        const branch = ctx.sessionManager.getBranch();
+        console.error("[OMO] BRANCH entries:", branch.length);
+        for (const e of branch.slice(-3)) {
+          console.error("[OMO]   entry:", JSON.stringify({type: e.type, role: (e as any).role, content: typeof (e as any).content}));
+        }
+      } catch (be) {
+        console.error("[OMO] BRANCH error:", be);
+      }
+      console.error("[OMO] lastText:", JSON.stringify(lastText));
+
       // First turn (no previous assistant message): skip gate
       if (!lastText) return;
 
