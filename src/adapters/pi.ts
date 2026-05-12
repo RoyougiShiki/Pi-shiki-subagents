@@ -31,7 +31,7 @@ import {
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
   APPROVAL_GATE_BLOCK_MESSAGE,
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
-} from "../core/workflow-templates.js";
+} from "../core/workflow-templates";
 
 // ─── Agent Prompts (extracted from OMO src/agents/) ────────────────────────
 
