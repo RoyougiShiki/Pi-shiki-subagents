@@ -7,7 +7,7 @@
  *   - Agent markdown files are generated in ~/.pi/agents/ on first load
  *   - OMO's orchestrator prompt is injected via before_agent_start
  *   - Declaration gates (Intent/Clarify/Approval/Orchestration) are enforced
- *     via tool_call event hooks
+ *     via system prompt instructions and context event reminders
  *   - OMO's custom tools (webfetch, ast-grep, council, vision) are registered
  *     as pi tools
  *   - /preset command switches model presets at runtime
@@ -26,12 +26,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import {
-  INTENT_GATE_BLOCK_MESSAGE,
-  CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
-  APPROVAL_GATE_BLOCK_MESSAGE,
-  ORCHESTRATION_GATE_BLOCK_MESSAGE,
-} from "../core/workflow-templates";
 
 // ─── Agent Prompts (extracted from OMO src/agents/) ────────────────────────
 
@@ -176,40 +170,6 @@ Brief summary of what was implemented
 - If the image is unclear, state what you CAN see and note what is uncertain`,
   },
 };
-
-// ─── Gate helpers ──────────────────────────────────────────────────────────
-
-const GATE_PATTERNS = {
-  intent: /^Intent:/m,
-  orchestration: /^ORCHESTRATION:/m,
-  ready: /^READY:/m,
-  approved: /^APPROVED:/m,
-  awaitingApproval: /^AWAITING_APPROVAL:/m,
-  done: /^DONE:/m,
-};
-
-function getLastAssistantText(ctx: ExtensionContext): string {
-  const branch = ctx.sessionManager.getBranch();
-  for (let i = branch.length - 1; i >= 0; i--) {
-    const entry = branch[i];
-    if (entry.type === "message" && (entry as any).role === "assistant") {
-      const content = (entry as any).content;
-      if (typeof content === "string") return content;
-      if (Array.isArray(content)) {
-        return content
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text)
-          .join("\n");
-      }
-      return "";
-    }
-  }
-  return "";
-}
-
-function hasDeclaration(text: string, pattern: RegExp): boolean {
-  return pattern.test(text);
-}
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
@@ -472,19 +432,25 @@ ${delegationGuide}
 </Communication>
 
 <Gate Rules>
-Declaration requirements per scenario:
+Before calling ANY tool, your response must include these inline declarations:
 
-1. **Intent: classification → routing** — required before ANY tool call
-2. **ORCHESTRATION: self | delegate to <agent>** — required before agent/workflow tool calls
-3. **READY: what you know** — required before edit/write (confirm you understand before implementing)
-4. **APPROVED: plan** — required before edit/write tool calls
+1. **Intent: <classification> → <routing>** — always required
+   e.g., "Intent: investigation → explore the repo"
+2. **ORCHESTRATION: self | delegate to <agent>** — required before agent/workflow calls
+   e.g., "ORCHESTRATION: delegate to explorer"
+3. **READY: <context summary>** — required before edit/write
+   e.g., "READY: found auth module at src/auth.ts, understand the structure"
+4. **APPROVED: <plan>** — required before edit/write
+   e.g., "APPROVED: update the auth middleware"
 
-Example (research first, then implement):
-User: "Find auth module and update it"
-You: "Intent: investigation → explore. Let me find the auth code first."
-→ agent(research)...
-You: "Intent: implementation → self. READY: found the file. APPROVED: update auth middleware."
-→ edit/write...
+Example:
+">> User: Find auth module and update it
+>> You: Intent: investigation → explore. Let me check the code.
+[first tool call - grep/search]
+...
+>> You: ORCHESTRATION: delegate to fixer. READY: found auth module at src/auth.ts. APPROVED: update authorization flow.
+[second tool call - agent or edit]
+..."
 </Gate Rules>
 
 <Council Tool>
@@ -848,27 +814,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Also check at before_agent_start time (more reliable if settings changed)
   let runtimeHasPiAgents = hasPiAgents;
 
-  // ── Track current assistant text for gate checking during streaming ─-
-  // Problem: when LLM outputs text + calls tool in one response,
-  // the text isn't in the session yet at tool_call time.
-  // We track it in-memory via message_update events.
-  let currentAssistantText = "";
-
-  pi.on("turn_start", async () => {
-    currentAssistantText = "";
-  });
-
-  pi.on("message_update", async (event: any) => {
-    if (event.message?.role === "assistant") {
-      const parts = event.message.content ?? [];
-      for (const part of parts) {
-        if (part.type === "text") {
-          currentAssistantText += part.text ?? "";
-        }
-      }
-    }
-  });
-
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, _ctx) => {
     ensureAgentFiles(config);
@@ -902,45 +847,37 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool(tools.astGrepSearch);
   pi.registerTool(tools.astGrepReplace);
 
-  // ── Declaration gates ───────────────────────────────────────────────
-  pi.on("tool_call", async (event, ctx) => {
-    try {
-      // Use in-memory streaming text first (current response), fall back to session
-      const lastText = currentAssistantText || getLastAssistantText(ctx);
+  // ── Gate reminders via context injection ───────────────────────────
+  // Instead of blocking tool calls (which doesn't work because the current
+  // assistant message isn't in session at tool_call time), we inject
+  // gate reminder messages into the LLM context before each response.
+  // This is the same approach as OpenCode's experimental.chat.messages.transform.
+  pi.on("context", async (event, _ctx) => {
+    // Inject a structured reminder as a system message before each LLM call
+    const reminder = {
+      role: "system" as const,
+      content: [
+        {
+          type: "text" as const,
+          text: `[Gate Reminder]
+Before calling any tool, your previous response MUST include:
+1. "Intent: <classification> → <routing>" - what you intend to do
+2. "ORCHESTRATION: self | delegate to <agent>" - before agent/workflow calls
+3. "READY: <context>" - before edit/write (confirm you understand)
+4. "APPROVED: <plan>" - before edit/write (plan confirmed)
 
-      // Intent Gate: required for ALL tool calls
-      if (!hasDeclaration(lastText, GATE_PATTERNS.intent)) {
-        return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
-      }
+Example:"Intent: investigation → explore the repo. ORCHESTRATION: delegate to explorer. READY: looking for auth files."`,
+        },
+      ],
+    };
 
-      // Orchestration Gate: required for agent/workflow (delegation decisions)
-      if (
-        event.toolName === "agent" ||
-        event.toolName === "workflow"
-      ) {
-        if (!hasDeclaration(lastText, GATE_PATTERNS.orchestration)) {
-          return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
-        }
-      }
-
-      // Readiness/Clarify Gate: required BEFORE implementing (edit/write)
-      if (event.toolName === "edit" || event.toolName === "write") {
-        if (
-          !hasDeclaration(lastText, GATE_PATTERNS.ready) &&
-          !hasDeclaration(lastText, GATE_PATTERNS.awaitingApproval)
-        ) {
-          return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
-        }
-
-        // Approval Gate: required for edit/write after user confirms plan
-        if (!hasDeclaration(lastText, GATE_PATTERNS.approved)) {
-          return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
-        }
-      }
-    } catch (err) {
-      // Gate check failed silently - log and allow the tool call
-      console.error("[oh-my-opencode-slim] Gate check error:", err);
-      return;
+    // Add reminder at the end of messages (before LLM sees them)
+    // Don't add if already present
+    const hasReminder = event.messages.some(
+      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Reminder]")),
+    );
+    if (!hasReminder) {
+      return { messages: [...event.messages, reminder] };
     }
   });
 
