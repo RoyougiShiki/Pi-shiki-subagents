@@ -26,6 +26,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+  INTENT_GATE_BLOCK_MESSAGE,
+  CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
+  APPROVAL_GATE_BLOCK_MESSAGE,
+  ORCHESTRATION_GATE_BLOCK_MESSAGE,
+} from "../core/workflow-templates.js";
 
 // ─── Agent Prompts (extracted from OMO src/agents/) ────────────────────────
 
@@ -904,12 +910,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
       // Intent Gate: required for ALL tool calls
       if (!hasDeclaration(lastText, GATE_PATTERNS.intent)) {
-        return {
-          block: true,
-          reason:
-            "[IntentGate] 在调用工具前，请先在回复开头声明你的意图。\n" +
-            '例如： "Intent: investigation → explore the repo"\n',
-        };
+        return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
       }
 
       // Orchestration Gate: required for agent/workflow (delegation decisions)
@@ -918,38 +919,22 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         event.toolName === "workflow"
       ) {
         if (!hasDeclaration(lastText, GATE_PATTERNS.orchestration)) {
-          return {
-            block: true,
-            reason:
-              "[OrchestrationGate] 调用 agent/workflow 前请先声明编排决策。\n" +
-              '例如： "ORCHESTRATION: delegate to explorer"\n',
-          };
+          return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
         }
       }
 
       // Readiness/Clarify Gate: required BEFORE implementing (edit/write)
-      // Not required for research tools (read, grep, etc.)
       if (event.toolName === "edit" || event.toolName === "write") {
         if (
           !hasDeclaration(lastText, GATE_PATTERNS.ready) &&
           !hasDeclaration(lastText, GATE_PATTERNS.awaitingApproval)
         ) {
-          return {
-            block: true,
-            reason:
-              "[ReadinessGate] 改文件前请先确认你已掌握足够上下文。\n" +
-              '例如： "READY: 已理解架构，可以改 auth 模块"\n',
-          };
+          return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
         }
 
-        // Approval Gate: required for edit/write tool calls
+        // Approval Gate: required for edit/write after user confirms plan
         if (!hasDeclaration(lastText, GATE_PATTERNS.approved)) {
-          return {
-            block: true,
-            reason:
-              "[ApprovalGate] 改文件前请先声明方案已得到用户确认。\n" +
-              '例如： "APPROVED: 重构 auth 模块"\n',
-          };
+          return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
         }
       }
     } catch (err) {
