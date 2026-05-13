@@ -21,11 +21,15 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  getAgentDir,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
   INTENT_GATE_BLOCK_MESSAGE,
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
@@ -473,137 +477,159 @@ function createToolImplementations(config: OmniMoConfig | null) {
       name: "omo_delegate",
       label: "OMO Delegate",
       description:
-        "Delegate a task to a specialist agent. Use when pi-agents is not available.\n" +
-        "Agents: explorer (code search), librarian (docs), oracle (review), fixer (implement), designer (UI/UX).",
+        "Delegate tasks to specialist agents in-process (no subprocess).\n" +
+        "Modes: single (agent + task), chain (sequential with context), tasks (parallel).\n" +
+        "Agents: explorer, librarian, oracle, fixer, designer, observer.",
       promptSnippet:
-        "Delegate a focused subtask to a specialist agent (fallback when pi-agents unavailable)",
+        "Delegate a focused subtask to a specialist agent (in-process, returns result)",
       parameters: Type.Object({
-        agent: Type.String({
-          description:
-            "Agent name: explorer | librarian | oracle | fixer | designer | observer",
-        }),
-        task: Type.String({ description: "Task to delegate" }),
+        agent: Type.Optional(Type.String({
+          description: "Agent name: explorer | librarian | oracle | fixer | designer | observer",
+        })),
+        task: Type.Optional(Type.String({ description: "Task to delegate" })),
+        tasks: Type.Optional(
+          Type.Array(
+            Type.Object({
+              agent: Type.String(),
+              task: Type.String(),
+            }),
+            { description: "Parallel tasks array" },
+          ),
+        ),
         chain: Type.Optional(
           Type.Array(
             Type.Object({
               agent: Type.String(),
               task: Type.String(),
             }),
-            { description: "Optional chain of agents for sequential execution" },
+            { description: "Chain of agents for sequential execution" },
           ),
         ),
       }),
       async execute(
         _toolCallId: string,
         params: {
-          agent: string;
-          task: string;
+          agent?: string;
+          task?: string;
+          tasks?: Array<{ agent: string; task: string }>;
           chain?: Array<{ agent: string; task: string }>;
         },
         _signal: AbortSignal | undefined,
         _onUpdate: any,
         ctx: ExtensionContext,
       ) {
-        const allSteps = [
-          { agent: params.agent, task: params.task },
-          ...(params.chain ?? []),
-        ];
-
-        const results: string[] = [];
-        for (let i = 0; i < allSteps.length; i++) {
-          const step = allSteps[i];
-          const agentInfo = AGENT_PROMPTS[step.agent];
-
+        // ── Helper: run one agent via createAgentSession ────────────────
+        async function runOne(
+          agentName: string,
+          taskText: string,
+        ): Promise<string> {
+          const agentInfo = AGENT_PROMPTS[agentName];
           if (!agentInfo) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Unknown agent: "${step.agent}". Available: ${Object.keys(AGENT_PROMPTS).join(", ")}`,
-                },
-              ],
-              details: {},
-              isError: true,
-            };
+            return `[Unknown agent: ${agentName}]`;
           }
 
-          try {
-            const { spawnSync } = await import("node:child_process");
-            const { mkdtempSync, writeFileSync, unlinkSync, rmdirSync } = await import("node:fs");
-            const { join } = await import("node:path");
-            const { tmpdir } = await import("node:os");
+          const { session } = await createAgentSession({
+            model: undefined, // use default pi model
+            tools: ["read", "bash", "edit", "write", "grep", "find", "ls"],
+            sessionManager: SessionManager.inMemory(),
+            cwd: ctx.cwd,
+          });
 
-            const tmpDir = mkdtempSync(join(tmpdir(), "omo-delegate-"));
-            const promptPath = join(tmpDir, "prompt.md");
-            // Write only the agent's system prompt to the file, not the task
-            writeFileSync(promptPath, agentInfo.prompt, "utf-8");
+          const fullPrompt = `${agentInfo.prompt}\n\n## Task\n${taskText}`;
+          await session.prompt(fullPrompt, { source: "extension" });
 
-            try {
-              // Pass model from config if available
-              const modelFlag = step.agent ? ` --model "${getDefaultModel(step.agent, config)}"` : "";
-              const shellCmd = `pi --mode json -p --no-session${modelFlag} --append-system-prompt "${promptPath}" "${step.task.replace(/"/g, '\\"').replace(/[$`]/g, '\\$&')}"`;
-              const proc = spawnSync(shellCmd, [], {
-                cwd: ctx.cwd,
-                encoding: "utf-8",
-                maxBuffer: 10 * 1024 * 1024,
-                timeout: 120000,
-                shell: true,
-                stdio: ["ignore", "pipe", "pipe"],
-              });
-              if (proc.error) throw proc.error;
-              const result = proc.stdout || "";
-
-              // Extract the last text content from JSON events
-              const lines = result.split("\n").filter((l) => l.trim());
-              const lastMessages = lines
-                .filter((l) => l.includes('"type":"message_end"'))
-                .map((l) => {
-                  try {
-                    const parsed = JSON.parse(l);
-                    const parts = parsed.message?.content ?? [];
-                    return parts
-                      .filter((p: any) => p.type === "text")
-                      .map((p: any) => p.text)
-                      .join("\n");
-                  } catch {
-                    return null;
-                  }
-                })
+          // Extract last assistant text
+          const msgs = session.state.messages ?? [];
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m.role === "assistant") {
+              const parts = m.content ?? [];
+              const texts = parts
+                .filter((p: any) => p.type === "text")
+                .map((p: any) => p.text)
                 .filter(Boolean);
-
-              const output = lastMessages[lastMessages.length - 1] ?? "(completed)";
-              results.push(output);
-
-              if (i < allSteps.length - 1) {
-                // Pass previous output to next step
-                allSteps[i + 1].task += `\n\nPrevious output:\n${output}`;
-              }
-            } finally {
-              try {
-                unlinkSync(promptPath);
-                rmdirSync(tmpDir);
-              } catch {
-                // ignore cleanup errors
-              }
+              if (texts.length > 0) return texts.join("\n");
             }
-          } catch (err: any) {
+          }
+          return "(completed)";
+        }
+
+        // ── Parallel mode ───────────────────────────────────────────────
+        if (params.tasks && params.tasks.length > 0) {
+          try {
+            const results = await Promise.all(
+              params.tasks.map((t) => runOne(t.agent, t.task)),
+            );
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Step ${i + 1} (${step.agent}) failed: ${err.message ?? String(err)}`,
+                  text: results.map((r, i) => `[${params.tasks![i].agent}]\n${r}`).join("\n\n---\n\n"),
                 },
               ],
+              details: { mode: "parallel", count: params.tasks.length },
+            };
+          } catch (err: any) {
+            return {
+              content: [{ type: "text" as const, text: `Parallel delegation failed: ${err.message}` }],
               details: {},
               isError: true,
             };
           }
         }
 
-        return {
-          content: [{ type: "text" as const, text: results.join("\n\n---\n\n") }],
-          details: { steps: allSteps.length, results },
-        };
+        // ── Chain mode ─────────────────────────────────────────────────
+        if (params.chain && params.chain.length > 0) {
+          const results: string[] = [];
+          let context = "";
+          for (let i = 0; i < params.chain.length; i++) {
+            const step = params.chain[i];
+            const taskWithContext = context ? `${step.task}\n\nPrevious output:\n${context}` : step.task;
+            try {
+              const output = await runOne(step.agent, taskWithContext);
+              results.push(output);
+              context = output;
+            } catch (err: any) {
+              return {
+                content: [{ type: "text" as const, text: `Step ${i + 1} (${step.agent}) failed: ${err.message}` }],
+                details: {},
+                isError: true,
+              };
+            }
+          }
+          return {
+            content: [{ type: "text" as const, text: results.join("\n\n---\n\n") }],
+            details: { mode: "chain", steps: results.length },
+          };
+        }
+
+        // ── Single mode ────────────────────────────────────────────────
+        if (!params.agent || !params.task) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Provide agent + task, or tasks[], or chain[]. Available agents: ${Object.keys(AGENT_PROMPTS).join(", ")}`,
+              },
+            ],
+            details: {},
+            isError: true,
+          };
+        }
+
+        try {
+          const output = await runOne(params.agent, params.task);
+          return {
+            content: [{ type: "text" as const, text: output }],
+            details: { mode: "single", agent: params.agent },
+          };
+        } catch (err: any) {
+          return {
+            content: [{ type: "text" as const, text: `Delegation failed: ${err.message}` }],
+            details: {},
+            isError: true,
+          };
+        }
       },
     },
 

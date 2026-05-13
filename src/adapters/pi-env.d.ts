@@ -53,16 +53,20 @@ declare module "@earendil-works/pi-coding-agent" {
     waitForIdle(): Promise<void>;
   }
 
-  export interface SessionManager {
+  export interface ISessionManager {
     getBranch(): SessionEntry[];
     getEntries(): SessionEntry[];
     getLeafId(): string | undefined;
     getSessionFile(): string | undefined;
-    static create(cwd: string): SessionManager;
-    static inMemory(): SessionManager;
-    static list(cwd: string): Promise<string[]>;
-    static listAll(cwd: string): Promise<string[]>;
   }
+  // Alias used in imports
+  export type SessionManager = ISessionManager;
+  export declare var SessionManager: {
+    create(cwd: string): ISessionManager;
+    inMemory(): ISessionManager;
+    list(cwd: string): Promise<string[]>;
+    listAll(cwd: string): Promise<string[]>;
+  };
 
   export type SessionEntry = {
     type: string;
@@ -158,6 +162,24 @@ declare module "@earendil-works/pi-coding-agent" {
   export function getAgentDir(): string;
   export function parseFrontmatter<T>(content: string): { frontmatter: T; body: string };
   export function stripFrontmatter(content: string): string;
+
+  // SDK
+  export function createAgentSession(options?: {
+    cwd?: string;
+    model?: any;
+    thinkingLevel?: string;
+    tools?: string[];
+    sessionManager?: SessionManager;
+  }): Promise<{ session: AgentSession }>;
+
+  export interface AgentSession {
+    prompt(text: string, options?: { source?: string }): Promise<void>;
+    state: { messages: any[] };
+    subscribe(fn: (event: any) => void): () => void;
+    dispose(): void;
+    abort(): Promise<void>;
+    isStreaming: boolean;
+  }
 }
 
 declare module "typebox" {
