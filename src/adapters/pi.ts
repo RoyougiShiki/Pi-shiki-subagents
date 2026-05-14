@@ -65,7 +65,7 @@ export interface PiCouncilConfig {
   default_preset?: string;
   timeout?: number;
   councillor_execution_mode?: "parallel" | "serial";
-  meeting_backend?: "session" | "collaborating" | "persistent";
+  meeting_backend?: "session" | "collaborating";
 }
 
 export interface OmniMoConfig {

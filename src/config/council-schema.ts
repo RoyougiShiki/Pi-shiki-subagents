@@ -106,12 +106,11 @@ export const CouncillorExecutionModeSchema = z
   );
 
 export const MeetingBackendSchema = z
-  .enum(['session', 'collaborating', 'persistent'])
+  .enum(['session', 'collaborating'])
   .default('session')
   .describe(
     'Backend for Pi realtime meeting mode. "session" is the stable hidden createAgentSession backend. ' +
-      '"persistent" spawns participants once with polling loops for raw-message meetings. ' +
-      '"collaborating" is the experimental round-spawn backend.',
+      '"collaborating" spawns participants once with polling loops for raw-message meetings.',
   );
 
 /**

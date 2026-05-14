@@ -53,7 +53,7 @@ export interface PiMeetingParticipantResult {
   error?: string;
 }
 
-export type PiMeetingBackendName = "session" | "collaborating" | "persistent";
+export type PiMeetingBackendName = "session" | "collaborating";
 
 export interface PiMeetingResult {
   meetingId: string;
@@ -193,8 +193,8 @@ export function normalizePiMeetingMaxRounds(value: number | undefined): number {
 }
 
 export function normalizePiMeetingBackend(value: string | undefined): PiMeetingBackendName {
-  if (value === "persistent") return "persistent";
-  if (value === "collaborating") return "collaborating";
+  // "persistent" is a deprecated alias for "collaborating"
+  if (value === "persistent" || value === "collaborating") return "collaborating";
   return "session";
 }
 
@@ -574,200 +574,6 @@ async function loadCollaboratingRuntime(): Promise<{
   return { store, paths, spawn, config };
 }
 
-function buildCollaboratingPhaseTask(args: {
-  request: PiMeetingRequest;
-  participant: PiCouncilParticipant;
-  chairName: string;
-  phase: MeetingEnvelope["phase"];
-  round: number;
-  digest?: string;
-}): string {
-  const roleGuidance = args.participant.prompt ? `Role guidance:\n${args.participant.prompt}\n\n` : "";
-  const envelopeHeader = `[meeting:${args.request.meetingId}][phase:${args.phase}][round:${args.round}][role:${args.participant.agent}]`;
-  let body = "";
-
-  if (args.phase === "opening") {
-    body = `Question:\n${args.request.question}\n\nReturn concise sections:\nRecommendation:\nAssumptions:\nRisks:\nConfidence:`;
-  } else if (args.phase === "discussion") {
-    body = `Discussion round ${args.round}.\nMeeting digest:\n${args.digest ?? "(none)"}\n\nReturn concise sections:\nChallenge:\nResponse:\nUpdated view:\nKey signal:\nConfidence:`;
-  } else {
-    body = `Final round.\nMeeting digest:\n${args.digest ?? "(none)"}\n\nReturn exactly:\nRecommendation:\nChanged view:\nRemaining disagreement:\nKey evidence:\nRisks:\nConfidence:\nNext action:`;
-  }
-
-  return `You are participant "${args.participant.name}" in hidden OMO meeting ${args.request.meetingId}.\n\n` +
-    `${roleGuidance}` +
-    `Call agent_message status, then list.\n` +
-    `Analyze the instruction below and send exactly one direct message to ${args.chairName}.\n` +
-    `The first line of your direct message must be exactly:\n${envelopeHeader}\n\n` +
-    `Instruction:\n${body}\n\n` +
-    `After sending the direct message, stop.`;
-}
-
-function collectMeetingMessages(args: {
-  events: CollabMessageLogEvent[];
-  meetingId: string;
-  chairName: string;
-  phase: MeetingEnvelope["phase"];
-  round: number;
-  participants: Set<string>;
-}): Map<string, MeetingEnvelope> {
-  const out = new Map<string, MeetingEnvelope>();
-  for (const event of args.events) {
-    if (event.kind !== "direct") continue;
-    if (event.to !== args.chairName) continue;
-    if (!args.participants.has(event.from)) continue;
-    const parsed = parseMeetingEnvelope(event.text);
-    if (!parsed) continue;
-    if (parsed.meetingId !== args.meetingId) continue;
-    if (parsed.phase !== args.phase) continue;
-    if (parsed.round !== args.round) continue;
-    out.set(event.from, parsed);
-  }
-  return out;
-}
-
-async function waitForMeetingPhase(args: {
-  readMessageLog: (dirs: CollabDirs) => CollabMessageLogEvent[];
-  dirs: CollabDirs;
-  meetingId: string;
-  chairName: string;
-  phase: MeetingEnvelope["phase"];
-  round: number;
-  participants: Set<string>;
-  timeoutMs: number;
-}): Promise<Map<string, MeetingEnvelope>> {
-  const startedAt = Date.now();
-  while (true) {
-    const matched = collectMeetingMessages({
-      events: args.readMessageLog(args.dirs),
-      meetingId: args.meetingId,
-      chairName: args.chairName,
-      phase: args.phase,
-      round: args.round,
-      participants: args.participants,
-    });
-    if (matched.size >= args.participants.size) return matched;
-    if (Date.now() - startedAt >= args.timeoutMs) return matched;
-    await sleep(POLL_INTERVAL_MS);
-  }
-}
-
-async function runCollaboratingRound(args: {
-  runtime: Awaited<ReturnType<typeof loadCollaboratingRuntime>>;
-  request: PiMeetingRequest;
-  ctx: ExtensionContext;
-  chairName: string;
-  phase: MeetingEnvelope["phase"];
-  round: number;
-  digest?: string;
-}): Promise<{ messages: PiMeetingMessage[]; results: PiMeetingParticipantResult[] }> {
-  const collabConfig = args.runtime.config.loadConfig(args.ctx.cwd);
-  const spawnedNames = new Set<string>();
-
-  const spawnPromises = args.request.participants.map((participant, index) =>
-    args.runtime.spawn.runSpawnTask(
-      args.ctx.cwd,
-      {
-        agent: participant.agent,
-        task: buildCollaboratingPhaseTask({
-          request: args.request,
-          participant,
-          chairName: args.chairName,
-          phase: args.phase,
-          round: args.round,
-          digest: args.digest,
-        }),
-      },
-      {
-        name: participant.agent,
-        description: AGENT_PROMPTS[participant.agent]?.description ?? participant.agent,
-        model: participant.model,
-        tools: undefined,
-        systemPrompt: AGENT_PROMPTS[participant.agent]?.prompt ?? "You are a meeting participant.",
-        source: "user",
-        filePath: `omo://${participant.agent}`,
-      },
-      createCollaboratingSpawnOptions({
-        meetingId: args.request.meetingId,
-        phase: args.phase,
-        round: args.round,
-        index,
-        chairName: args.chairName,
-        collabConfig,
-        onLaunch: (launch) => {
-          spawnedNames.add(launch.name);
-        },
-      }),
-    ),
-  );
-
-  const settled = await Promise.allSettled(spawnPromises);
-  const messagesBySender = await waitForMeetingPhase({
-    readMessageLog: args.runtime.store.readMessageLog,
-    dirs: args.runtime.paths.resolveDirs(),
-    meetingId: args.request.meetingId,
-    chairName: args.chairName,
-    phase: args.phase,
-    round: args.round,
-    participants: spawnedNames,
-    timeoutMs: PHASE_WAIT_MS,
-  });
-
-  const messages: PiMeetingMessage[] = [];
-  const results: PiMeetingParticipantResult[] = [];
-
-  args.request.participants.forEach((participant, index) => {
-    const settledResult = settled[index];
-    const senderName = settledResult?.status === "fulfilled" ? settledResult.value.name : undefined;
-    const envelope = senderName ? messagesBySender.get(senderName) : undefined;
-
-    if (envelope && senderName) {
-      messages.push({
-        id: `${args.request.meetingId}-${args.phase}-${args.round}-${senderName}`,
-        meetingId: args.request.meetingId,
-        round: args.round,
-        phase: args.phase,
-        from: senderName,
-        role: envelope.role,
-        content: envelope.body,
-        timestamp: Date.now(),
-      });
-    }
-
-    const base: PiMeetingParticipantResult = {
-      name: participant.name,
-      agent: participant.agent,
-      model: participant.model,
-      status: envelope ? "completed" : "failed",
-      finalPosition: args.phase === "final" ? envelope?.body : undefined,
-      error: envelope ? undefined : "No collaborating meeting response received for this round",
-    };
-
-    if (settledResult?.status === "fulfilled" && settledResult.value.exitCode !== 0 && !envelope) {
-      base.status = "failed";
-      base.error = settledResult.value.error ?? settledResult.value.output;
-    }
-
-    if (settledResult?.status === "rejected" && !envelope) {
-      base.status = "failed";
-      base.error = settledResult.reason instanceof Error ? settledResult.reason.message : String(settledResult.reason);
-    }
-
-    results.push(base);
-  });
-
-  return { messages, results };
-}
-
-/**
- * Stable hidden meeting backend.
- *
- * This is not a live chat backend. Each participant turn is a fresh
- * createAgentSession() call. The runtime carries information forward by
- * building a digest from prior turns and injecting it into the next round.
- *
- * The main session only receives the final compressed report.
- */
 export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
   async run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult> {
     const transcript: PiMeetingMessage[] = [];
@@ -858,150 +664,7 @@ export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
   }
 }
 
-export class CollaboratingAgentsMeetingBackend implements PiMeetingBackend {
-  async run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult> {
-    const runtime = await loadCollaboratingRuntime();
-    const dirs = runtime.paths.resolveDirs();
-    const chairName = resolveChairName(request.meetingId);
-    const startedAt = new Date().toISOString();
-    const chairRegistration = {
-      name: chairName,
-      pid: process.pid,
-      sessionId: `${request.meetingId}-chair`,
-      sessionFile: undefined,
-      cwd: ctx.cwd,
-      model: getCtxModelLabel(ctx),
-      startedAt,
-      lastSeenAt: startedAt,
-      role: "orchestrator",
-      reservations: undefined,
-    };
 
-    if (!runtime.store.registerSelf(dirs, chairRegistration)) {
-      throw new Error("Failed to register collaborating meeting chair.");
-    }
-
-    const transcript: PiMeetingMessage[] = [];
-    const participantResults = new Map<string, PiMeetingParticipantResult>();
-    let roundsCompleted = 0;
-
-    try {
-      const opening = await runCollaboratingRound({
-        runtime,
-        request,
-        ctx,
-        chairName,
-        phase: "opening",
-        round: 0,
-      });
-      for (const message of opening.messages) transcript.push(message);
-      for (const result of opening.results) participantResults.set(result.name, result);
-
-      for (let round = 1; round <= request.maxRounds; round++) {
-        const discussion = await runCollaboratingRound({
-          runtime,
-          request,
-          ctx,
-          chairName,
-          phase: "discussion",
-          round,
-          digest: formatPiMeetingDigest(transcript),
-        });
-        for (const message of discussion.messages) transcript.push(message);
-        for (const result of discussion.results) {
-          const previous = participantResults.get(result.name);
-          participantResults.set(result.name, {
-            ...previous,
-            ...result,
-            finalPosition: previous?.finalPosition,
-          });
-        }
-        roundsCompleted = round;
-      }
-
-      const finalRound = request.maxRounds + 1;
-      const finals = await runCollaboratingRound({
-        runtime,
-        request,
-        ctx,
-        chairName,
-        phase: "final",
-        round: finalRound,
-        digest: formatPiMeetingDigest(transcript),
-      });
-      for (const message of finals.messages) transcript.push(message);
-      for (const result of finals.results) {
-        const previous = participantResults.get(result.name);
-        participantResults.set(result.name, {
-          ...previous,
-          ...result,
-          finalPosition: result.finalPosition ?? previous?.finalPosition,
-        });
-      }
-
-      for (const participant of request.participants) {
-        if (!participantResults.has(participant.name)) {
-          const latest = [...transcript].reverse().find((m) => m.role === participant.agent);
-          participantResults.set(participant.name, {
-            name: participant.name,
-            agent: participant.agent,
-            model: participant.model,
-            status: latest ? "completed" : "failed",
-            finalPosition: latest?.content,
-            error: latest ? undefined : "No collaborating meeting output produced",
-          });
-        }
-      }
-
-      const participants = request.participants.map((p) => participantResults.get(p.name)!).filter(Boolean);
-      const completed = participants.filter((p) => p.status === "completed").length;
-      const status: PiMeetingResult["status"] = completed === 0
-        ? "failed"
-        : completed === participants.length
-          ? "completed"
-          : "partial";
-
-      const baseResult: Omit<PiMeetingResult, "report" | "keySignals"> = {
-        meetingId: request.meetingId,
-        question: request.question,
-        objective: request.objective,
-        status,
-        roundsCompleted,
-        participants,
-        transcript: request.includeTranscript ? transcript : undefined,
-        requestedBackend: "collaborating",
-        backendUsed: "collaborating",
-        fallbackReason: undefined,
-      };
-
-      const chairReport = await runPiMeetingChairSynthesis({
-        request,
-        transcript,
-        participants,
-        status,
-        roundsCompleted,
-        ctx,
-        timeoutMs: Math.max(10_000, Math.min(60_000, Math.floor(request.maxDurationMs / 3))),
-      });
-      const report = chairReport.trim() || fallbackPiMeetingReport(baseResult);
-      const keySignals = extractKeySignalsFromReport(report);
-
-      return {
-        ...baseResult,
-        report,
-        keySignals: keySignals.length > 0 ? keySignals : ["No explicit key signals extracted from chair report."],
-      };
-    } finally {
-      runtime.store.unregisterSelf(dirs, {
-        name: chairName,
-        pid: process.pid,
-        sessionId: `${request.meetingId}-chair`,
-      });
-    }
-  }
-}
-
-// ── Persistent meeting participant task (LLM-in-loop pattern) ──────────────
 // The spawned subagent reads a Node poll script's stdout to detect round
 // prompts, then ITSELF generates substantive content and broadcasts it.
 // This avoids the template-broadcasting problem of the old Node-only approach.
@@ -1034,31 +697,20 @@ Objective: ${args.objective}
 --- Persistent Meeting Protocol (LLM-driven loop) ---
 You are NOT respawned each round. You drive the loop yourself.
 
-Step 0 — Send READY broadcast:
+Step 0 — Send READY to chair:
   agent_message status, agent_message list, then run:
-  bash node -e '
-    const B=process.env.COLLABORATING_AGENTS_DIR||require("path").join(require("os").homedir(),".pi/agent/collaborating-agents");
-    const L=B+"/messages.jsonl";
-    const S=process.env.PI_AGENT_NAME||"${sName}";
-    const ts=new Date().toISOString();
-    const t="[meeting:${sId}][round:0][phase:join][role:${args.agentType}]\\n{\"status\":\"ready\"}";
-    const to="${args.chairName}";
-    require("fs").mkdirSync(B+"/inbox/"+to,{recursive:true});
-    const fn=Date.now()+"-"+process.pid;require("fs").writeFileSync(B+"/inbox/"+to+"/"+fn+".tmp",JSON.stringify({id:require("crypto").randomUUID(),from:S,to,text:t,kind:"direct",timestamp:ts}));require("fs").renameSync(B+"/inbox/"+to+"/"+fn+".tmp",B+"/inbox/"+to+"/"+fn+".json");
-    require("fs").appendFileSync(L,JSON.stringify({id:require("crypto").randomUUID(),from:S,to,text:t,kind:"direct",timestamp:ts})+"\\n");
-    console.log("JOIN_OK");
-  '
+  bash -c "cat > /tmp/_omo_join.js << 'OMONODE'
+${JOIN_SCRIPT}
+OMONODE
+  node /tmp/_omo_join.js '${args.chairName}' '${sId}' '${args.agentType}'"
 
 Step 1 — Poll for next round:
-  bash timeout 120 node -e '
-    const B=process.env.COLLABORATING_AGENTS_DIR||require("path").join(require("os").homedir(),".pi/agent/collaborating-agents");
-    const L=B+"/messages.jsonl";const S=process.env.PI_AGENT_NAME;const Q="${sId}";
-    let n=0;if(require("fs").existsSync(L)){const c=require("fs").readFileSync(L,"utf8").trim();n=c?c.split("\\n").length:0;}
-    function poll(){return new Promise(r=>{let i=0;const iv=setInterval(()=>{i++;if(!require("fs").existsSync(L))return;const lines=require("fs").readFileSync(L,"utf8").trim().split("\\n").filter(Boolean);if(lines.length<=n)return;n=lines.length;for(const ln of lines.slice(-10)){let e;try{e=JSON.parse(ln)}catch{continue}if(!e.text||e.from===S)continue;if(e.text.includes("[meeting:"+Q+"][phase:end]")){clearInterval(iv);r("END");return}const m=e.text.match(/\\[meeting:([^\\]]+)\\]\\[round:(\\d+)\\]\\[phase:(opening|discussion|final)\\]\\[action:prompt\\]/);if(m&&m[1]===Q){clearInterval(iv);r("ROUND:"+m[2]+":"+m[3]+":"+e.text.slice(0,800));return}}if(i>=40){clearInterval(iv);r("TIMEOUT")}},2000);});}
-    poll().then(r=>{console.log(r);process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)});
-  '
+  bash -c "cat > /tmp/_omo_poll.js << 'OMONODE'
+${POLL_SCRIPT}
+OMONODE
+  timeout 120 node /tmp/_omo_poll.js '${sId}'"
 
-The timeout 120 forces exit after 120s if nothing is found. Read stdout: it prints DETECTED lines.
+Read stdout for: ROUND:N:PHASE:text, END, or TIMEOUT.
 
 Step 2 — When you see "ROUND:round:phase:promptText":
   a. agent_message feed limit 80  (read latest messages for context)
@@ -1308,8 +960,8 @@ export class PersistentCollaboratingMeetingBackend implements PiMeetingBackend {
         roundsCompleted,
         participants,
         transcript: request.includeTranscript ? transcript : undefined,
-        requestedBackend: "persistent",
-        backendUsed: "persistent",
+        requestedBackend: "collaborating",
+        backendUsed: "collaborating",
         fallbackReason: undefined,
       };
 
@@ -1342,18 +994,11 @@ export class PersistentCollaboratingMeetingBackend implements PiMeetingBackend {
 
 export function resolvePiMeetingBackend(value: string | undefined): PiMeetingBackendResolution {
   const requestedBackend = normalizePiMeetingBackend(value);
-  if (requestedBackend === "persistent") {
-    return {
-      requestedBackend,
-      backendUsed: "persistent",
-      backend: new PersistentCollaboratingMeetingBackend(),
-    };
-  }
   if (requestedBackend === "collaborating") {
     return {
       requestedBackend,
       backendUsed: "collaborating",
-      backend: new CollaboratingAgentsMeetingBackend(),
+      backend: new PersistentCollaboratingMeetingBackend(),
     };
   }
 
