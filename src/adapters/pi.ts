@@ -35,6 +35,7 @@ import {
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
   APPROVAL_GATE_BLOCK_MESSAGE,
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
+  MAPPING_GATE_BLOCK_MESSAGE,
 } from "../core/workflow-templates";
 
 import { AGENT_PROMPTS } from "./pi-agents";
@@ -1083,6 +1084,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   }
 
   // ── Helper: run tool detection ───────────────────────────────────────
+  let pendingMappingReview = false;
+
   function detectToolChanges(pi: ExtensionAPI, ctx: ExtensionContext): void {
     const current = enumeratePiTools();
     if (current.length === 0) return;
@@ -1118,6 +1121,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     // Inject methodology so LLM can handle the change
     injectChangeMethodology(pi, ctx, changes);
+
+    // Activate Mapping Gate: first tool call will be blocked until LLM asks user
+    pendingMappingReview = true;
   }
 
   // ── Generate agent files on first load ──────────────────────────────
@@ -1135,14 +1141,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Gates track declarations per agent cycle (before_agent_start → agent_end).
   // Each gate only blocks once per cycle — after declared, subsequent
   // tools in the same cycle pass without re-declaration.
-  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean } = {
-    cycle: 0, intent: false, ready: false, approved: false,
+  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean; mappingHandled: boolean } = {
+    cycle: 0, intent: false, ready: false, approved: false, mappingHandled: false,
   };
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Reset gate state for new agent cycle
-    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false };
+    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false, mappingHandled: gateState.mappingHandled };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -1253,6 +1259,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
         }
         if (hasApproved) gateState.approved = true;
+
+        // Mapping Gate: fire once per session when tool changes are pending
+        if (pendingMappingReview && !gateState.mappingHandled) {
+          gateState.mappingHandled = true;
+          return { block: true, reason: MAPPING_GATE_BLOCK_MESSAGE };
+        }
       }
     } catch (err) {
       console.error("[oh-my-opencode-slim] Gate error:", err);

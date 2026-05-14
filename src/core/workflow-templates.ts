@@ -133,3 +133,7 @@ export const ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES = [
   '- Multiple @fixer instances for faster, scoped implementation?',
   '- @observer + @explorer in parallel (visual analysis + code search)?',
 ] as const;
+
+export const MAPPING_GATE_BLOCK_MESSAGE =
+  "[MappingGate] 检测到新工具，请先询问用户是否需要更新映射表（~/.pi/agent/mapping.md）。\n" +
+  "确认后，在回复中说明 'MAPPING_CHECKED: <结果>' 继续。";
