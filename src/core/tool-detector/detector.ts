@@ -4,7 +4,7 @@
  * Responsibilities:
  *   1. Compare current tool list against a stored baseline
  *   2. Report what changed (added / removed / description changed)
- *   3. Generate a human-readable suggestion for updating mapping.md
+ *   3. Generate a human-readable suggestion for updating the disambiguation table
  *
  * Pure functions — no IO, no platform APIs.
  */
@@ -46,10 +46,10 @@ export function compareToBaseline(
 }
 
 /**
- * Build a human-readable suggestion for updating mapping.md.
+ * Build a human-readable suggestion for updating the disambiguation table.
  * Returns empty string if no changes detected.
  */
-export function generateMappingSuggestion(changes: ToolChange[]): string {
+export function generateDisambiguationSuggestion(changes: ToolChange[]): string {
   if (changes.length === 0) return "";
 
   const parts: string[] = [];
@@ -67,7 +67,7 @@ export function generateMappingSuggestion(changes: ToolChange[]): string {
     parts.push("");
     parts.push(
       "Check if any of these overlap semantically with existing tools. " +
-      "If so, add a mapping entry. If not, no action needed.\n",
+      "If so, add a disambiguation entry. If not, no action needed.\n",
     );
   }
 
@@ -77,7 +77,7 @@ export function generateMappingSuggestion(changes: ToolChange[]): string {
       parts.push(`- \`${c.tool.name}\``);
     }
     parts.push("");
-    parts.push("If these had mapping entries, remove or update them.\n");
+    parts.push("If these had disambiguation entries, remove or update them.\n");
   }
 
   if (changed.length > 0) {
@@ -88,11 +88,11 @@ export function generateMappingSuggestion(changes: ToolChange[]): string {
       );
     }
     parts.push("");
-    parts.push("Review if the description change affects existing mapping entries.\n");
+    parts.push("Review if the description change affects existing disambiguation entries.\n");
   }
 
   parts.push(
-    "To update mapping.md, edit the file at the configured path " +
+    "To update the disambiguation table, edit the file at the configured path " +
     "and verify the new baseline with the adapter.",
   );
 

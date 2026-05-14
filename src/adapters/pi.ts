@@ -35,7 +35,7 @@ import {
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
   APPROVAL_GATE_BLOCK_MESSAGE,
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
-  MAPPING_GATE_BLOCK_MESSAGE,
+  DISAMBIGUATION_GATE_BLOCK_MESSAGE,
 } from "../core/workflow-templates";
 
 import { AGENT_PROMPTS } from "./pi-agents";
@@ -53,7 +53,6 @@ export { formatPiCouncilResults, resolvePiCouncilParticipants } from "./pi-counc
 import {
   compareToBaseline,
   createBaseline,
-  generateMappingSuggestion,
 } from "../core/tool-detector";
 import type { ToolInfo } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
@@ -988,11 +987,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   }
 
   // ── Mapping file path (user-local, not in repo) ──────────────────────
-  const MAPPING_PATH = path.join(homedir(), ".pi", "agent", "mapping.md");
+  const DISAMBIGUATION_PATH = path.join(homedir(), ".pi", "agent", "disambiguation.md");
   const BASELINE_PATH = path.join(homedir(), ".pi", "agent", ".tool-baseline.json");
 
-  // ── Helper: read mapping.md from disk ────────────────────────────────
-  function readMappingFile(filePath: string): string | null {
+  // ── Helper: read the disambiguation table from disk ──────────────────
+  function readDisambiguationFile(filePath: string): string | null {
     try {
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath, "utf-8");
@@ -1001,16 +1000,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     return null;
   }
 
-  // ── Helper: inject mapping.md as hidden message (one-shot) ────────────
-  function injectMapping(pi: ExtensionAPI, ctx: ExtensionContext): void {
-    const content = readMappingFile(MAPPING_PATH);
+  // ── Helper: inject the disambiguation table as hidden message (one-shot) ─
+  function injectDisambiguation(pi: ExtensionAPI, ctx: ExtensionContext): void {
+    const content = readDisambiguationFile(DISAMBIGUATION_PATH);
     if (!content) return;
 
     pi.sendMessage({
-      customType: "omo-tool-mapping",
+      customType: "omo-disambiguation",
       content,
       display: false,
-      details: { source: MAPPING_PATH },
+      details: { source: DISAMBIGUATION_PATH },
     });
   }
 
@@ -1020,22 +1019,22 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const removed = changes.filter((c) => c.type === "removed");
 
     const parts: string[] = [
-      "# Tool Change Detected",
+      "# 工具变化",
       "",
-      "> 工具集发生了变化。请按以下流程处理：",
+      "新增/移除工具需确认是否补充消歧表条目。",
       "",
     ];
 
     if (added.length > 0) {
-      parts.push("**新增工具：**");
+      parts.push("新增：");
       for (const c of added) {
-        parts.push(`- \`${c.tool.name}\` — ${c.tool.description} (${c.tool.source})`);
+        parts.push(`- \`${c.tool.name}\` — ${c.tool.description}`);
       }
       parts.push("");
     }
 
     if (removed.length > 0) {
-      parts.push("**移除工具：**");
+      parts.push("移除：");
       for (const c of removed) {
         parts.push(`- \`${c.tool.name}\``);
       }
@@ -1043,17 +1042,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     }
 
     parts.push(
-      "**流程：**",
-      "1. 判断新增/移除的工具是否与 mapping.md 中已有条目产生语义重叠",
-      "2. 如果存在重叠，在适当时机询问用户要不要更新 mapping.md",
-      "3. 用户确认后，用 write 工具更新 ~/.pi/agent/mapping.md 的内容",
-      "4. 如果不存在重叠（语义唯一），不需要更新映射表",
-      "",
-      "mapping.md 位置：" + MAPPING_PATH,
+      "流程：",
+      "1. 判断新工具是否与消歧表条目语义重叠",
+      "2. 有重叠→问用户是否更新消歧表（write " + DISAMBIGUATION_PATH + "）",
+      "3. 无重叠→无需操作",
     );
 
     pi.sendMessage({
-      customType: "omo-tool-methodology",
+      customType: "omo-disambiguation-methodology",
       content: parts.join("\n"),
       display: false,
       details: { changes: changes.map((c) => ({ type: c.type, name: c.tool.name })) },
@@ -1079,12 +1075,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const s = String(sourceInfo.source ?? "");
     if (s === "builtin") return "builtin";
     if (s === "sdk") return "sdk";
-    if (sourceInfo.source === "mcp" || sourceInfo.path?.includes("mcp")) return "mcp";
+    if (s === "mcp") return "mcp";
     return "extension";
   }
 
   // ── Helper: run tool detection ───────────────────────────────────────
-  let pendingMappingReview = false;
+  let pendingDisambiguationReview = false;
 
   function detectToolChanges(pi: ExtensionAPI, ctx: ExtensionContext): void {
     const current = enumeratePiTools();
@@ -1123,15 +1119,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     injectChangeMethodology(pi, ctx, changes);
 
     // Activate Mapping Gate: first tool call will be blocked until LLM asks user
-    pendingMappingReview = true;
+    pendingDisambiguationReview = true;
   }
 
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     ensureAgentFiles(config);
 
-    // Always inject mapping.md (disambiguation table)
-    injectMapping(pi, ctx);
+    // Always inject the disambiguation table
+    injectDisambiguation(pi, ctx);
 
     // Detect changes: extra methodology injected only when tools changed
     detectToolChanges(pi, ctx);
@@ -1141,14 +1137,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Gates track declarations per agent cycle (before_agent_start → agent_end).
   // Each gate only blocks once per cycle — after declared, subsequent
   // tools in the same cycle pass without re-declaration.
-  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean; mappingHandled: boolean } = {
-    cycle: 0, intent: false, ready: false, approved: false, mappingHandled: false,
+  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean; disambiguationHandled: boolean } = {
+    cycle: 0, intent: false, ready: false, approved: false, disambiguationHandled: false,
   };
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Reset gate state for new agent cycle
-    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false, mappingHandled: gateState.mappingHandled };
+    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false, disambiguationHandled: gateState.disambiguationHandled };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -1261,9 +1257,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         if (hasApproved) gateState.approved = true;
 
         // Mapping Gate: fire once per session when tool changes are pending
-        if (pendingMappingReview && !gateState.mappingHandled) {
-          gateState.mappingHandled = true;
-          return { block: true, reason: MAPPING_GATE_BLOCK_MESSAGE };
+        if (pendingDisambiguationReview && !gateState.disambiguationHandled) {
+          gateState.disambiguationHandled = true;
+          return { block: true, reason: DISAMBIGUATION_GATE_BLOCK_MESSAGE };
         }
       }
     } catch (err) {
