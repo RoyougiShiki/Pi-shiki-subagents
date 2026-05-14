@@ -48,6 +48,13 @@ import {
 import { formatPiMeetingResult, runPiMeeting, type PiMeetingParticipantResult } from "./pi-meeting";
 export { AGENT_PROMPTS } from "./pi-agents";
 export { formatPiCouncilResults, resolvePiCouncilParticipants } from "./pi-council";
+
+import {
+  compareToBaseline,
+  createBaseline,
+  generateMappingSuggestion,
+} from "../core/tool-detector";
+import type { ToolInfo } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -979,9 +986,149 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     return runtimeCapabilities;
   }
 
+  // ── Mapping file path (user-local, not in repo) ──────────────────────
+  const MAPPING_PATH = path.join(homedir(), ".pi", "agent", "mapping.md");
+  const BASELINE_PATH = path.join(homedir(), ".pi", "agent", ".tool-baseline.json");
+
+  // ── Helper: read mapping.md from disk ────────────────────────────────
+  function readMappingFile(filePath: string): string | null {
+    try {
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, "utf-8");
+      }
+    } catch {}
+    return null;
+  }
+
+  // ── Helper: inject mapping.md as hidden message (one-shot) ────────────
+  function injectMapping(pi: ExtensionAPI, ctx: ExtensionContext): void {
+    const content = readMappingFile(MAPPING_PATH);
+    if (!content) return;
+
+    pi.sendMessage({
+      customType: "omo-tool-mapping",
+      content,
+      display: false,
+      details: { source: MAPPING_PATH },
+    });
+  }
+
+  // ── Helper: inject change methodology (only when changes detected) ──
+  function injectChangeMethodology(pi: ExtensionAPI, ctx: ExtensionContext, changes: ToolChange[]): void {
+    const added = changes.filter((c) => c.type === "added");
+    const removed = changes.filter((c) => c.type === "removed");
+
+    const parts: string[] = [
+      "# Tool Change Detected",
+      "",
+      "> 工具集发生了变化。请按以下流程处理：",
+      "",
+    ];
+
+    if (added.length > 0) {
+      parts.push("**新增工具：**");
+      for (const c of added) {
+        parts.push(`- \`${c.tool.name}\` — ${c.tool.description} (${c.tool.source})`);
+      }
+      parts.push("");
+    }
+
+    if (removed.length > 0) {
+      parts.push("**移除工具：**");
+      for (const c of removed) {
+        parts.push(`- \`${c.tool.name}\``);
+      }
+      parts.push("");
+    }
+
+    parts.push(
+      "**流程：**",
+      "1. 判断新增/移除的工具是否与 mapping.md 中已有条目产生语义重叠",
+      "2. 如果存在重叠，在适当时机询问用户要不要更新 mapping.md",
+      "3. 用户确认后，用 write 工具更新 ~/.pi/agent/mapping.md 的内容",
+      "4. 如果不存在重叠（语义唯一），不需要更新映射表",
+      "",
+      "mapping.md 位置：" + MAPPING_PATH,
+    );
+
+    pi.sendMessage({
+      customType: "omo-tool-methodology",
+      content: parts.join("\n"),
+      display: false,
+      details: { changes: changes.map((c) => ({ type: c.type, name: c.tool.name })) },
+    });
+  }
+
+  // ── Helper: enumerate tools in Pi format ──────────────────────────────
+  function enumeratePiTools(): ToolInfo[] {
+    try {
+      const tools = pi.getAllTools();
+      return tools.map((t: any) => ({
+        name: t.name ?? "",
+        description: (t.description ?? "").slice(0, 200),
+        source: detectToolSource(t.sourceInfo),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  function detectToolSource(sourceInfo: any): ToolInfo["source"] {
+    if (!sourceInfo) return "unknown";
+    const s = String(sourceInfo.source ?? "");
+    if (s === "builtin") return "builtin";
+    if (s === "sdk") return "sdk";
+    if (sourceInfo.source === "mcp" || sourceInfo.path?.includes("mcp")) return "mcp";
+    return "extension";
+  }
+
+  // ── Helper: run tool detection ───────────────────────────────────────
+  function detectToolChanges(pi: ExtensionAPI, ctx: ExtensionContext): void {
+    const current = enumeratePiTools();
+    if (current.length === 0) return;
+
+    const baselineExists = fs.existsSync(BASELINE_PATH);
+    let baseline: ToolInfo[] = [];
+    try {
+      if (baselineExists) {
+        const raw = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf-8"));
+        baseline = raw.tools ?? [];
+      }
+    } catch {
+      // corrupt baseline, will rebuild below
+    }
+
+    // First run: create baseline silently
+    if (!baselineExists) {
+      const newBaseline = createBaseline(current);
+      try {
+        fs.writeFileSync(BASELINE_PATH, JSON.stringify(newBaseline, null, 2), "utf-8");
+      } catch {}
+      return;
+    }
+
+    const changes = compareToBaseline(current, baseline);
+    if (changes.length === 0) return;
+
+    // Save updated baseline
+    const newBaseline = createBaseline(current);
+    try {
+      fs.writeFileSync(BASELINE_PATH, JSON.stringify(newBaseline, null, 2), "utf-8");
+    } catch {}
+
+    // Inject methodology so LLM can handle the change
+    injectChangeMethodology(pi, ctx, changes);
+  }
+
   // ── Generate agent files on first load ──────────────────────────────
-  pi.on("session_start", async (_event, _ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     ensureAgentFiles(config);
+
+    // Always inject mapping.md (disambiguation table)
+    injectMapping(pi, ctx);
+
+    // Detect changes: extra methodology injected only when tools changed
+    detectToolChanges(pi, ctx);
   });
 
   // ── Lifecycle-based gate state ─────────────────────────────────────
