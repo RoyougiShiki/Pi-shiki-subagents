@@ -54,7 +54,7 @@ import {
   compareToBaseline,
   createBaseline,
 } from "../core/tool-detector";
-import type { ToolInfo } from "../core/tool-detector";
+import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 
 // ─── Config helpers ────────────────────────────────────────────────────────
