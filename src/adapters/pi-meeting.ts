@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { AGENT_PROMPTS } from "./pi-agents";
 import type { OmniMoConfig, PiCouncilParticipantConfig } from "./pi";
 import {
@@ -13,6 +13,12 @@ import {
   resolvePiModel,
   type PiCouncilParticipant,
 } from "./pi-council";
+
+// ── Load embedded participant Node scripts ──────────────────────────
+const __participantDir = path.dirname(fileURLToPath(import.meta.url));
+const POLL_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-poll.js"), "utf8");
+const JOIN_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-join.js"), "utf8");
+const SEND_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-send.js"), "utf8");
 
 export type PiMeetingObjective = "brainstorm" | "review" | "design" | "debug" | "decision";
 
@@ -1063,16 +1069,10 @@ Step 2 — When you see "ROUND:round:phase:promptText":
        Read what other participants said. Challenge or respond. State updated view, key signal.
   d. If phase=final:
        Give final Recommendation, Changed view, Remaining disagreement, Key evidence, Risks, Confidence.
-  e. Send to chair (not broadcast):\n       bash node -e '
-         const B=process.env.COLLABORATING_AGENTS_DIR||require("path").join(require("os").homedir(),".pi/agent/collaborating-agents");
-         const L=B+"/messages.jsonl";const S=process.env.PI_AGENT_NAME;const TS=new Date().toISOString();
-         const to="${args.chairName}";
-         const tx=process.argv[1];if(!tx||!tx.trim()){console.log("SKIP");process.exit(0)}
-         require("fs").mkdirSync(B+"/inbox/"+to,{recursive:true});
-         const fn=Date.now()+"-"+process.pid;require("fs").writeFileSync(B+"/inbox/"+to+"/"+fn+".tmp",JSON.stringify({id:require("crypto").randomUUID(),from:S,to,text:tx,kind:"direct",timestamp:TS}));require("fs").renameSync(B+"/inbox/"+to+"/"+fn+".tmp",B+"/inbox/"+to+"/"+fn+".json");
-         require("fs").appendFileSync(L,JSON.stringify({id:require("crypto").randomUUID(),from:S,to,text:tx,kind:"direct",timestamp:TS})+"\\n");
-         console.log("OK");
-       ' -- 'YOUR_RESPONSE_TEXT'
+  e. Send to chair:\n       bash -c "cat > /tmp/_omo_send.js << 'OMONODE'
+${SEND_SCRIPT}
+OMONODE
+  node /tmp/_omo_send.js '${args.chairName}' '$RESPONSE'"
   f. Go to Step 1 (poll for next round)
 
 Step 3 — When you see "END":
@@ -1113,6 +1113,20 @@ export class PersistentCollaboratingMeetingBackend implements PiMeetingBackend {
 
     if (!runtime.store.registerSelf(dirs, chairRegistration)) {
       throw new Error("Failed to register persistent meeting chair.");
+    }
+
+    // Rotate message log to prevent unbounded growth: keep last 500 entries
+    try {
+      const logPath = dirs.messageLog;
+      if (fs.existsSync(logPath)) {
+        const content = fs.readFileSync(logPath, "utf8");
+        const lines = content.trim().split("\n").filter(Boolean);
+        if (lines.length > 500) {
+          fs.writeFileSync(logPath, lines.slice(-500).join("\n") + "\n", "utf8");
+        }
+      }
+    } catch {
+      // best-effort rotation
     }
 
     const collabConfig = runtime.config.loadConfig(ctx.cwd);
@@ -1193,12 +1207,35 @@ export class PersistentCollaboratingMeetingBackend implements PiMeetingBackend {
 
         const promptText = `[meeting:${request.meetingId}][round:${round}][phase:${phase}][action:prompt]\\n${roundQuestion}`;
 
+        // Check participant liveness before this round
+        const aliveSet = new Set<string>();
+        const regDir = dirs.registry;
+        if (fs.existsSync(regDir)) {
+          try {
+            for (const f of fs.readdirSync(regDir)) {
+              if (!f.endsWith(".json")) continue;
+              try {
+                const reg = JSON.parse(fs.readFileSync(path.join(regDir, f), "utf8"));
+                if (reg.name && reg.pid && spawnedNames.has(reg.name)) {
+                  try { process.kill(reg.pid, 0); aliveSet.add(reg.name); } catch {}
+                }
+              } catch {}
+            }
+          } catch {}
+        }
+
         for (const spawnedName of spawnedNames) {
           runtime.store.sendDirect(dirs, chairName, spawnedName, promptText, undefined, false);
         }
 
-        const perRoundTimeout = Math.max(90_000, Math.floor(request.maxDurationMs / (roundPhases.length + 1)));
-        const pollDeadline = Date.now() + perRoundTimeout;
+        // Wait for all participants to respond, with generous per-round
+        // timeout as safety net. The minimum per-round wait is 3 minutes
+        // so participants have time to generate substantive responses.
+        const perRoundTimeoutMs = Math.max(180_000, Math.floor(request.maxDurationMs / 2));
+        const pollDeadline = Date.now() + perRoundTimeoutMs;
+
+        let aliveParticipants = [...spawnedNames].filter((n) => aliveSet.has(n));
+        if (aliveParticipants.length === 0) aliveParticipants = [...spawnedNames];
 
         while (Date.now() < pollDeadline) {
           await sleep(2000);
@@ -1228,7 +1265,7 @@ export class PersistentCollaboratingMeetingBackend implements PiMeetingBackend {
           }
 
           const responded = new Set(roundEvents.map((e) => e.from));
-          if ([...spawnedNames].every((n) => responded.has(n))) break;
+          if (aliveParticipants.every((n) => responded.has(n))) break;
         }
 
         if (phase !== "opening") roundsCompleted++;

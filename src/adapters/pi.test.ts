@@ -139,7 +139,7 @@ describe('Pi adapter meeting helpers', () => {
     const { normalizePiMeetingMaxRounds } = await import('./pi');
 
     expect(normalizePiMeetingMaxRounds(undefined)).toBe(2);
-    expect(normalizePiMeetingMaxRounds(0)).toBe(1);
+    expect(normalizePiMeetingMaxRounds(0)).toBe(0);
     expect(normalizePiMeetingMaxRounds(3.8)).toBe(3);
     expect(normalizePiMeetingMaxRounds(99)).toBe(5);
   });
