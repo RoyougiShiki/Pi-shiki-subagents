@@ -1120,6 +1120,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     // Activate Mapping Gate: first tool call will be blocked until LLM asks user
     pendingDisambiguationReview = true;
+    gateState.disambiguationHandled = false; // reset for new session with new changes
   }
 
   // ── Generate agent files on first load ──────────────────────────────
