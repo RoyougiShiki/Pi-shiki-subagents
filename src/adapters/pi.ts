@@ -154,33 +154,27 @@ export function stripJsonCommentsSafely(raw: string): string {
 }
 
 function loadOmniMoConfig(): OmniMoConfig | null {
+  // Priority: env var → Pi native path → OpenCode path (legacy)
   const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  const configDir = envDir ?? (
-    process.env.XDG_CONFIG_HOME
-      ? path.join(process.env.XDG_CONFIG_HOME, "opencode")
-      : path.join(homedir(), ".config", "opencode")
-  );
+  if (envDir) {
+    const envPath = path.join(envDir, "oh-my-opencode-slim.json");
+    try { return JSON.parse(fs.readFileSync(envPath, "utf-8")); } catch {}
+  }
 
-  const jsoncPath = path.join(configDir, "oh-my-opencode-slim.jsonc");
-  const jsonPath = path.join(configDir, "oh-my-opencode-slim.json");
+  const piPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+  try { return JSON.parse(fs.readFileSync(piPath, "utf-8")); } catch {}
 
-  let raw: string | null = null;
-  for (const p of [jsoncPath, jsonPath]) {
+  const legacyDir = process.env.XDG_CONFIG_HOME
+    ? path.join(process.env.XDG_CONFIG_HOME, "opencode")
+    : path.join(homedir(), ".config", "opencode");
+  for (const p of [path.join(legacyDir, "oh-my-opencode-slim.jsonc"), path.join(legacyDir, "oh-my-opencode-slim.json")]) {
     try {
-      raw = fs.readFileSync(p, "utf-8");
-      break;
-    } catch {
-      continue;
-    }
+      const raw = fs.readFileSync(p, "utf-8");
+      return JSON.parse(stripJsonCommentsSafely(raw));
+    } catch {}
   }
-  if (!raw) return null;
 
-  try {
-    const cleaned = stripJsonCommentsSafely(raw);
-    return JSON.parse(cleaned);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 function getDefaultModel(
@@ -403,7 +397,10 @@ Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mod
 
 ### Council modes
 - Isolated: independent parallel opinions; best for diverse review without cross-contamination.
-- Meeting: hidden round-based debate; the stable backend is session-based and the experimental backend uses real collaborating subagents. Returns only a compressed report.
+- Meeting: hidden round-based debate.
+  - session backend (default): each turn is a fresh session, participants get chair-compiled digest.
+  - collaborating backend: participants spawn once and see raw messages.
+  Returns only a compressed report.
 Use \`omo_council\` only when this higher-level analysis is worth the latency/cost.
 `
     : capabilities.hasPiAgents
@@ -551,7 +548,7 @@ Example:
 </Gate Rules>
 
 <Council Tool>
-Use omo_council sparingly for high-value analysis. mode="isolated" gives independent views; mode="meeting" runs a hidden round-based debate and returns only a compressed conclusion. Avoid it for simple tasks.
+Use omo_council sparingly for high-value analysis. mode="isolated" gives independent views; mode="meeting" runs a hidden round-based debate and returns only a compressed conclusion. "collaborating" backend spawns persistent participants for raw-message discussion. Avoid it for simple tasks.
 </Council Tool>`;
 }
 
@@ -723,7 +720,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
       name: "omo_council",
       label: "OMO Council",
       description:
-        "Run multiple models on the same question and synthesize their answers. meeting mode uses a hidden round-based debate and returns only a compressed report; collaborating backend is experimental.",
+        "Run multiple models on the same question and synthesize their answers. meeting mode uses a hidden round-based debate and returns only a compressed report; collaborating backend uses persistent participants for raw-message discussion.",
       promptSnippet: "Multi-model consensus: run multiple models on the same question and synthesize",
       parameters: Type.Object({
         question: Type.String({ description: "The question or task for all models to analyze" }),

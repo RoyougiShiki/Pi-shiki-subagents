@@ -16,9 +16,9 @@ import {
 
 // ── Load embedded participant Node scripts ──────────────────────────
 const __participantDir = path.dirname(fileURLToPath(import.meta.url));
-const POLL_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-poll.js"), "utf8");
-const JOIN_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-join.js"), "utf8");
-const SEND_SCRIPT = fs.readFileSync(path.join(__participantDir, "persistent-send.js"), "utf8");
+const POLL_SCRIPT = fs.readFileSync(path.join(__participantDir, "collab-poll.js"), "utf8");
+const JOIN_SCRIPT = fs.readFileSync(path.join(__participantDir, "collab-join.js"), "utf8");
+const SEND_SCRIPT = fs.readFileSync(path.join(__participantDir, "collab-send.js"), "utf8");
 
 export type PiMeetingObjective = "brainstorm" | "review" | "design" | "debug" | "decision";
 
