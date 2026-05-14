@@ -295,7 +295,45 @@ describe('CouncilConfigSchema', () => {
       // Check defaults are filled in
       expect(result.data.timeout).toBe(180000);
       expect(result.data.default_preset).toBe('default');
+      expect(result.data.meeting_backend).toBe('session');
     }
+  });
+
+  test('accepts explicit meeting backend values', () => {
+    const base = {
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+      },
+    };
+
+    const sessionResult = CouncilConfigSchema.safeParse({
+      ...base,
+      meeting_backend: 'session',
+    });
+    const collaboratingResult = CouncilConfigSchema.safeParse({
+      ...base,
+      meeting_backend: 'collaborating',
+    });
+
+    expect(sessionResult.success).toBe(true);
+    expect(collaboratingResult.success).toBe(true);
+    if (sessionResult.success) expect(sessionResult.data.meeting_backend).toBe('session');
+    if (collaboratingResult.success) expect(collaboratingResult.data.meeting_backend).toBe('collaborating');
+  });
+
+  test('rejects unknown meeting backend values', () => {
+    const result = CouncilConfigSchema.safeParse({
+      presets: {
+        default: {
+          alpha: { model: 'openai/gpt-5.4-mini' },
+        },
+      },
+      meeting_backend: 'internal-store',
+    });
+
+    expect(result.success).toBe(false);
   });
 
   test('fills in defaults for optional fields', () => {

@@ -33,7 +33,13 @@ declare module "@earendil-works/pi-coding-agent" {
       options?: { deliverAs?: "steer" | "followUp" },
     ): void;
     appendEntry(customType: string, data?: any): void;
+    getAllTools(): Array<{ name: string; description?: string; parameters?: any; sourceInfo?: any }>;
+    getActiveTools(): string[];
+    setActiveTools(names: string[]): void;
+    setModel(model: any): Promise<boolean>;
     getThinkingLevel(): string;
+    setThinkingLevel(level: string): void;
+    exec(command: string, args?: string[], options?: { signal?: AbortSignal; timeout?: number; cwd?: string }): Promise<{ stdout: string; stderr: string; code: number | null; killed?: boolean }>;
     events: {
       emit(event: string, data?: any): void;
     };

@@ -37,158 +37,120 @@ import {
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
 } from "../core/workflow-templates";
 
-// ─── Agent Prompts (extracted from OMO src/agents/) ────────────────────────
-
-const AGENT_PROMPTS: Record<string, { prompt: string; description: string; temperature: number }> = {
-  explorer: {
-    description: "Fast codebase search and pattern matching",
-    temperature: 0.1,
-    prompt: `You are Explorer - a fast codebase navigation specialist.
-
-**Role**: Quick contextual grep for codebases. Answer "Where is X?", "Find Y", "Which file has Z".
-
-**Tools available**: read, grep, find, ls, bash
-
-**Behavior**:
-- Be fast and thorough
-- Fire multiple searches in parallel if needed
-- Return file paths with relevant snippets
-
-**Output Format**:
-<results>
-<files>
-- /path/to/file.ts:42 - Brief description of what's there
-</files>
-<answer>
-Concise answer to the question
-</answer>
-</results>
-
-**Constraints**:
-- READ-ONLY: Search and report, don't modify
-- Be exhaustive but concise
-- Include line numbers when relevant`,
-  },
-
-  librarian: {
-    description: "External documentation and library research",
-    temperature: 0.1,
-    prompt: `You are Librarian - a research specialist for codebases and documentation.
-
-**Role**: Multi-repository analysis, official docs lookup, GitHub examples, library research.
-
-**Capabilities**:
-- Search and analyze external repositories
-- Find official documentation for libraries
-- Locate implementation examples in open source
-- Understand library internals and best practices
-
-**Behavior**:
-- Provide evidence-based answers with sources
-- Quote relevant code snippets
-- Link to official docs when available
-- Distinguish between official and community patterns`,
-  },
-
-  oracle: {
-    description: "Strategic technical advisor and code reviewer",
-    temperature: 0.1,
-    prompt: `You are Oracle - a strategic technical advisor and code reviewer.
-
-**Role**: High-IQ debugging, architecture decisions, code review, simplification, and engineering guidance.
-
-**Capabilities**:
-- Analyze complex codebases and identify root causes
-- Propose architectural solutions with tradeoffs
-- Review code for correctness, performance, maintainability
-- Enforce YAGNI and suggest simpler designs
-
-**Behavior**:
-- Be direct and concise
-- Provide actionable recommendations
-- Explain reasoning briefly
-- Acknowledge uncertainty when present
-- Prefer simpler designs unless complexity clearly earns its keep
-
-**Constraints**:
-- READ-ONLY: You advise, you don't implement
-- Focus on strategy, not execution
-- Point to specific files/lines when relevant`,
-  },
-
-  fixer: {
-    description: "Fast implementation specialist",
-    temperature: 0.2,
-    prompt: `You are Fixer - a fast, focused implementation specialist.
-
-**Role**: Execute code changes efficiently. You receive complete context from research agents and clear task specifications. Your job is to implement, not plan or research.
-
-**Behavior**:
-- Execute the task specification provided
-- Read files before using edit/write tools
-- Be fast and direct - no research, no delegation
-- Write or update tests when requested
-- Report completion with summary of changes
-
-**Constraints**:
-- NO external research
-- NO delegation or spawning subagents
-- Use grep/glob/read directly for lookups, don't delegate
-
-**Output Format**:
-<summary>
-Brief summary of what was implemented
-</summary>
-<changes>
-- file1.ts: Changed X to Y
-</changes>`,
-  },
-
-  designer: {
-    description: "UI/UX design, review, and implementation",
-    temperature: 0.7,
-    prompt: `You are a Designer - a frontend UI/UX specialist who creates and reviews intentional, polished experiences.
-
-**Role**: Craft and review cohesive UI/UX that balances visual impact with usability.
-
-**Design Principles**:
-- Choose distinctive, characterful fonts
-- Commit to a cohesive aesthetic with clear color variables
-- Leverage framework animation utilities
-- Break conventions: asymmetry, overlap, diagonal flow
-- Default to Tailwind CSS utility classes when available
-
-**Constraints**:
-- Respect existing design systems when present
-- Prioritize visual excellence`,
-  },
-
-  observer: {
-    description: "Visual analysis of images, screenshots, and diagrams",
-    temperature: 0.1,
-    prompt: `You are Observer — a visual analysis specialist.
-
-**Role**: Interpret images, screenshots, PDFs, and diagrams. Extract structured observations.
-
-**Behavior**:
-- For images: use the read tool (pi handles image display natively)
-- For screenshots with text/code/errors: extract the exact text — never paraphrase
-- Return ONLY the extracted information relevant to the goal
-
-**Constraints**:
-- READ-ONLY: Analyze and report, don't modify files
-- If the image is unclear, state what you CAN see and note what is uncertain`,
-  },
-};
+import { AGENT_PROMPTS } from "./pi-agents";
+import {
+  formatPiCouncilResults,
+  resolvePiCouncilParticipants,
+  runPiCouncilParticipant,
+  type PiCouncilParticipant,
+  type PiCouncilRunResult,
+} from "./pi-council";
+import { formatPiMeetingResult, runPiMeeting, type PiMeetingParticipantResult } from "./pi-meeting";
+export { AGENT_PROMPTS } from "./pi-agents";
+export { formatPiCouncilResults, resolvePiCouncilParticipants } from "./pi-council";
+export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
-interface OmniMoConfig {
+export interface PiCouncilParticipantConfig {
+  name?: string;
+  agent?: string;
+  model?: string;
+  variant?: string;
+  prompt?: string;
+}
+
+export interface PiCouncilConfig {
+  presets?: Record<string, Record<string, PiCouncilParticipantConfig>>;
+  default_preset?: string;
+  timeout?: number;
+  councillor_execution_mode?: "parallel" | "serial";
+  meeting_backend?: "session" | "collaborating" | "persistent";
+}
+
+export interface OmniMoConfig {
   preset?: string;
-  presets?: Record<string, Record<string, { model?: string; variant?: string }>>;
-  agents?: Record<string, { model?: string; variant?: string }>;
+  presets?: Record<string, Record<string, { model?: string; variant?: string; thinking?: string }>>;
+  agents?: Record<string, { model?: string; variant?: string; thinking?: string }>;
   disabled_agents?: string[];
   websearch?: Record<string, unknown>;
+  council?: PiCouncilConfig;
+}
+
+interface PiDelegationCapabilities {
+  hasPiAgents: boolean;
+  hasSubagent: boolean;
+  hasAgentMessage: boolean;
+}
+
+export function stripJsonCommentsSafely(raw: string): string {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  let escaping = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  while (i < raw.length) {
+    const ch = raw[i]!;
+    const next = raw[i + 1];
+
+    if (lineComment) {
+      if (ch === "\n") {
+        lineComment = false;
+        out += ch;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (blockComment) {
+      if (ch === "*" && next === "/") {
+        blockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inString) {
+      out += ch;
+      if (escaping) {
+        escaping = false;
+      } else if (ch === "\\") {
+        escaping = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      lineComment = true;
+      i += 2;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      blockComment = true;
+      i += 2;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+
+  return out;
 }
 
 function loadOmniMoConfig(): OmniMoConfig | null {
@@ -214,8 +176,7 @@ function loadOmniMoConfig(): OmniMoConfig | null {
   if (!raw) return null;
 
   try {
-    // Simple JSONC stripping
-    const cleaned = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const cleaned = stripJsonCommentsSafely(raw);
     return JSON.parse(cleaned);
   } catch {
     return null;
@@ -269,18 +230,54 @@ ${prompt}
 `;
 }
 
+function escapeTomlBasicString(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n");
+}
+
+function escapeTomlMultilineString(value: string): string {
+  // TOML multiline basic strings end at triple quotes; split accidental
+  // occurrences so generated agent prompts remain parseable.
+  return value.replace(/"""/g, '""\\"');
+}
+
+function generateAgentToml(
+  name: string,
+  prompt: string,
+  description: string,
+  model: string,
+): string {
+  return `name = "${escapeTomlBasicString(name)}"
+description = "${escapeTomlBasicString(description)}"
+model = "${escapeTomlBasicString(model)}"
+reasoning = "low"
+prompt = """${escapeTomlMultilineString(prompt)}
+"""
+`;
+}
+
 function ensureAgentFiles(config: OmniMoConfig | null): void {
   const agentsDir = path.join(path.dirname(getAgentDir()), "agents");
   fs.mkdirSync(agentsDir, { recursive: true });
 
   for (const [name, info] of Object.entries(AGENT_PROMPTS)) {
-    const filePath = path.join(agentsDir, `${name}.md`);
-    if (fs.existsSync(filePath)) continue;
-
     const model = getDefaultModel(name, config);
-    const content = generateAgentMd(name, info.prompt, info.description, model);
-    fs.writeFileSync(filePath, content, "utf-8");
-    console.error(`[oh-my-opencode-slim] Generated agent: ${name} (${model})`);
+
+    const mdPath = path.join(agentsDir, `${name}.md`);
+    if (!fs.existsSync(mdPath)) {
+      const content = generateAgentMd(name, info.prompt, info.description, model);
+      fs.writeFileSync(mdPath, content, "utf-8");
+      console.error(`[oh-my-opencode-slim] Generated Pi agent: ${name}.md (${model})`);
+    }
+
+    const tomlPath = path.join(agentsDir, `${name}.toml`);
+    if (!fs.existsSync(tomlPath)) {
+      const content = generateAgentToml(name, info.prompt, info.description, model);
+      fs.writeFileSync(tomlPath, content, "utf-8");
+      console.error(`[oh-my-opencode-slim] Generated collaborating subagent type: ${name}.toml (${model})`);
+    }
   }
 }
 
@@ -290,14 +287,20 @@ function updateAgentModels(config: OmniMoConfig | null, presetName: string): voi
   if (!preset) return;
 
   for (const [name, info] of Object.entries(AGENT_PROMPTS)) {
-    const filePath = path.join(agentsDir, `${name}.md`);
-    if (!fs.existsSync(filePath)) continue;
-
     const agentOverride = preset[name] as { model?: string } | undefined;
     const model = agentOverride?.model ?? getDefaultModel(name, config);
 
-    const content = generateAgentMd(name, info.prompt, info.description, model);
-    fs.writeFileSync(filePath, content, "utf-8");
+    const mdPath = path.join(agentsDir, `${name}.md`);
+    if (fs.existsSync(mdPath)) {
+      const content = generateAgentMd(name, info.prompt, info.description, model);
+      fs.writeFileSync(mdPath, content, "utf-8");
+    }
+
+    const tomlPath = path.join(agentsDir, `${name}.toml`);
+    if (fs.existsSync(tomlPath)) {
+      const content = generateAgentToml(name, info.prompt, info.description, model);
+      fs.writeFileSync(tomlPath, content, "utf-8");
+    }
   }
 }
 
@@ -310,12 +313,43 @@ function getPresetModelForOrchestrator(
   return override?.model;
 }
 
+function getPresetThinkingForOrchestrator(
+  config: OmniMoConfig | null,
+  presetName: string,
+): string | undefined {
+  const preset = config?.presets?.[presetName];
+  const override = preset?.orchestrator as { thinking?: string } | undefined;
+  return override?.thinking;
+}
+
+export function parsePiModelId(modelId: string): { provider: string; model: string } | undefined {
+  const trimmed = modelId.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) return undefined;
+  return { provider: trimmed.slice(0, slash), model: trimmed.slice(slash + 1) };
+}
+
+export function resolvePresetSwitchPlan(
+  config: OmniMoConfig | null,
+  presetName: string,
+): { model?: string; thinking?: string; error?: string } {
+  if (!config?.presets?.[presetName]) {
+    const available = Object.keys(config?.presets ?? {}).join(", ") || "(none)";
+    return { error: `Preset "${presetName}" not found. Available presets: ${available}` };
+  }
+  return {
+    model: getPresetModelForOrchestrator(config, presetName),
+    thinking: getPresetThinkingForOrchestrator(config, presetName),
+  };
+}
+
+
 // ─── Orchestrator System Prompt Builder ────────────────────────────────────
 
 function buildPiOrchestratorPrompt(
   disabledAgents: string[],
-  config: OmniMoConfig | null,
-  hasPiAgents: boolean,
+  _config: OmniMoConfig | null,
+  capabilities: PiDelegationCapabilities,
 ): string {
   const allAgents = Object.keys(AGENT_PROMPTS).filter(
     (name) => !disabledAgents.includes(name),
@@ -328,8 +362,52 @@ function buildPiOrchestratorPrompt(
     })
     .join("\n");
 
-  const delegationGuide = hasPiAgents
+  const delegationGuide = capabilities.hasSubagent && capabilities.hasAgentMessage
     ? `
+## Delegation (with pi-collaborating-agents)
+
+You have Pi-native collaboration tools plus OMO compatibility tools:
+
+### Specialist execution: \`subagent\`
+Use \`subagent\` for normal specialist work and parallel exploration/review. OMO generates matching Pi subagent type files for: ${allAgents.join(", ")}.
+
+\`subagent\` is background-oriented: it returns a launch acknowledgement first, and final outputs are auto-collected later. Do not poll; wait for completion messages.
+
+\`\`\`json
+{ "type": "explorer", "task": "Find route definitions and summarize paths" }
+\`\`\`
+
+Parallel:
+\`\`\`json
+{ "type": "explorer", "tasks": [
+  { "task": "Scan auth routes" },
+  { "task": "Scan auth models" }
+]}
+\`\`\`
+
+### Coordination and meetings: \`agent_message\`
+Use \`agent_message\` for multi-agent coordination, reservations, and discussion/meeting workflows:
+- \`list\`, \`feed\`, \`thread\` to observe active agents/messages
+- \`send\`, \`broadcast\` for blockers or meeting rounds
+- \`reserve\`, \`release\` before parallel writes
+
+### OMO compatibility: \`omo_delegate\`
+Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mode where each step receives previous output.
+
+\`\`\`json
+{ "chain": [
+  { "agent": "explorer", "task": "search for auth" },
+  { "agent": "oracle", "task": "review findings, suggest fixes" }
+]}
+\`\`\`
+
+### Council modes
+- Isolated: independent parallel opinions; best for diverse review without cross-contamination.
+- Meeting: hidden round-based debate; the stable backend is session-based and the experimental backend uses real collaborating subagents. Returns only a compressed report.
+Use \`omo_council\` only when this higher-level analysis is worth the latency/cost.
+`
+    : capabilities.hasPiAgents
+      ? `
 ## Delegation (with pi-agents)
 
 You have two tools for delegation:
@@ -366,8 +444,8 @@ You have two tools for delegation:
 \`\`\`
 Note: Workflow steps automatically pass prior context — you don't need to manually concatenate outputs.
 `
-    : `
-## Delegation (without pi-agents, using omo_delegate)
+      : `
+## Delegation (using OMO compatibility tools)
 
 ### Single agent
 \`\`\`json
@@ -382,8 +460,14 @@ Note: Workflow steps automatically pass prior context — you don't need to manu
 ]}
 \`\`\`
 
-### Parallel (multiple calls)
-Call omo_delegate multiple times, then synthesize.
+### Parallel
+Use \`tasks\` for independent parallel specialist calls:
+\`\`\`json
+{ "tasks": [
+  { "agent": "explorer", "task": "scan route definitions" },
+  { "agent": "librarian", "task": "check library docs" }
+]}
+\`\`\`
 `;
 
   return `<Role>
@@ -418,11 +502,13 @@ Example: "Intent: investigation → explore the repo"
 Parse request: explicit requirements + implicit needs.
 
 ## 2. Delegation Check
-Review available agents. Decide whether to delegate or do it yourself.
+Use the cheapest reliable path: self → single specialist → parallel specialists → isolated council → hidden meeting.
 
-**Delegation efficiency:**
-- Provide context summaries, let specialists read what they need
-- Skip delegation when overhead clearly exceeds value
+**When to escalate:**
+- Single specialist: one clear gap (explorer=find code, librarian=docs, oracle=risk/design, fixer=scoped implementation).
+- Isolated council: independent critiques are valuable and should not influence each other.
+- Hidden meeting: real tradeoffs/competing hypotheses need challenge and convergence; runtime carries debate forward round-by-round and main context sees only the final compressed report.
+- Do not use council/meeting for simple factual lookups, obvious edits, or when latency/cost outweighs quality gain.
 
 ## 3. Execute
 1. Break complex tasks into steps
@@ -465,7 +551,7 @@ Example:
 </Gate Rules>
 
 <Council Tool>
-Use omo_council when you need multiple models to analyze the same question independently, then synthesize their answers. Useful for architecture decisions, code review, and ambiguous questions where diverse perspectives add value.
+Use omo_council sparingly for high-value analysis. mode="isolated" gives independent views; mode="meeting" runs a hidden round-based debate and returns only a compressed conclusion. Avoid it for simple tasks.
 </Council Tool>`;
 }
 
@@ -637,27 +723,122 @@ function createToolImplementations(config: OmniMoConfig | null) {
       name: "omo_council",
       label: "OMO Council",
       description:
-        "Run multiple models on the same question in parallel, then synthesize their answers into one.",
+        "Run multiple models on the same question and synthesize their answers. meeting mode uses a hidden round-based debate and returns only a compressed report; collaborating backend is experimental.",
       promptSnippet: "Multi-model consensus: run multiple models on the same question and synthesize",
       parameters: Type.Object({
         question: Type.String({ description: "The question or task for all models to analyze" }),
+        mode: Type.Optional(Type.String({ description: "Council mode: isolated (default) | meeting" })),
+        preset: Type.Optional(Type.String({ description: "Council preset name from config" })),
+        objective: Type.Optional(Type.String({ description: "Meeting objective: brainstorm | review | design | debug | decision" })),
+        maxRounds: Type.Optional(Type.Integer({ description: "Meeting discussion rounds, clamped to 1..5" })),
+        maxDurationMs: Type.Optional(Type.Number({ description: "Meeting timeout budget in milliseconds" })),
+        includeTranscript: Type.Optional(Type.Boolean({ description: "Debug only: include raw hidden meeting transcript in the tool result" })),
+        participants: Type.Optional(
+          Type.Array(
+            Type.Object({
+              name: Type.Optional(Type.String({ description: "Participant display name" })),
+              agent: Type.Optional(Type.String({ description: "OMO agent prompt to use, e.g. oracle/explorer/fixer" })),
+              model: Type.Optional(Type.String({ description: "Optional provider/model override" })),
+              prompt: Type.Optional(Type.String({ description: "Optional participant-specific guidance" })),
+            }),
+            { description: "Explicit council/meeting participants" },
+          ),
+        ),
       }),
       async execute(
         _toolCallId: string,
-        params: { question: string },
+        params: {
+          question: string;
+          mode?: string;
+          preset?: string;
+          objective?: string;
+          maxRounds?: number;
+          maxDurationMs?: number;
+          includeTranscript?: boolean;
+          participants?: PiCouncilParticipantConfig[];
+        },
         _signal: AbortSignal | undefined,
         _onUpdate: any,
-        _ctx: ExtensionContext,
+        ctx: ExtensionContext,
       ) {
-        // Simplified council: returns instructions for the user to configure model setup
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Council analysis requested for: ${params.question}\n\nTo run council, configure models in oh-my-opencode-slim.json and set up pi with multiple model providers. The default pi model handles synthesis.`,
+        const mode = params.mode ?? "isolated";
+        if (mode === "meeting") {
+          const meeting = await runPiMeeting({
+            question: params.question,
+            preset: params.preset,
+            participants: params.participants,
+            objective: params.objective,
+            maxRounds: params.maxRounds,
+            maxDurationMs: params.maxDurationMs,
+            includeTranscript: params.includeTranscript,
+            ctx,
+            config,
+          });
+          if (meeting.error || !meeting.result) {
+            return {
+              content: [{ type: "text" as const, text: meeting.error ?? "Meeting failed before starting." }],
+              details: { mode, question: params.question },
+              isError: true,
+            };
+          }
+          return {
+            content: [{ type: "text" as const, text: formatPiMeetingResult(meeting.result) }],
+            details: {
+              mode,
+              question: params.question,
+              meetingId: meeting.result.meetingId,
+              status: meeting.result.status,
+              roundsCompleted: meeting.result.roundsCompleted,
+              requestedBackend: meeting.result.requestedBackend,
+              backendUsed: meeting.result.backendUsed,
+              fallbackReason: meeting.result.fallbackReason,
+              participants: meeting.result.participants.map((p: PiMeetingParticipantResult) => ({ name: p.name, agent: p.agent, status: p.status })),
+              keySignals: meeting.result.keySignals,
             },
-          ],
-          details: { question: params.question },
+            isError: meeting.result.status === "failed" || meeting.result.status === "timed_out",
+          };
+        }
+
+        if (mode !== "isolated") {
+          return {
+            content: [{ type: "text" as const, text: `Unsupported council mode "${mode}". Use mode="isolated" or mode="meeting".` }],
+            details: { mode, question: params.question },
+            isError: true,
+          };
+        }
+
+        const resolved = resolvePiCouncilParticipants({
+          config,
+          preset: params.preset,
+          participants: params.participants,
+        });
+        if (resolved.error) {
+          return {
+            content: [{ type: "text" as const, text: resolved.error }],
+            details: { mode, question: params.question },
+            isError: true,
+          };
+        }
+
+        const timeoutMs = config?.council?.timeout ?? 180000;
+        const executionMode = config?.council?.councillor_execution_mode ?? "parallel";
+        const runOne = (participant: PiCouncilParticipant) =>
+          runPiCouncilParticipant({ participant, question: params.question, ctx, timeoutMs });
+
+        const results = executionMode === "serial"
+          ? [] as PiCouncilRunResult[]
+          : await Promise.all(resolved.participants.map(runOne));
+
+        if (executionMode === "serial") {
+          for (const participant of resolved.participants) {
+            results.push(await runOne(participant));
+          }
+        }
+
+        return {
+          content: [{ type: "text" as const, text: formatPiCouncilResults(params.question, results) }],
+          details: { mode, question: params.question, results },
+          isError: results.every((r) => r.status !== "completed"),
         };
       },
     },
@@ -768,34 +949,57 @@ function createToolImplementations(config: OmniMoConfig | null) {
 export default function omniMoPiExtension(pi: ExtensionAPI) {
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
-  let hasPiAgents = false;
 
-  // ── Detect pi-agents availability ──────────────────────────────────
-  // Check by looking for pi-agents in extension settings
-  function detectPiAgents(): boolean {
+  // ── Detect delegation capabilities ─────────────────────────────────
+  function getToolNames(): Set<string> {
     try {
-      // getAgentDir() returns ~/.pi/agent, settings.json is right there
+      const tools = typeof pi.getAllTools === "function" ? pi.getAllTools() : [];
+      return new Set(tools.map((tool: any) => tool?.name).filter((name: any): name is string => typeof name === "string"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function detectPiAgentsFromSettings(): boolean {
+    try {
       const settingsPath = path.join(getAgentDir(), "settings.json");
       if (fs.existsSync(settingsPath)) {
         const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
-        const packages: string[] = settings.packages ?? [];
-        // pi-agents can be installed as npm:pi-agents or git:github.com/...
-        return packages.some(
-          (p: string) =>
-            p === "npm:pi-agents" ||
-            p === "pi-agents" ||
-            p.includes("/pi-agents"),
-        );
+        const packages: unknown[] = settings.packages ?? [];
+        return packages.some((entry) => {
+          const p = typeof entry === "string"
+            ? entry
+            : typeof (entry as any)?.source === "string"
+              ? (entry as any).source
+              : "";
+          return p === "npm:pi-agents" || p === "pi-agents" || p.includes("/pi-agents");
+        });
       }
     } catch {
       // ignore
     }
     return false;
   }
-  hasPiAgents = detectPiAgents();
 
-  // Also check at before_agent_start time (more reliable if settings changed)
-  let runtimeHasPiAgents = hasPiAgents;
+  let runtimeCapabilities: PiDelegationCapabilities = {
+    hasPiAgents: detectPiAgentsFromSettings(),
+    hasSubagent: false,
+    hasAgentMessage: false,
+  };
+
+  function refreshDelegationCapabilities(systemPrompt?: string): PiDelegationCapabilities {
+    const toolNames = getToolNames();
+    runtimeCapabilities = {
+      hasPiAgents:
+        runtimeCapabilities.hasPiAgents ||
+        toolNames.has("agent") ||
+        toolNames.has("workflow") ||
+        !!systemPrompt?.includes("<agents scope="),
+      hasSubagent: toolNames.has("subagent"),
+      hasAgentMessage: toolNames.has("agent_message"),
+    };
+    return runtimeCapabilities;
+  }
 
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, _ctx) => {
@@ -804,17 +1008,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
-    // Check for pi-agents at runtime: if the system prompt already contains
-    // the <agents> block injected by pi-agents, we know it's loaded.
-    if (!runtimeHasPiAgents) {
-      runtimeHasPiAgents = event.systemPrompt.includes("<agents scope=");
-    }
-
+    const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
       disabledAgents,
       config,
-      runtimeHasPiAgents,
+      capabilities,
     );
 
     return {
@@ -830,61 +1029,80 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool(tools.astGrepReplace);
 
   // ── Declaration gates via tool_call blocking ───────────────────────
-  // Read the LAST COMPLETE assistant message from session.
-  // The current streaming message isn't in session yet, so we check the
-  // previous turn's message. On the first tool call of a session (no
-  // previous assistant message), gates are skipped.
-  function getLastAssistantText(ctx: ExtensionContext): string {
+  // Pi synchronizes ctx.sessionManager through the current assistant
+  // tool-calling message before tool_call handlers run. Use that current
+  // message first, then fall back to previous assistant text. These gates are
+  // intentionally instructional: blocking is a reminder to stop and reason
+  // about intent/readiness/approval, not just a permission denial.
+  function getAssistantText(msg: any): string {
+    const content = msg?.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+    return content
+      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text)
+      .join("\n");
+  }
+
+  function assistantHasToolCall(msg: any, toolCallId: string): boolean {
+    const content = msg?.content;
+    return Array.isArray(content) && content.some((p: any) => p?.type === "toolCall" && p.id === toolCallId);
+  }
+
+  function getRelevantAssistantText(ctx: ExtensionContext, toolCallId: string): string {
     try {
       const branch = ctx.sessionManager.getBranch();
+      let fallback = "";
       for (let i = branch.length - 1; i >= 0; i--) {
         const entry = branch[i];
-        if (entry.type === "message") {
-          const msg = (entry as any).message;
-          if (msg?.role === "assistant") {
-            const content = msg.content;
-            if (typeof content === "string") return content;
-            if (Array.isArray(content)) {
-              return content
-                .filter((p: any) => p.type === "text")
-                .map((p: any) => p.text)
-                .join("\n");
-            }
-            return "";
-          }
-        }
+        if (entry.type !== "message") continue;
+        const msg = (entry as any).message;
+        if (msg?.role !== "assistant") continue;
+        const text = getAssistantText(msg);
+        if (!text) continue;
+        if (assistantHasToolCall(msg, toolCallId)) return text;
+        if (!fallback) fallback = text;
       }
+      return fallback;
     } catch {
-      // ignore
+      return "";
     }
-    return "";
+  }
+
+  function hasDeclaration(text: string, label: string): boolean {
+    // Prefer declarations at line starts, but allow compact same-line forms:
+    // "Intent: ... READY: ... APPROVED: ...". The gate is instructional;
+    // overblocking valid compact declarations makes weaker models loop.
+    return new RegExp(`(^|\\s)${label}:`, "im").test(text);
   }
 
   pi.on("tool_call", async (event, ctx) => {
     try {
-      const lastText = getLastAssistantText(ctx);
+      const assistantText = getRelevantAssistantText(ctx, event.toolCallId);
 
-      // First turn (no previous assistant message): skip gate
-      if (!lastText) return;
+      // First turn or provider emitted tool call without any visible text:
+      // remind through context/prompt next time, but do not hard-block purely
+      // empty text because some providers can generate tool-only first calls.
+      if (!assistantText) return;
 
-      // Intent Gate: required for ALL tool calls
-      if (!/^Intent:/im.test(lastText)) {
+      // Intent Gate: required for ALL tool calls.
+      if (!hasDeclaration(assistantText, "Intent")) {
         return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
       }
 
-      // Orchestration Gate: required for agent/workflow
-      if (event.toolName === "agent" || event.toolName === "workflow") {
-        if (!/^ORCHESTRATION:/im.test(lastText)) {
+      // Orchestration Gate: required for delegation/collaboration tools.
+      if (["agent", "workflow", "subagent", "omo_delegate"].includes(event.toolName)) {
+        if (!hasDeclaration(assistantText, "ORCHESTRATION")) {
           return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
         }
       }
 
-      // Readiness + Approval Gates: required before edit/write
+      // Readiness + Approval Gates: required before edit/write.
       if (event.toolName === "edit" || event.toolName === "write") {
-        if (!/^READY:/im.test(lastText) && !/^AWAITING_APPROVAL:/im.test(lastText)) {
+        if (!hasDeclaration(assistantText, "READY") && !hasDeclaration(assistantText, "AWAITING_APPROVAL")) {
           return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
         }
-        if (!/^APPROVED:/im.test(lastText)) {
+        if (!hasDeclaration(assistantText, "APPROVED")) {
           return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
         }
       }
@@ -900,7 +1118,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       content: [{ type: "text" as const, text: `[Gate Rules]
 YOU MUST write these declarations in YOUR assistant reply before calling any tool:
 1. Intent: <classification> → <routing>
-2. ORCHESTRATION: self | delegate to <agent> (if using agent/workflow)
+2. ORCHESTRATION: self | delegate to <agent> (if using agent/workflow/subagent/omo_delegate)
 3. READY: <context> + APPROVED: <plan> (if using edit/write)
 
 Example: "Intent: investigation → explore the repo"` }],
@@ -929,25 +1147,51 @@ Example: "Intent: investigation → explore the repo"` }],
       }
 
       const newConfig = loadOmniMoConfig();
-      if (newConfig?.presets?.[name]) {
-        currentPreset = name;
-        newConfig.preset = name;
-        updateAgentModels(newConfig, name);
-
-        ctx.ui.notify(`Switched to preset: ${name}`, "success");
-      } else {
-        ctx.ui.notify(
-          `Preset "${name}" not found in oh-my-opencode-slim.json`,
-          "error",
-        );
+      const plan = resolvePresetSwitchPlan(newConfig, name);
+      if (plan.error || !newConfig) {
+        ctx.ui.notify(plan.error ?? "No oh-my-opencode-slim config found", "error");
+        return;
       }
+
+      currentPreset = name;
+      newConfig.preset = name;
+      updateAgentModels(newConfig, name);
+
+      const effects: string[] = ["agent .md/.toml files updated"];
+
+      if (plan.model) {
+        const parsed = parsePiModelId(plan.model);
+        if (!parsed) {
+          effects.push(`orchestrator model not switched: invalid model id ${plan.model}`);
+        } else {
+          const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
+          if (!model) {
+            effects.push(`orchestrator model not switched: model not found ${plan.model}`);
+          } else {
+            const switched = await pi.setModel(model);
+            effects.push(
+              switched
+                ? `orchestrator model switched to ${plan.model}`
+                : `orchestrator model not switched: no API key for ${plan.model}`,
+            );
+          }
+        }
+      }
+
+      if (plan.thinking) {
+        pi.setThinkingLevel(plan.thinking);
+        effects.push(`thinking set to ${plan.thinking}`);
+      }
+
+      ctx.ui.notify(`Switched to preset: ${name}\n${effects.map((e) => `- ${e}`).join("\n")}`, "success");
     },
   });
 
   // ── Log startup ─────────────────────────────────────────────────────
   const presetName = config?.preset ?? "default";
   const orchestratorModel = getPresetModelForOrchestrator(config, presetName) ?? "default";
+  const startupCapabilities = refreshDelegationCapabilities();
   console.error(
-    `[oh-my-opencode-slim] Pi adapter loaded. Preset: ${presetName}, Orchestrator model: ${orchestratorModel}, pi-agents: ${hasPiAgents ? "yes" : "no"}`,
+    `[oh-my-opencode-slim] Pi adapter loaded. Preset: ${presetName}, Orchestrator model: ${orchestratorModel}, capabilities: pi-agents=${startupCapabilities.hasPiAgents ? "yes" : "no"}, subagent=${startupCapabilities.hasSubagent ? "yes" : "no"}, agent_message=${startupCapabilities.hasAgentMessage ? "yes" : "no"}`,
   );
 }

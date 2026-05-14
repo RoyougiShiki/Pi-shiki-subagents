@@ -105,6 +105,15 @@ export const CouncillorExecutionModeSchema = z
       'Use "parallel" for multi-model systems for faster execution.',
   );
 
+export const MeetingBackendSchema = z
+  .enum(['session', 'collaborating', 'persistent'])
+  .default('session')
+  .describe(
+    'Backend for Pi realtime meeting mode. "session" is the stable hidden createAgentSession backend. ' +
+      '"persistent" spawns participants once with polling loops for raw-message meetings. ' +
+      '"collaborating" is the experimental round-spawn backend.',
+  );
+
 /**
  * Top-level council configuration.
  *
@@ -132,6 +141,9 @@ export const CouncilConfigSchema = z
     default_preset: z.string().default('default'),
     councillor_execution_mode: CouncillorExecutionModeSchema.describe(
       'Execution mode for councillors. "serial" runs them one at a time (required for single-model systems). "parallel" runs them concurrently (default, faster for multi-model systems).',
+    ),
+    meeting_backend: MeetingBackendSchema.describe(
+      'Backend for Pi omo_council(mode="meeting"). "session" is stable/default; "collaborating" is reserved for future pi-collaborating-agents integration.',
     ),
     councillor_retries: z
       .number()
@@ -183,6 +195,7 @@ export const CouncilConfigSchema = z
       timeout: data.timeout,
       default_preset: data.default_preset,
       councillor_execution_mode: data.councillor_execution_mode,
+      meeting_backend: data.meeting_backend,
       councillor_retries: data.councillor_retries,
       _deprecated: deprecated.length > 0 ? deprecated : undefined,
       _legacyMasterModel: legacyMasterModel,
@@ -193,6 +206,7 @@ export type CouncilConfig = z.infer<typeof CouncilConfigSchema>;
 export type CouncillorExecutionMode = z.infer<
   typeof CouncillorExecutionModeSchema
 >;
+export type MeetingBackend = z.infer<typeof MeetingBackendSchema>;
 
 /**
  * A sensible default council configuration that users can copy into their
