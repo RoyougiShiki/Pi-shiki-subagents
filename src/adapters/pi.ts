@@ -1003,8 +1003,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     ensureAgentFiles(config);
   });
 
+  // ── Lifecycle-based gate state ─────────────────────────────────────
+  // Gates track declarations per agent cycle (before_agent_start → agent_end).
+  // Each gate only blocks once per cycle — after declared, subsequent
+  // tools in the same cycle pass without re-declaration.
+  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean } = {
+    cycle: 0, intent: false, ready: false, approved: false,
+  };
+
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
+    // Reset gate state for new agent cycle
+    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -1082,26 +1092,39 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       // empty text because some providers can generate tool-only first calls.
       if (!assistantText) return;
 
-      // Intent Gate: required for ALL tool calls.
-      if (!hasDeclaration(assistantText, "Intent")) {
+      // Detect declarations in the current assistant message
+      const hasIntent = hasDeclaration(assistantText, "Intent");
+      const hasReady = hasDeclaration(assistantText, "READY") || hasDeclaration(assistantText, "AWAITING_APPROVAL");
+      const hasApproved = hasDeclaration(assistantText, "APPROVED");
+      const hasOrchestration = hasDeclaration(assistantText, "ORCHESTRATION");
+
+      // Intent Gate: block once per cycle if not yet declared.
+      // Once declared in any turn of this cycle, skip Intent check for
+      // subsequent tools (LLM is continuing the same intent).
+      if (!hasIntent && !gateState.intent) {
         return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
       }
+      if (hasIntent) gateState.intent = true;
 
-      // Orchestration Gate: required for delegation/collaboration tools.
+      // Orchestration Gate: block each time for delegation tools.
+      // Each delegate call is an independent orchestration decision.
       if (["agent", "workflow", "subagent", "omo_delegate"].includes(event.toolName)) {
-        if (!hasDeclaration(assistantText, "ORCHESTRATION")) {
+        if (!hasOrchestration) {
           return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
         }
       }
 
-      // Readiness + Approval Gates: required before edit/write.
+      // Readiness + Approval Gates: block once per cycle for edit/write.
       if (event.toolName === "edit" || event.toolName === "write") {
-        if (!hasDeclaration(assistantText, "READY") && !hasDeclaration(assistantText, "AWAITING_APPROVAL")) {
+        if (!hasReady && !gateState.ready) {
           return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
         }
-        if (!hasDeclaration(assistantText, "APPROVED")) {
+        if (hasReady) gateState.ready = true;
+
+        if (!hasApproved && !gateState.approved) {
           return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
         }
+        if (hasApproved) gateState.approved = true;
       }
     } catch (err) {
       console.error("[oh-my-opencode-slim] Gate error:", err);
