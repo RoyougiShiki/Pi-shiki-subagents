@@ -358,35 +358,16 @@ function buildPiOrchestratorPrompt(
 
   const delegationGuide = capabilities.hasSubagent && capabilities.hasAgentMessage
     ? `
-## Delegation (with pi-collaborating-agents)
+## Delegation
 
-You have Pi-native collaboration tools plus OMO compatibility tools:
-
-### Specialist execution: \`subagent\`
-Use \`subagent\` for normal specialist work and parallel exploration/review. OMO generates matching Pi subagent type files for: ${allAgents.join(", ")}.
-
-\`subagent\` is background-oriented: it returns a launch acknowledgement first, and final outputs are auto-collected later. Do not poll; wait for completion messages.
-
-\`\`\`json
-{ "type": "explorer", "task": "Find route definitions and summarize paths" }
-\`\`\`
-
-Parallel:
-\`\`\`json
-{ "type": "explorer", "tasks": [
-  { "task": "Scan auth routes" },
-  { "task": "Scan auth models" }
-]}
-\`\`\`
-
-### Coordination and meetings: \`agent_message\`
+### Coordination: \`agent_message\`
 Use \`agent_message\` for multi-agent coordination, reservations, and discussion/meeting workflows:
 - \`list\`, \`feed\`, \`thread\` to observe active agents/messages
 - \`send\`, \`broadcast\` for blockers or meeting rounds
 - \`reserve\`, \`release\` before parallel writes
 
-### OMO compatibility: \`omo_delegate\`
-Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mode where each step receives previous output.
+### OMO specialist: \`omo_delegate\`
+Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mode where each step receives previous output. Agents are oracle, fixer, explorer, librarian, designer, observer.
 
 \`\`\`json
 { "chain": [
