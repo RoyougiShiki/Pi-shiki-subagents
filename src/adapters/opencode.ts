@@ -267,7 +267,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
         )
       : {};
 
-    mcps = createBuiltinMcps(config.disabled_mcps, config.websearch);
+    mcps = createBuiltinMcps(config.disabled_mcps);
     webfetch = createWebfetchTool(ctx);
     visionAnalyzeTools = createVisionAnalyzeTool(ctx, config.visionModel);
 

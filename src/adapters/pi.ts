@@ -80,7 +80,6 @@ export interface OmniMoConfig {
   presets?: Record<string, Record<string, { model?: string; variant?: string; thinking?: string }>>;
   agents?: Record<string, { model?: string; variant?: string; thinking?: string }>;
   disabled_agents?: string[];
-  websearch?: Record<string, unknown>;
   council?: PiCouncilConfig;
 }
 

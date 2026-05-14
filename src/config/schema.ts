@@ -156,14 +156,8 @@ export const PresetSchema = z.record(z.string(), AgentOverrideConfigSchema);
 
 export type Preset = z.infer<typeof PresetSchema>;
 
-// Websearch provider configuration
-export const WebsearchConfigSchema = z.object({
-  provider: z.enum(['exa', 'tavily']).default('exa'),
-});
-export type WebsearchConfig = z.infer<typeof WebsearchConfigSchema>;
-
 // MCP names
-export const McpNameSchema = z.enum(['websearch', 'context7', 'grep_app']);
+export const McpNameSchema = z.enum(['context7', 'grep_app']);
 export type McpName = z.infer<typeof McpNameSchema>;
 
 export const InterviewConfigSchema = z.object({
@@ -306,13 +300,12 @@ export const PluginConfigSchema = z
           'Orchestrator and council internal agents (councillor) cannot be disabled. ' +
           'All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.',
       ),
-    disabled_mcps: z.array(z.string()).optional(),
-    // Multiplexer config (new unified config - preferred)
+      disabled_mcps: z.array(z.string()).optional(),
+      // Multiplexer config (new unified config - preferred)
     multiplexer: MultiplexerConfigSchema.optional(),
     // Legacy tmux config (for backward compatibility)
     // When tmux.enabled is true, it's equivalent to multiplexer.type = 'tmux'
     tmux: TmuxConfigSchema.optional(),
-    websearch: WebsearchConfigSchema.optional(),
     interview: InterviewConfigSchema.optional(),
     sessionManager: SessionManagerConfigSchema.optional(),
     todoContinuation: TodoContinuationConfigSchema.optional(),
