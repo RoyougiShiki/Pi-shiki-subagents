@@ -698,7 +698,8 @@ Objective: ${args.objective}
 You are NOT respawned each round. You drive the loop yourself.
 
 Step 0 — Send READY to chair:
-  agent_message status, agent_message list, then run:
+  agent_message status, agent_message list (only status/list — never use send or broadcast),
+  then run:
   bash -c "cat > /tmp/_omo_join.js << 'OMONODE'
 ${JOIN_SCRIPT}
 OMONODE
