@@ -1043,7 +1043,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     parts.push(
       "流程：",
       "1. 判断新工具是否与消歧表条目语义重叠",
-      "2. 有重叠→问用户，确认后 write 补一行（"意图"→"某工具"）",
+      "2. 有重叠→问用户，确认后 write 补一行（'意图'→'某工具'）",
       "   不写工具描述已有的内容，只写消歧所需的边界",
       "3. 无重叠→无需操作",
     );

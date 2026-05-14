@@ -70,7 +70,7 @@ The default generated configuration looks like this:
     "openai": {
       "orchestrator": { "model": "openai/gpt-5.5", "skills": ["*"], "mcps": ["*", "!context7"] },
       "oracle": { "model": "openai/gpt-5.5", "variant": "high", "skills": ["simplify"], "mcps": [] },
-      "librarian": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": ["websearch", "context7", "grep_app"] },
+      "librarian": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": ["context7", "grep_app"] },
       "explorer": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": [] },
       "designer": { "model": "openai/gpt-5.4-mini", "variant": "medium", "skills": ["agent-browser"], "mcps": [] },
       "fixer": { "model": "openai/gpt-5.4-mini", "variant": "low", "skills": [], "mcps": [] }
@@ -491,7 +491,7 @@ Use this section as a map: start with installation, then jump to features, confi
 | **[Configuration](docs/configuration.md)** | Config file locations, JSONC support, prompt overrides, and full option reference |
 | **[Maintainer Guide](docs/maintainers.md)** | Issue triage rules, label meanings, support routing, and repo maintenance workflow |
 | **[Skills](docs/skills.md)** | Built-in and recommended skills such as `simplify`, `agent-browser`, and `codemap` |
-| **[MCPs](docs/mcps.md)** | `websearch`, `context7`, `grep_app`, and how MCP permissions work per agent |
+| **[MCPs](docs/mcps.md)** | `context7`, `grep_app`, and how MCP permissions work per agent |
 | **[Tools](docs/tools.md)** | Built-in tool capabilities like `webfetch`, LSP tools, code search, and formatters |
 
 ### 💡 Example Presets
