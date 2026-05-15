@@ -426,12 +426,12 @@ Use \`agent_message\` for multi-agent coordination, reservations, and discussion
 ### OMO specialist: \`omo_delegate\`
 Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mode where each step receives previous output. Agents are oracle, fixer, explorer, librarian, designer, observer.
 
-```json
+\`\`\`json
 { "chain": [
   { "agent": "explorer", "task": "search for auth" },
   { "agent": "oracle", "task": "review findings, suggest fixes" }
 ]}
-```
+\`\`\`
 
 ### Council modes
 - Isolated: independent parallel opinions; best for diverse review without cross-contamination.
@@ -448,12 +448,12 @@ Use \`omo_council\` only when this higher-level analysis is worth the latency/co
 You have two tools for delegation:
 
 ### Single agent: `agent` tool
-```json
+\`\`\`json
 { "name": "explorer", "task": "Find route definitions" }
-```
+\`\`\`
 
 ### Orchestration: `workflow` tool (sequence/fork/join/loop)
-```json
+\`\`\`json
 // Parallel research
 { "kind": "fork", "id": "r", "branches": {
   "search":   { "agent": "explorer", "task": "scan codebase" },
@@ -476,33 +476,33 @@ You have two tools for delegation:
     { "agent": "oracle", "task": "审查，输出 {approved, feedback}", "output": "json" }
   ]}
 }
-```
+\`\`\`
 Note: Workflow steps automatically pass prior context — you don't need to manually concatenate outputs.
 `
       : `
 ## Delegation (using OMO compatibility tools)
 
 ### Single agent
-```json
+\`\`\`json
 { "agent": "explorer", "task": "Find route definitions" }
-```
+\`\`\`
 
 ### Chain (sequential)
-```json
+\`\`\`json
 { "chain": [
   { "agent": "explorer", "task": "search for auth" },
   { "agent": "oracle", "task": "review findings, suggest fixes" }
 ]}
-```
+\`\`\`
 
 ### Parallel
 Use \`tasks\` for independent parallel specialist calls:
-```json
+\`\`\`json
 { "tasks": [
   { "agent": "explorer", "task": "scan route definitions" },
   { "agent": "librarian", "task": "check library docs" }
 ]}
-```
+\`\`\`
 `;
 
   return `<CONSTITUTION>
