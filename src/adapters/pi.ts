@@ -59,30 +59,6 @@ export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMax
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
-/** Intent → tool preset mapping for before_provider_request filtering. */
-const TOOL_PRESETS: Record<string, Set<string>> = {
-  default: new Set(["read", "web_search", "code_search", "grep", "ls", "ctx_search"]),
-  research: new Set(["read", "web_search", "fetch_content", "code_search", "grep", "ls", "ctx_search", "ctx_fetch_and_index"]),
-  investigation: new Set(["read", "bash", "grep", "ls", "find", "code_search"]),
-  implementation: new Set(), // all tools
-  fix: new Set(),            // all tools
-  evaluation: new Set(),     // all tools
-};
-
-function toolsForIntent(intent: string, allToolNames: string[]): Set<string> {
-  const preset = TOOL_PRESETS[intent];
-  // Empty set means allow all
-  if (!preset || intent === "evaluation" || intent === "open-ended") {
-    return new Set(allToolNames);
-  }
-  // "default" preset: intersect with actual available tools
-  if (intent === "default") {
-    const available = new Set(allToolNames);
-    return new Set([...preset].filter((t) => available.has(t)));
-  }
-  return preset;
-}
-
 function classifyIntent(userText: string): string {
   const t = userText.toLowerCase();
   if (/查文档|搜|doc|api|用法|教程|how to|research/i.test(t)) return "research";
@@ -94,7 +70,17 @@ function classifyIntent(userText: string): string {
   return "default";
 }
 
-let currentToolIntent: string = "default";
+function toolPreferenceHint(intent: string): string {
+  const hints: Record<string, string> = {
+    research: "优先使用 web_search / fetch_content / ctx_search 查资料，不要直接修改文件",
+    investigation: "优先使用 grep / read / bash 查代码，确认后再改",
+    fix: "优先使用 read 定位问题后直接用 write/edit 修",
+    implementation: "所有工具可用",
+    evaluation: "所有工具可用",
+    "open-ended": "先评估，再提方案",
+  };
+  return hints[intent] ?? "";
+}
 
 export interface PiCouncilParticipantConfig {
   name?: string;
@@ -1156,8 +1142,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       capabilities,
     );
 
+    // Dynamic tool preference hint based on current user intent
+    const userIntent = classifyIntent(event.prompt ?? "");
+    const hint = toolPreferenceHint(userIntent);
+    const hintSection = hint ? `\n\n## 当前工具引导\n${hint}` : "";
+
     return {
-      systemPrompt: `${omniPrompt}\n\n---\n\n${event.systemPrompt}`,
+      systemPrompt: `${omniPrompt}${hintSection}\n\n---\n\n${event.systemPrompt}`,
     };
   });
 
@@ -1288,22 +1279,6 @@ Example: "Intent: investigation → explore the repo"` }],
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
     }
-  });
-
-  // ── Intent classification for tool filtering ────────────────────────
-  pi.on("input" as any, async (event: any, _ctx: any) => {
-    if (event.text) {
-      currentToolIntent = classifyIntent(event.text);
-    }
-    return { action: "continue" };
-  });
-
-  pi.on("before_provider_request" as any, (event: any, _ctx: any) => {
-    if (!event.payload?.tools) return;
-    const allToolNames = event.payload.tools.map((t: any) => t.name).filter(Boolean);
-    const allowed = toolsForIntent(currentToolIntent, allToolNames);
-    event.payload.tools = event.payload.tools.filter((t: any) => allowed.has(t.name));
-    return event.payload;
   });
 
   // ── Commands ────────────────────────────────────────────────────────
