@@ -426,12 +426,12 @@ Use \`agent_message\` for multi-agent coordination, reservations, and discussion
 ### OMO specialist: \`omo_delegate\`
 Use \`omo_delegate\` when you need OMO-style synchronous delegation or chain mode where each step receives previous output. Agents are oracle, fixer, explorer, librarian, designer, observer.
 
-\`\`\`json
+```json
 { "chain": [
   { "agent": "explorer", "task": "search for auth" },
   { "agent": "oracle", "task": "review findings, suggest fixes" }
 ]}
-\`\`\`
+```
 
 ### Council modes
 - Isolated: independent parallel opinions; best for diverse review without cross-contamination.
@@ -447,13 +447,13 @@ Use \`omo_council\` only when this higher-level analysis is worth the latency/co
 
 You have two tools for delegation:
 
-### Single agent: \`agent\` tool
-\`\`\`json
+### Single agent: `agent` tool
+```json
 { "name": "explorer", "task": "Find route definitions" }
-\`\`\`
+```
 
-### Orchestration: \`workflow\` tool (sequence/fork/join/loop)
-\`\`\`json
+### Orchestration: `workflow` tool (sequence/fork/join/loop)
+```json
 // Parallel research
 { "kind": "fork", "id": "r", "branches": {
   "search":   { "agent": "explorer", "task": "scan codebase" },
@@ -476,33 +476,33 @@ You have two tools for delegation:
     { "agent": "oracle", "task": "审查，输出 {approved, feedback}", "output": "json" }
   ]}
 }
-\`\`\`
+```
 Note: Workflow steps automatically pass prior context — you don't need to manually concatenate outputs.
 `
       : `
 ## Delegation (using OMO compatibility tools)
 
 ### Single agent
-\`\`\`json
+```json
 { "agent": "explorer", "task": "Find route definitions" }
-\`\`\`
+```
 
 ### Chain (sequential)
-\`\`\`json
+```json
 { "chain": [
   { "agent": "explorer", "task": "search for auth" },
   { "agent": "oracle", "task": "review findings, suggest fixes" }
 ]}
-\`\`\`
+```
 
 ### Parallel
 Use \`tasks\` for independent parallel specialist calls:
-\`\`\`json
+```json
 { "tasks": [
   { "agent": "explorer", "task": "scan route definitions" },
   { "agent": "librarian", "task": "check library docs" }
 ]}
-\`\`\`
+```
 `;
 
   return `<CONSTITUTION>
@@ -510,7 +510,7 @@ Use \`tasks\` for independent parallel specialist calls:
 你是一名严谨的AI编码编排器。在所有行为中，必须遵守以下不可动摇的纪律：
 
 ## 1. 意图驱动
-回复开头必须先声明意图类型和路由，格式：\`Intent: <type> → <route>\`。
+回复开头必须先声明意图类型和路由，格式：`Intent: <type> → <route>`。
 常见映射：
 - 解释/如何工作 → Research → explore/librarian → 综合回答
 - 实现/添加 → Implementation → 规划 → 委托或执行
@@ -1043,7 +1043,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (added.length > 0) {
       parts.push("新增：");
       for (const c of added) {
-        parts.push(`- \`${c.tool.name}\` — ${c.tool.description}`);
+        parts.push(`- `${c.tool.name}` — ${c.tool.description}`);
       }
       parts.push("");
     }
@@ -1051,7 +1051,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (removed.length > 0) {
       parts.push("移除：");
       for (const c of removed) {
-        parts.push(`- \`${c.tool.name}\``);
+        parts.push(`- `${c.tool.name}``);
       }
       parts.push("");
     }
@@ -1206,12 +1206,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         const active = allTools.filter((t: any) => toActivate.has(t));
         pi.setActiveTools(active);
         return {
-          content: [{ type: "text" as const, text: \`已激活: \${params.toolNames.join(", ")}\` }],
+          content: [{ type: "text" as const, text: `已激活: ${params.toolNames.join(", ")}` }],
           details: { activated: params.toolNames },
         };
       } catch (err: any) {
         return {
-          content: [{ type: "text" as const, text: \`激活失败: \${err.message}\` }],
+          content: [{ type: "text" as const, text: `激活失败: ${err.message}` }],
           details: {}, isError: true,
         };
       }
@@ -1230,16 +1230,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         const all = pi.getAllTools();
         const tool = all.find((t: any) => t.name === params.toolName);
         if (!tool) {
-          return { content: [{ type: "text" as const, text: \`工具 "\${params.toolName}" 不存在\` }], details: {} };
+          return { content: [{ type: "text" as const, text: `工具 "${params.toolName}" 不存在` }], details: {} };
         }
         const info = tool as any;
         return {
-          content: [{ type: "text" as const, text: \`名称: \${info.name}\n描述: \${info.description}\n来源: \${info.sourceInfo?.source || "unknown"}\` }],
+          content: [{ type: "text" as const, text: `名称: ${info.name}\n描述: ${info.description}\n来源: ${info.sourceInfo?.source || "unknown"}` }],
           details: { name: info.name, source: info.sourceInfo?.source },
         };
       } catch (err: any) {
         return {
-          content: [{ type: "text" as const, text: \`查询失败: \${err.message}\` }],
+          content: [{ type: "text" as const, text: `查询失败: ${err.message}` }],
           details: {}, isError: true,
         };
       }
