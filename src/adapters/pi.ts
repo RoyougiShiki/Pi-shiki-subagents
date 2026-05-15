@@ -447,12 +447,12 @@ Use \`omo_council\` only when this higher-level analysis is worth the latency/co
 
 You have two tools for delegation:
 
-### Single agent: `agent` tool
+### Single agent: \`agent\` tool
 \`\`\`json
 { "name": "explorer", "task": "Find route definitions" }
 \`\`\`
 
-### Orchestration: `workflow` tool (sequence/fork/join/loop)
+### Orchestration: \`workflow\` tool (sequence/fork/join/loop)
 \`\`\`json
 // Parallel research
 { "kind": "fork", "id": "r", "branches": {
