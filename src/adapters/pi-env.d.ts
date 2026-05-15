@@ -135,6 +135,7 @@ declare module "@earendil-works/pi-coding-agent" {
     tool_call: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void>;
     tool_result: (event: ToolResultEvent, ctx: ExtensionContext) => Promise<{ content?: any[]; details?: any; isError?: boolean } | void>;
     context: (event: { messages: any[] }, ctx: ExtensionContext) => Promise<{ messages: any[] } | void>;
+    before_provider_request: (event: { payload: Record<string, any> }, ctx: ExtensionContext) => void;
     resources_discover: (event: any, ctx: ExtensionContext) => Promise<any>;
     input: (event: { text: string; images?: any[]; source: string }, ctx: ExtensionContext) => Promise<any>;
     model_select: (event: any, ctx: ExtensionContext) => Promise<void> | void;

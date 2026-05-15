@@ -35,7 +35,6 @@ import {
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
   APPROVAL_GATE_BLOCK_MESSAGE,
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
-  DISAMBIGUATION_GATE_BLOCK_MESSAGE,
 } from "../core/workflow-templates";
 
 import { AGENT_PROMPTS } from "./pi-agents";
@@ -59,71 +58,85 @@ export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMax
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
-function classifyIntent(userText: string): string {
-  const t = userText.toLowerCase();
-  if (/查文档|搜|doc|api|用法|教程|how to|research/i.test(t)) return "research";
-  if (/查|找|哪.*文件|在哪|investigate|check.*file/i.test(t)) return "investigation";
-  if (/修|改|fix|error|bug|报错|错误|issue/i.test(t)) return "fix";
-  if (/实现|添加|implement|add|create|写|写个|建|new/i.test(t)) return "implementation";
-  if (/评估|你觉得|怎么.*好|方案|建议|evaluate/i.test(t)) return "evaluation";
-  if (/重构|优化|refactor|clean|improve/i.test(t)) return "open-ended";
-  return "default";
-}
-
 const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "activate_tools", "describe_tool"];
-
-function injectToolListing(pi: ExtensionAPI, ctx: ExtensionContext): void {
-  try {
-    const allTools = pi.getAllTools();
-    const hidden = allTools.filter((t: any) => !BASIC_TOOLS.includes(t.name));
-    if (hidden.length === 0) return;
-
-    const groups: Record<string, string[]> = {};
-    for (const t of hidden) {
-      const src = (t as any).sourceInfo?.source || "unknown";
-      if (!groups[src]) groups[src] = [];
-      groups[src].push(t.name);
-    }
-
-    const lines = ["## 未激活工具（可用 describe_tool 查看详情）"];
-    for (const [src, names] of Object.entries(groups)) {
-      lines.push(`  ${src}: ${names.join(", ")}`);
-    }
-
-    pi.sendMessage({
-      customType: "omo-tool-catalog",
-      content: lines.join("\n"),
-      display: false,
-    });
-  } catch {}
-}
-
-function toolPreferenceHint(intent: string): string {
-  const hints: Record<string, string> = {
-    research: "优先使用 web_search / fetch_content / ctx_search 查资料，不要直接修改文件",
-    investigation: "优先使用 grep / read / bash 查代码，确认后再改",
-    fix: "优先使用 read 定位问题后直接用 write/edit 修",
-    implementation: "所有工具可用",
-    evaluation: "所有工具可用",
-    "open-ended": "先评估，再提方案",
-  };
-  return hints[intent] ?? "";
-}
 
 function trimToolDescriptions(prompt: string, config: Record<string, any>): string {
   const hide = new Set((config?.hide as string[]) ?? []);
   const truncCfg = (config?.truncate ?? {}) as Record<string, number>;
   const defaultTrunc = truncCfg.default ?? 0;
 
-  // Find the "Available tools:" / "Available tools" section
   const lines = prompt.split("\n");
   const out: string[] = [];
   let inTools = false;
+  let inJsonSection = false;
+  const jsonBlock: string[] = [];
+  let braceDepth = 0;
+
+  function flushJsonBlock(): void {
+    if (jsonBlock.length === 0) return;
+    const block = jsonBlock.join("\n");
+    try {
+      const obj = JSON.parse(block);
+      if (obj && typeof obj.name === "string") {
+        const name = obj.name;
+        if (hide.has(name)) {
+          jsonBlock.length = 0;
+          return;
+        }
+        if (typeof obj.description === "string") {
+          const maxLen = truncCfg[name] ?? defaultTrunc;
+          if (maxLen > 0 && obj.description.length > maxLen) {
+            obj.description = obj.description.slice(0, maxLen) + "...";
+            jsonBlock.length = 0;
+            jsonBlock.push(JSON.stringify(obj, null, 2));
+          }
+        }
+      }
+    } catch {}
+    for (const l of jsonBlock) out.push(l);
+    jsonBlock.length = 0;
+  }
 
   for (const line of lines) {
-    if (/^\s*Available tools[:\s]/i.test(line)) {
-      inTools = true;
+    // Detect "Available Tool Schemas" section header
+    if (/^\s*Available Tool Schemas/i.test(line)) {
+      flushJsonBlock();
+      inJsonSection = true;
       out.push(line);
+      continue;
+    }
+
+    // Detect "Available tools" section header (line format)
+    if (/^\s*Available tools[:\s]/i.test(line)) {
+      flushJsonBlock();
+      inTools = true;
+      inJsonSection = false;
+      out.push(line);
+      continue;
+    }
+
+    if (inJsonSection) {
+      const trimmed = line.trim();
+      if (trimmed === "" && jsonBlock.length === 0) {
+        out.push(line);
+        continue;
+      }
+      if (trimmed === "" && jsonBlock.length > 0) {
+        flushJsonBlock();
+        out.push(line);
+        continue;
+      }
+
+      jsonBlock.push(line);
+      for (const ch of line) {
+        if (ch === "{") braceDepth++;
+        if (ch === "}") braceDepth--;
+      }
+
+      if (braceDepth <= 0 && jsonBlock.length > 0) {
+        flushJsonBlock();
+        braceDepth = 0;
+      }
       continue;
     }
 
@@ -158,7 +171,46 @@ function trimToolDescriptions(prompt: string, config: Record<string, any>): stri
     out.push(line);
   }
 
+  flushJsonBlock();
   return out.join("\n");
+}
+
+function trimProviderToolDescriptions(
+  obj: Record<string, any>,
+  hide: Set<string>,
+  truncCfg: Record<string, number>,
+  defaultTrunc: number,
+): void {
+  // OpenAI / Anthropic format: { tools: [{ function: { name, description } }] }
+  if (Array.isArray(obj.tools)) {
+    obj.tools = obj.tools.filter((t: any) => {
+      const name = t.function?.name ?? t.name ?? "";
+      if (hide.has(name)) return false;
+      const descField = t.function?.description ?? t.description ?? "";
+      if (typeof descField === "string") {
+        const maxLen = truncCfg[name] ?? defaultTrunc;
+        if (maxLen > 0 && descField.length > maxLen) {
+          if (t.function) t.function.description = descField.slice(0, maxLen) + "...";
+          else t.description = descField.slice(0, maxLen) + "...";
+        }
+      }
+      return true;
+    });
+  }
+  // Google / Vertex format: { tools: [{ functionDeclarations: [{ name, description }] }] }
+  for (const t of (Array.isArray(obj.tools) ? obj.tools : [])) {
+    if (Array.isArray(t.functionDeclarations)) {
+      t.functionDeclarations = t.functionDeclarations.filter((fd: any) => {
+        const name = fd.name ?? "";
+        if (hide.has(name)) return false;
+        const maxLen = truncCfg[name] ?? defaultTrunc;
+        if (maxLen > 0 && typeof fd.description === "string" && fd.description.length > maxLen) {
+          fd.description = fd.description.slice(0, maxLen) + "...";
+        }
+        return true;
+      });
+    }
+  }
 }
 
 export interface PiCouncilParticipantConfig {
@@ -1053,170 +1105,30 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   }
 
   // ── Mapping file path (user-local, not in repo) ──────────────────────
-  const DISAMBIGUATION_PATH = path.join(homedir(), ".pi", "agent", "disambiguation.md");
-  const BASELINE_PATH = path.join(homedir(), ".pi", "agent", ".tool-baseline.json");
-
-  // ── Helper: read the disambiguation table from disk ──────────────────
-  function readDisambiguationFile(filePath: string): string | null {
-    try {
-      if (fs.existsSync(filePath)) {
-        return fs.readFileSync(filePath, "utf-8");
-      }
-    } catch {}
-    return null;
-  }
-
-  // ── Helper: inject the disambiguation table as hidden message (one-shot) ─
-  function injectDisambiguation(pi: ExtensionAPI, ctx: ExtensionContext): void {
-    const content = readDisambiguationFile(DISAMBIGUATION_PATH);
-    if (!content) return;
-
-    pi.sendMessage({
-      customType: "omo-disambiguation",
-      content,
-      display: false,
-      details: { source: DISAMBIGUATION_PATH },
-    });
-  }
-
-  // ── Helper: inject change methodology (only when changes detected) ──
-  function injectChangeMethodology(pi: ExtensionAPI, ctx: ExtensionContext, changes: ToolChange[]): void {
-    const added = changes.filter((c) => c.type === "added");
-    const removed = changes.filter((c) => c.type === "removed");
-
-    const parts: string[] = [
-      "# 工具变化",
-      "",
-      "新增/移除工具需确认是否补充消歧表条目。",
-      "",
-    ];
-
-    if (added.length > 0) {
-      parts.push("新增：");
-      for (const c of added) {
-        parts.push(`- \`${c.tool.name}\` — ${c.tool.description}`);
-      }
-      parts.push("");
-    }
-
-    if (removed.length > 0) {
-      parts.push("移除：");
-      for (const c of removed) {
-        parts.push(`- \`${c.tool.name}\``);
-      }
-      parts.push("");
-    }
-
-    parts.push(
-      "流程：",
-      "1. 判断新工具是否与消歧表条目语义重叠",
-      "2. 有重叠→问用户，确认后 write 补一行（'意图'→'某工具'）",
-      "   不写工具描述已有的内容，只写消歧所需的边界",
-      "3. 无重叠→无需操作",
-    );
-
-    pi.sendMessage({
-      customType: "omo-disambiguation-methodology",
-      content: parts.join("\n"),
-      display: false,
-      details: { changes: changes.map((c) => ({ type: c.type, name: c.tool.name })) },
-    });
-  }
-
-  // ── Helper: enumerate tools in Pi format ──────────────────────────────
-  function enumeratePiTools(): ToolInfo[] {
-    try {
-      const tools = pi.getAllTools();
-      return tools.map((t: any) => ({
-        name: t.name ?? "",
-        description: (t.description ?? "").slice(0, 200),
-        source: detectToolSource(t.sourceInfo),
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  function detectToolSource(sourceInfo: any): ToolInfo["source"] {
-    if (!sourceInfo) return "unknown";
-    const s = String(sourceInfo.source ?? "");
-    if (s === "builtin") return "builtin";
-    if (s === "sdk") return "sdk";
-    if (s === "mcp") return "mcp";
-    return "extension";
-  }
-
-  // ── Helper: run tool detection ───────────────────────────────────────
-  let pendingDisambiguationReview = false;
-
-  function detectToolChanges(pi: ExtensionAPI, ctx: ExtensionContext): void {
-    const current = enumeratePiTools();
-    if (current.length === 0) return;
-
-    const baselineExists = fs.existsSync(BASELINE_PATH);
-    let baseline: ToolInfo[] = [];
-    try {
-      if (baselineExists) {
-        const raw = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf-8"));
-        baseline = raw.tools ?? [];
-      }
-    } catch {
-      // corrupt baseline, will rebuild below
-    }
-
-    // First run: create baseline silently
-    if (!baselineExists) {
-      const newBaseline = createBaseline(current);
-      try {
-        fs.writeFileSync(BASELINE_PATH, JSON.stringify(newBaseline, null, 2), "utf-8");
-      } catch {}
-      return;
-    }
-
-    const changes = compareToBaseline(current, baseline);
-    if (changes.length === 0) return;
-
-    // Save updated baseline
-    const newBaseline = createBaseline(current);
-    try {
-      fs.writeFileSync(BASELINE_PATH, JSON.stringify(newBaseline, null, 2), "utf-8");
-    } catch {}
-
-    // Inject methodology so LLM can handle the change
-    injectChangeMethodology(pi, ctx, changes);
-
-    // Activate Mapping Gate: first tool call will be blocked until LLM asks user
-    pendingDisambiguationReview = true;
-    gateState.disambiguationHandled = false; // reset for new session with new changes
-  }
-
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     ensureAgentFiles(config);
 
-    // Hide all extension tools; only basic + activate_tools/describe_tool
-    // pi.setActiveTools is disabled; all tools visible
-
-    // Inject the disambiguation table and tool catalog
-    injectDisambiguation(pi, ctx);
-    injectToolListing(pi, ctx);
-
-    // Detect changes: extra methodology injected only when tools changed
-    detectToolChanges(pi, ctx);
+    // Hide subagent tool (broken + overlaps with omo_delegate).
+    // Keep agent_message — omo_council collaborating backend needs it.
+    try {
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      pi.setActiveTools(all.filter((n: string) => n !== "subagent"));
+    } catch {}
   });
 
   // ── Lifecycle-based gate state ─────────────────────────────────────
   // Gates track declarations per agent cycle (before_agent_start → agent_end).
   // Each gate only blocks once per cycle — after declared, subsequent
   // tools in the same cycle pass without re-declaration.
-  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean; disambiguationHandled: boolean } = {
-    cycle: 0, intent: false, ready: false, approved: false, disambiguationHandled: false,
+  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean } = {
+    cycle: 0, intent: false, ready: false, approved: false,
   };
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Reset gate state for new agent cycle
-    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false, disambiguationHandled: gateState.disambiguationHandled };
+    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -1225,17 +1137,22 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       capabilities,
     );
 
-    // Dynamic tool preference hint based on current user intent
-    const userIntent = classifyIntent(event.prompt ?? "");
-    const hint = toolPreferenceHint(userIntent);
-    const hintSection = hint ? `\n\n## 当前工具引导\n${hint}` : "";
-
     // Trim verbose tool descriptions in system prompt
     const trimmedPrompt = trimToolDescriptions(event.systemPrompt, (config as any)?.tool_descriptions ?? {});
 
     return {
-      systemPrompt: `${omniPrompt}${hintSection}\n\n---\n\n${trimmedPrompt}`,
+      systemPrompt: `${omniPrompt}\n\n---\n\n${trimmedPrompt}`,
     };
+  });
+
+  // ── Trim tool descriptions in provider API payload ────────────────
+  pi.on("before_provider_request", (event, _ctx) => {
+    const toolCfg = (config as any)?.tool_descriptions ?? {};
+    const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
+    const truncCfg = (toolCfg.truncate ?? {}) as Record<string, number>;
+    const defaultTrunc = truncCfg.default ?? 0;
+    if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
+    trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
   });
 
   // ── Register custom tools ───────────────────────────────────────────
@@ -1391,11 +1308,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         }
         if (hasApproved) gateState.approved = true;
 
-        // Mapping Gate: fire once per session when tool changes are pending
-        if (pendingDisambiguationReview && !gateState.disambiguationHandled) {
-          gateState.disambiguationHandled = true;
-          return { block: true, reason: DISAMBIGUATION_GATE_BLOCK_MESSAGE };
-        }
       }
     } catch (err) {
       console.error("[oh-my-opencode-slim] Gate error:", err);
@@ -1480,46 +1392,130 @@ Example: "Intent: investigation → explore the repo"` }],
 
   // ── Tool description management command ───────────────────────────
   pi.registerCommand("tooldesc", {
-    description: "管理工具描述显示。用法: /tooldesc hide|show|truncate|full <tool> [length]",
+    description: "管理工具描述显示。无参交互式，有参直接执行。用法: /tooldesc hide|show|truncate|full <tool>... [length]",
     handler: async (args: string, ctx: any) => {
       try {
         const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
         const raw = fs.readFileSync(configPath, "utf-8");
         const cfg = JSON.parse(raw);
         if (!cfg.tool_descriptions) cfg.tool_descriptions = { hide: [], truncate: {} };
+        const allTools = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
 
+        // ── Parse args mode ────────────────────────────────────────
         const parts = (args ?? "").trim().split(/\s+/);
         const cmd = parts[0];
-        const tool = parts[1];
-        const len = parseInt(parts[2], 10);
+        const toolArgs = parts.slice(1).filter((t: string) => t && !/^\d+$/.test(t));
+        const lenStr = parts.slice(1).find((t: string) => /^\d+$/.test(t));
+        const len = lenStr ? parseInt(lenStr, 10) : 40;
 
-        if (cmd === "hide" && tool) {
-          const h = cfg.tool_descriptions.hide as string[];
-          if (!h.includes(tool)) h.push(tool);
-          cfg.tool_descriptions.hide = h;
-          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(`描述已隐藏: ${tool}`, "info");
-        } else if (cmd === "show" && tool) {
-          const h = (cfg.tool_descriptions.hide as string[]).filter((t: string) => t !== tool);
-          cfg.tool_descriptions.hide = h;
-          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(`描述已恢复: ${tool}`, "info");
-        } else if (cmd === "truncate" && tool && !isNaN(len)) {
-          cfg.tool_descriptions.truncate[tool] = len;
-          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(`${tool} 描述截断至 ${len} 字符`, "info");
-        } else if (cmd === "full" && tool) {
-          delete cfg.tool_descriptions.truncate[tool];
-          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(`${tool} 描述恢复完整`, "info");
-        } else {
+        if (cmd && ["hide", "show", "truncate", "full"].includes(cmd)) {
+          if (toolArgs.length === 0) {
+            ctx.ui.notify("请指定工具名", "info");
+            return;
+          }
+          if (cmd === "hide") {
+            const h = cfg.tool_descriptions.hide as string[];
+            for (const tool of toolArgs) {
+              if (!h.includes(tool)) h.push(tool);
+            }
+            cfg.tool_descriptions.hide = h;
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+            ctx.ui.notify("描述已隐藏: " + toolArgs.join(", "), "info");
+          } else if (cmd === "show") {
+            const hideSet = new Set(cfg.tool_descriptions.hide as string[]);
+            for (const tool of toolArgs) hideSet.delete(tool);
+            cfg.tool_descriptions.hide = [...hideSet];
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+            ctx.ui.notify("描述已恢复: " + toolArgs.join(", "), "info");
+          } else if (cmd === "truncate") {
+            for (const tool of toolArgs) cfg.tool_descriptions.truncate[tool] = len;
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+            ctx.ui.notify("截断 " + toolArgs.join(", ") + " 至 " + len + " 字符", "info");
+          } else if (cmd === "full") {
+            for (const tool of toolArgs) delete cfg.tool_descriptions.truncate[tool];
+            fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+            ctx.ui.notify("恢复完整描述: " + toolArgs.join(", "), "info");
+          }
+          return;
+        }
+
+        // ── Interactive mode ───────────────────────────────────────
+        const actionLabel = await ctx.ui.select("操作:", [
+          "隐藏描述",
+          "恢复描述",
+          "截断描述",
+          "取消截断",
+          "查看当前配置",
+        ]);
+        if (!actionLabel) return;
+
+        if (actionLabel === "查看当前配置") {
           const h = (cfg.tool_descriptions.hide as string[]).join(", ") || "(无)";
           const t = Object.entries(cfg.tool_descriptions.truncate as Record<string, number>)
-            .map(([k, v]) => \`\${k}=\${v}\`).join(", ") || "(无)";
-          ctx.ui.notify(`隐藏: \${h} | 截断: \${t}`, "info");
+            .map(([k, v]) => k + "=" + v).join(", ") || "(无)";
+          ctx.ui.notify("隐藏: " + h + " | 截断: " + t, "info");
+          return;
+        }
+
+        // Determine candidate tools based on action
+        const hidden = new Set(cfg.tool_descriptions.hide as string[]);
+        const truncated = new Set(Object.keys(cfg.tool_descriptions.truncate as Record<string, number>));
+        let candidates: string[];
+        if (actionLabel === "隐藏描述") candidates = allTools.filter((t: string) => !hidden.has(t));
+        else if (actionLabel === "恢复描述") candidates = allTools.filter((t: string) => hidden.has(t));
+        else if (actionLabel === "截断描述") candidates = allTools.filter((t: string) => !truncated.has(t));
+        else if (actionLabel === "取消截断") candidates = allTools.filter((t: string) => truncated.has(t));
+        else candidates = allTools;
+
+        if (candidates.length === 0) {
+          ctx.ui.notify("没有符合条件的工具", "info");
+          return;
+        }
+
+        // Multi-select tools via loop
+        let selectedTools: string[] = [];
+        while (true) {
+          const remaining = candidates.filter((t: string) => !selectedTools.includes(t));
+          if (remaining.length === 0) break;
+          const pick = await ctx.ui.select(
+            selectedTools.length === 0 ? "选择工具:" : "已选 " + selectedTools.length + " 个，继续选择:",
+            remaining,
+          );
+          if (!pick) break;
+          selectedTools.push(pick);
+          if (selectedTools.length >= remaining.length) break;
+        }
+
+        if (selectedTools.length === 0) return;
+
+        if (actionLabel === "隐藏描述") {
+          const h = cfg.tool_descriptions.hide as string[];
+          for (const tool of selectedTools) {
+            if (!h.includes(tool)) h.push(tool);
+          }
+          cfg.tool_descriptions.hide = h;
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify("描述已隐藏: " + selectedTools.join(", "), "info");
+        } else if (actionLabel === "恢复描述") {
+          const hideSet = new Set(cfg.tool_descriptions.hide as string[]);
+          for (const tool of selectedTools) hideSet.delete(tool);
+          cfg.tool_descriptions.hide = [...hideSet];
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify("描述已恢复: " + selectedTools.join(", "), "info");
+        } else if (actionLabel === "截断描述") {
+          const lenStr = await ctx.ui.input("截断长度:", "40");
+          const n = parseInt(lenStr ?? "40", 10);
+          const finalLen = isNaN(n) ? 40 : n;
+          for (const tool of selectedTools) cfg.tool_descriptions.truncate[tool] = finalLen;
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify("截断 " + selectedTools.join(", ") + " 至 " + finalLen + " 字符", "info");
+        } else if (actionLabel === "取消截断") {
+          for (const tool of selectedTools) delete cfg.tool_descriptions.truncate[tool];
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify("恢复完整描述: " + selectedTools.join(", "), "info");
         }
       } catch (err: any) {
-        ctx.ui.notify(`操作失败: ${err.message}`, "error");
+        ctx.ui.notify("操作失败: " + err.message, "error");
       }
     },
   });
