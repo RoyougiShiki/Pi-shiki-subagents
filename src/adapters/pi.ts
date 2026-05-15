@@ -1291,14 +1291,14 @@ Example: "Intent: investigation → explore the repo"` }],
   });
 
   // ── Intent classification for tool filtering ────────────────────────
-  pi.on("input", async (event, _ctx) => {
+  pi.on("input" as any, async (event: any, _ctx: any) => {
     if (event.text) {
       currentToolIntent = classifyIntent(event.text);
     }
     return { action: "continue" };
   });
 
-  pi.on("before_provider_request", (event, _ctx) => {
+  pi.on("before_provider_request" as any, (event: any, _ctx: any) => {
     if (!event.payload?.tools) return;
     const allToolNames = event.payload.tools.map((t: any) => t.name).filter(Boolean);
     const allowed = toolsForIntent(currentToolIntent, allToolNames);
