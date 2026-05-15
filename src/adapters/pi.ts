@@ -1478,6 +1478,52 @@ Example: "Intent: investigation → explore the repo"` }],
     },
   });
 
+  // ── Tool description management command ───────────────────────────
+  pi.registerCommand("tooldesc", {
+    description: "管理工具描述显示。用法: /tooldesc hide|show|truncate|full <tool> [length]",
+    handler: async (args: string, ctx: any) => {
+      try {
+        const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+        const raw = fs.readFileSync(configPath, "utf-8");
+        const cfg = JSON.parse(raw);
+        if (!cfg.tool_descriptions) cfg.tool_descriptions = { hide: [], truncate: {} };
+
+        const parts = (args ?? "").trim().split(/\s+/);
+        const cmd = parts[0];
+        const tool = parts[1];
+        const len = parseInt(parts[2], 10);
+
+        if (cmd === "hide" && tool) {
+          const h = cfg.tool_descriptions.hide as string[];
+          if (!h.includes(tool)) h.push(tool);
+          cfg.tool_descriptions.hide = h;
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify(\`描述已隐藏: \${tool}\`, "info");
+        } else if (cmd === "show" && tool) {
+          const h = (cfg.tool_descriptions.hide as string[]).filter((t: string) => t !== tool);
+          cfg.tool_descriptions.hide = h;
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify(\`描述已恢复: \${tool}\`, "info");
+        } else if (cmd === "truncate" && tool && !isNaN(len)) {
+          cfg.tool_descriptions.truncate[tool] = len;
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify(\`\${tool} 描述截断至 \${len} 字符\`, "info");
+        } else if (cmd === "full" && tool) {
+          delete cfg.tool_descriptions.truncate[tool];
+          fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+          ctx.ui.notify(\`\${tool} 描述恢复完整\`, "info");
+        } else {
+          const h = (cfg.tool_descriptions.hide as string[]).join(", ") || "(无)";
+          const t = Object.entries(cfg.tool_descriptions.truncate as Record<string, number>)
+            .map(([k, v]) => \`\${k}=\${v}\`).join(", ") || "(无)";
+          ctx.ui.notify(\`隐藏: \${h} | 截断: \${t}\`, "info");
+        }
+      } catch (err: any) {
+        ctx.ui.notify(\`操作失败: \${err.message}\`, "error");
+      }
+    },
+  });
+
   // ── Log startup ─────────────────────────────────────────────────────
   const presetName = config?.preset ?? "default";
   const orchestratorModel = getPresetModelForOrchestrator(config, presetName) ?? "default";
