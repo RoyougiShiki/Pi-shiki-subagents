@@ -70,19 +70,32 @@ function classifyIntent(userText: string): string {
   return "default";
 }
 
-const INTENT_PRESETS: Record<string, Set<string>> = {
-  research: new Set(["read", "web_search", "fetch_content", "code_search", "grep", "ls", "ctx_search", "ctx_fetch_and_index"]),
-  investigation: new Set(["read", "bash", "grep", "ls", "find", "code_search"]),
-  implementation: new Set(),
-  fix: new Set(),
-  evaluation: new Set(),
-};
+const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "activate_tools", "describe_tool"];
 
-function toolsForIntent(intent: string, allToolNames: string[]): Set<string> {
-  const preset = INTENT_PRESETS[intent];
-  if (!preset) return new Set(allToolNames);
-  if (preset.size === 0) return new Set(allToolNames);
-  return new Set([...preset].filter((t) => allToolNames.includes(t)));
+function injectToolListing(pi: ExtensionAPI, ctx: ExtensionContext): void {
+  try {
+    const allTools = pi.getAllTools();
+    const hidden = allTools.filter((t: any) => !BASIC_TOOLS.includes(t.name));
+    if (hidden.length === 0) return;
+
+    const groups: Record<string, string[]> = {};
+    for (const t of hidden) {
+      const src = (t as any).sourceInfo?.source || "unknown";
+      if (!groups[src]) groups[src] = [];
+      groups[src].push(t.name);
+    }
+
+    const lines = ["## 未激活工具（可用 describe_tool 查看详情）"];
+    for (const [src, names] of Object.entries(groups)) {
+      lines.push(`  ${src}: ${names.join(", ")}`);
+    }
+
+    pi.sendMessage({
+      customType: "omo-tool-catalog",
+      content: lines.join("\n"),
+      display: false,
+    });
+  } catch {}
 }
 
 function toolPreferenceHint(intent: string): string {
@@ -1130,8 +1143,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     ensureAgentFiles(config);
 
-    // Always inject the disambiguation table
+    // Hide all extension tools; only basic + activate_tools/describe_tool
+    pi.setActiveTools(BASIC_TOOLS as string[]);
+
+    // Inject the disambiguation table and tool catalog
     injectDisambiguation(pi, ctx);
+    injectToolListing(pi, ctx);
 
     // Detect changes: extra methodology injected only when tools changed
     detectToolChanges(pi, ctx);
@@ -1173,6 +1190,61 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool(tools.council);
   pi.registerTool(tools.astGrepSearch);
   pi.registerTool(tools.astGrepReplace);
+
+  // ── Tool activation & description tools (always available) ─────────
+  pi.registerTool({
+    name: "activate_tools",
+    label: "Activate Tool",
+    description: "激活扩展工具使其在当前会话可用。参数 toolNames：需激活的工具名称列表。",
+    parameters: Type.Object({
+      toolNames: Type.Array(Type.String({ description: "工具名称列表" })),
+    }),
+    async execute(_toolCallId: string, params: { toolNames: string[] }) {
+      try {
+        const allTools = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+        const toActivate = new Set([...BASIC_TOOLS as string[], ...params.toolNames]);
+        const active = allTools.filter((t: any) => toActivate.has(t));
+        pi.setActiveTools(active);
+        return {
+          content: [{ type: "text" as const, text: \`已激活: \${params.toolNames.join(", ")}\` }],
+          details: { activated: params.toolNames },
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: \`激活失败: \${err.message}\` }],
+          details: {}, isError: true,
+        };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "describe_tool",
+    label: "Describe Tool",
+    description: "查看某个工具的完整描述、参数和来源。",
+    parameters: Type.Object({
+      toolName: Type.String({ description: "工具名称" }),
+    }),
+    async execute(_toolCallId: string, params: { toolName: string }) {
+      try {
+        const all = pi.getAllTools();
+        const tool = all.find((t: any) => t.name === params.toolName);
+        if (!tool) {
+          return { content: [{ type: "text" as const, text: \`工具 "\${params.toolName}" 不存在\` }], details: {} };
+        }
+        const info = tool as any;
+        return {
+          content: [{ type: "text" as const, text: \`名称: \${info.name}\n描述: \${info.description}\n来源: \${info.sourceInfo?.source || "unknown"}\` }],
+          details: { name: info.name, source: info.sourceInfo?.source },
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: \`查询失败: \${err.message}\` }],
+          details: {}, isError: true,
+        };
+      }
+    },
+  });
 
   // ── Declaration gates via tool_call blocking ───────────────────────
   // Pi synchronizes ctx.sessionManager through the current assistant
@@ -1294,28 +1366,6 @@ Example: "Intent: investigation → explore the repo"` }],
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
     }
-  });
-
-  // ── Tool intent filtering (with basic tool safety net) ─────────────
-  const BASIC_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls"]);
-
-  pi.on("before_provider_request" as any, (event: any, _ctx: any) => {
-    if (!event.payload?.tools) return;
-
-    // Classify intent from last user message in payload
-    const messages: any[] = event.payload.messages ?? [];
-    const lastUser = [...messages].reverse().find((m: any) => m.role === "user");
-    const text = typeof lastUser?.content === "string" ? lastUser.content : "";
-    const intent = classifyIntent(text);
-
-    const allNames = event.payload.tools.map((t: any) => t.name).filter(Boolean);
-    let allowed = toolsForIntent(intent, allNames);
-
-    // Safety net: basic tools always available, no matter the intent
-    for (const t of BASIC_TOOLS) allowed.add(t);
-
-    event.payload.tools = event.payload.tools.filter((t: any) => allowed.has(t.name));
-    return event.payload;
   });
 
   // ── Commands ────────────────────────────────────────────────────────
