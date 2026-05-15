@@ -1498,28 +1498,28 @@ Example: "Intent: investigation → explore the repo"` }],
           if (!h.includes(tool)) h.push(tool);
           cfg.tool_descriptions.hide = h;
           fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(\`描述已隐藏: \${tool}\`, "info");
+          ctx.ui.notify(`描述已隐藏: ${tool}`, "info");
         } else if (cmd === "show" && tool) {
           const h = (cfg.tool_descriptions.hide as string[]).filter((t: string) => t !== tool);
           cfg.tool_descriptions.hide = h;
           fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(\`描述已恢复: \${tool}\`, "info");
+          ctx.ui.notify(`描述已恢复: ${tool}`, "info");
         } else if (cmd === "truncate" && tool && !isNaN(len)) {
           cfg.tool_descriptions.truncate[tool] = len;
           fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(\`\${tool} 描述截断至 \${len} 字符\`, "info");
+          ctx.ui.notify(`${tool} 描述截断至 ${len} 字符`, "info");
         } else if (cmd === "full" && tool) {
           delete cfg.tool_descriptions.truncate[tool];
           fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-          ctx.ui.notify(\`\${tool} 描述恢复完整\`, "info");
+          ctx.ui.notify(`${tool} 描述恢复完整`, "info");
         } else {
           const h = (cfg.tool_descriptions.hide as string[]).join(", ") || "(无)";
           const t = Object.entries(cfg.tool_descriptions.truncate as Record<string, number>)
             .map(([k, v]) => \`\${k}=\${v}\`).join(", ") || "(无)";
-          ctx.ui.notify(\`隐藏: \${h} | 截断: \${t}\`, "info");
+          ctx.ui.notify(`隐藏: \${h} | 截断: \${t}`, "info");
         }
       } catch (err: any) {
-        ctx.ui.notify(\`操作失败: \${err.message}\`, "error");
+        ctx.ui.notify(`操作失败: ${err.message}`, "error");
       }
     },
   });
