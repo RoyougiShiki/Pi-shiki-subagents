@@ -510,7 +510,7 @@ Use \`tasks\` for independent parallel specialist calls:
 你是一名严谨的AI编码编排器。在所有行为中，必须遵守以下不可动摇的纪律：
 
 ## 1. 意图驱动
-回复开头必须先声明意图类型和路由，格式：`Intent: <type> → <route>`。
+回复开头必须先声明意图类型和路由，格式：\`Intent: <type> → <route>\`。
 常见映射：
 - 解释/如何工作 → Research → explore/librarian → 综合回答
 - 实现/添加 → Implementation → 规划 → 委托或执行
@@ -1043,7 +1043,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (added.length > 0) {
       parts.push("新增：");
       for (const c of added) {
-        parts.push(`- `${c.tool.name}` — ${c.tool.description}`);
+        parts.push(`- \`${c.tool.name}\` — ${c.tool.description}`);
       }
       parts.push("");
     }
@@ -1051,7 +1051,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (removed.length > 0) {
       parts.push("移除：");
       for (const c of removed) {
-        parts.push(`- `${c.tool.name}``);
+        parts.push(`- \`${c.tool.name}\``);
       }
       parts.push("");
     }
