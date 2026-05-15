@@ -110,6 +110,57 @@ function toolPreferenceHint(intent: string): string {
   return hints[intent] ?? "";
 }
 
+function trimToolDescriptions(prompt: string, config: Record<string, any>): string {
+  const hide = new Set((config?.hide as string[]) ?? []);
+  const truncCfg = (config?.truncate ?? {}) as Record<string, number>;
+  const defaultTrunc = truncCfg.default ?? 0;
+
+  // Find the "Available tools:" / "Available tools" section
+  const lines = prompt.split("\n");
+  const out: string[] = [];
+  let inTools = false;
+
+  for (const line of lines) {
+    if (/^\s*Available tools[:\s]/i.test(line)) {
+      inTools = true;
+      out.push(line);
+      continue;
+    }
+
+    if (inTools) {
+      // Tool line: "- name: description"
+      const match = line.match(/^\s*- (\w+):\s*/);
+      if (match) {
+        const name = match[1];
+        const desc = line.slice(match[0].length);
+
+        if (hide.has(name)) {
+          out.push("  - " + name);
+        } else {
+          const maxLen = truncCfg[name] ?? defaultTrunc;
+          if (maxLen > 0 && desc.length > maxLen) {
+            out.push("  - " + name + ": " + desc.slice(0, maxLen) + "...");
+          } else {
+            out.push(line);
+          }
+        }
+        continue;
+      }
+
+      // Empty line or non-tool line: end of tools section
+      if (line.trim() === "" || !line.startsWith("- ")) {
+        inTools = false;
+        out.push(line);
+        continue;
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
+}
+
 export interface PiCouncilParticipantConfig {
   name?: string;
   agent?: string;
@@ -1144,7 +1195,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     ensureAgentFiles(config);
 
     // Hide all extension tools; only basic + activate_tools/describe_tool
-    pi.setActiveTools(BASIC_TOOLS as string[]);
+    // pi.setActiveTools is disabled; all tools visible
 
     // Inject the disambiguation table and tool catalog
     injectDisambiguation(pi, ctx);
@@ -1179,8 +1230,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const hint = toolPreferenceHint(userIntent);
     const hintSection = hint ? `\n\n## 当前工具引导\n${hint}` : "";
 
+    // Trim verbose tool descriptions in system prompt
+    const trimmedPrompt = trimToolDescriptions(event.systemPrompt, (config as any)?.tool_descriptions ?? {});
+
     return {
-      systemPrompt: `${omniPrompt}${hintSection}\n\n---\n\n${event.systemPrompt}`,
+      systemPrompt: `${omniPrompt}${hintSection}\n\n---\n\n${trimmedPrompt}`,
     };
   });
 
