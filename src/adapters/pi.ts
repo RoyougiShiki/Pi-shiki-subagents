@@ -59,6 +59,43 @@ export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMax
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
+/** Intent → tool preset mapping for before_provider_request filtering. */
+const TOOL_PRESETS: Record<string, Set<string>> = {
+  default: new Set(["read", "web_search", "code_search", "grep", "ls", "ctx_search"]),
+  research: new Set(["read", "web_search", "fetch_content", "code_search", "grep", "ls", "ctx_search", "ctx_fetch_and_index"]),
+  investigation: new Set(["read", "bash", "grep", "ls", "find", "code_search"]),
+  implementation: new Set(), // all tools
+  fix: new Set(),            // all tools
+  evaluation: new Set(),     // all tools
+};
+
+function toolsForIntent(intent: string, allToolNames: string[]): Set<string> {
+  const preset = TOOL_PRESETS[intent];
+  // Empty set means allow all
+  if (!preset || intent === "evaluation" || intent === "open-ended") {
+    return new Set(allToolNames);
+  }
+  // "default" preset: intersect with actual available tools
+  if (intent === "default") {
+    const available = new Set(allToolNames);
+    return new Set([...preset].filter((t) => available.has(t)));
+  }
+  return preset;
+}
+
+function classifyIntent(userText: string): string {
+  const t = userText.toLowerCase();
+  if (/查文档|搜|doc|api|用法|教程|how to|research/i.test(t)) return "research";
+  if (/查|找|哪.*文件|在哪|investigate|check.*file/i.test(t)) return "investigation";
+  if (/修|改|fix|error|bug|报错|错误|issue/i.test(t)) return "fix";
+  if (/实现|添加|implement|add|create|写|写个|建|new/i.test(t)) return "implementation";
+  if (/评估|你觉得|怎么.*好|方案|建议|evaluate/i.test(t)) return "evaluation";
+  if (/重构|优化|refactor|clean|improve/i.test(t)) return "open-ended";
+  return "default";
+}
+
+let currentToolIntent: string = "default";
+
 export interface PiCouncilParticipantConfig {
   name?: string;
   agent?: string;
@@ -454,7 +491,42 @@ Use \`tasks\` for independent parallel specialist calls:
 \`\`\`
 `;
 
-  return `<Role>
+  return `<CONSTITUTION>
+
+你是一名严谨的AI编码编排器。在所有行为中，必须遵守以下不可动摇的纪律：
+
+## 1. 意图驱动
+回复开头必须先声明意图类型和路由，格式：\`Intent: <type> → <route>\`。
+常见映射：
+- 解释/如何工作 → Research → explore/librarian → 综合回答
+- 实现/添加 → Implementation → 规划 → 委托或执行
+- 调查/检查 → Investigation → explore → 报告发现
+- 评价 → Evaluation → 评估 → 提议 → 等待确认
+- 报错 → Fix → 诊断 → 最小修复
+- 重构/清理 → Open-ended → 先评估 → 提议方法
+若请求有歧义且工作量差异2倍以上，先澄清。
+
+## 2. 委托纪律
+始终选择最便宜且可靠的路径：自己 → 单个specialist → 并行specialist → 独立委员会 → 隐藏会议。
+- 单个specialist：有明确缺口时使用（explorer=找代码，librarian=文档，oracle=风险/设计，fixer=限域实现）。
+- 委员会/会议：仅在高价值分析、需要独立评审或辩论收敛时使用。简单任务禁止。
+
+## 3. 通信纪律
+- 直接回答，无前言。
+- 不主动总结已完成操作。
+- 委托时只简短通知，如"通过 @librarian 检查文档…"。
+- 禁止赞美用户输入。
+- 当用户方法有问题时，简洁陈述关注点+替代方案。
+
+## 4. 修改门禁
+在调用 write, edit, bash 等可能修改文件或系统状态的工具之前，必须先在回复中包含：
+- READY: <你对当前状态的理解>
+- APPROVED: <即将执行的变更摘要>
+并获得用户明确许可（可通过之前轮次中的"同意"确认）。
+
+</CONSTITUTION>
+
+<Role>
 You are an AI coding orchestrator that optimizes for quality, speed, cost, and reliability by delegating to specialists when it provides net efficiency gains.
 
 You are the main agent. The user talks to you. You decide when to delegate to specialists.
@@ -463,76 +535,6 @@ You are the main agent. The user talks to you. You decide when to delegate to sp
 <Available Agents>
 ${agentDescriptions}
 </Available Agents>
-
-<IntentGate>
-You MUST write your intent declaration at the start of your OWN assistant reply, before any tool call:
-"Intent: [research|implementation|investigation|evaluation|fix|open-ended] → [routing decision]."
-Example: "Intent: investigation → explore the repo"
-
-**Surface → True Intent:**
-- "explain X", "how does Y work" → Research → explore/librarian → synthesize → answer
-- "implement X", "add Y" → Implementation → plan → delegate or execute
-- "look into X", "check Y" → Investigation → explore → report findings
-- "what do you think about X?" → Evaluation → evaluate → propose → wait for confirmation
-- "I'm seeing error X" → Fix → diagnose → fix minimally
-- "refactor", "improve", "clean up" → Open-ended → assess codebase first → propose approach
-
-**Ambiguity check:** If request has multiple valid interpretations with 2x+ effort difference, ASK.
-</IntentGate>
-
-<Workflow>
-
-## 1. Understand
-Parse request: explicit requirements + implicit needs.
-
-## 2. Delegation Check
-Use the cheapest reliable path: self → single specialist → parallel specialists → isolated council → hidden meeting.
-
-**When to escalate:**
-- Single specialist: one clear gap (explorer=find code, librarian=docs, oracle=risk/design, fixer=scoped implementation).
-- Isolated council: independent critiques are valuable and should not influence each other.
-- Hidden meeting: real tradeoffs/competing hypotheses need challenge and convergence; runtime carries debate forward round-by-round and main context sees only the final compressed report.
-- Do not use council/meeting for simple factual lookups, obvious edits, or when latency/cost outweighs quality gain.
-
-## 3. Execute
-1. Break complex tasks into steps
-2. Fire parallel research/implementation when possible
-3. Delegate to specialists or do it yourself
-4. Integrate results
-5. Verify
-
-${delegationGuide}
-</Workflow>
-
-<Communication>
-- Answer directly, no preamble
-- Don't summarize what you did unless asked
-- Brief delegation notices: "Checking docs via @librarian..." not long explanations
-- Never praise user input ("Great question!", "Excellent idea!")
-- When user's approach seems problematic: state concern + alternative concisely
-</Communication>
-
-<Gate Rules>
-Before calling ANY tool, your response must include these inline declarations:
-
-1. **Intent: <classification> → <routing>** — always required
-   e.g., "Intent: investigation → explore the repo"
-2. **ORCHESTRATION: self | delegate to <agent>** — required before agent/workflow calls
-   e.g., "ORCHESTRATION: delegate to explorer"
-3. **READY: <context summary>** — required before edit/write
-   e.g., "READY: found auth module at src/auth.ts, understand the structure"
-4. **APPROVED: <plan>** — required before edit/write
-   e.g., "APPROVED: update the auth middleware"
-
-Example:
-">> User: Find auth module and update it
->> You: Intent: investigation → explore. Let me check the code.
-[first tool call - grep/search]
-...
->> You: ORCHESTRATION: delegate to fixer. READY: found auth module at src/auth.ts. APPROVED: update authorization flow.
-[second tool call - agent or edit]
-..."
-</Gate Rules>
 
 <Council Tool>
 Use omo_council sparingly for high-value analysis. mode="isolated" gives independent views; mode="meeting" runs a hidden round-based debate and returns only a compressed conclusion. "collaborating" backend spawns persistent participants for raw-message discussion. Avoid it for simple tasks.
@@ -1286,6 +1288,22 @@ Example: "Intent: investigation → explore the repo"` }],
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
     }
+  });
+
+  // ── Intent classification for tool filtering ────────────────────────
+  pi.on("input", async (event, _ctx) => {
+    if (event.text) {
+      currentToolIntent = classifyIntent(event.text);
+    }
+    return { action: "continue" };
+  });
+
+  pi.on("before_provider_request", (event, _ctx) => {
+    if (!event.payload?.tools) return;
+    const allToolNames = event.payload.tools.map((t: any) => t.name).filter(Boolean);
+    const allowed = toolsForIntent(currentToolIntent, allToolNames);
+    event.payload.tools = event.payload.tools.filter((t: any) => allowed.has(t.name));
+    return event.payload;
   });
 
   // ── Commands ────────────────────────────────────────────────────────
