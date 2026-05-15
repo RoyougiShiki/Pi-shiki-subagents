@@ -70,6 +70,21 @@ function classifyIntent(userText: string): string {
   return "default";
 }
 
+const INTENT_PRESETS: Record<string, Set<string>> = {
+  research: new Set(["read", "web_search", "fetch_content", "code_search", "grep", "ls", "ctx_search", "ctx_fetch_and_index"]),
+  investigation: new Set(["read", "bash", "grep", "ls", "find", "code_search"]),
+  implementation: new Set(),
+  fix: new Set(),
+  evaluation: new Set(),
+};
+
+function toolsForIntent(intent: string, allToolNames: string[]): Set<string> {
+  const preset = INTENT_PRESETS[intent];
+  if (!preset) return new Set(allToolNames);
+  if (preset.size === 0) return new Set(allToolNames);
+  return new Set([...preset].filter((t) => allToolNames.includes(t)));
+}
+
 function toolPreferenceHint(intent: string): string {
   const hints: Record<string, string> = {
     research: "优先使用 web_search / fetch_content / ctx_search 查资料，不要直接修改文件",
@@ -1279,6 +1294,28 @@ Example: "Intent: investigation → explore the repo"` }],
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
     }
+  });
+
+  // ── Tool intent filtering (with basic tool safety net) ─────────────
+  const BASIC_TOOLS = new Set(["read", "write", "edit", "bash", "grep", "find", "ls"]);
+
+  pi.on("before_provider_request" as any, (event: any, _ctx: any) => {
+    if (!event.payload?.tools) return;
+
+    // Classify intent from last user message in payload
+    const messages: any[] = event.payload.messages ?? [];
+    const lastUser = [...messages].reverse().find((m: any) => m.role === "user");
+    const text = typeof lastUser?.content === "string" ? lastUser.content : "";
+    const intent = classifyIntent(text);
+
+    const allNames = event.payload.tools.map((t: any) => t.name).filter(Boolean);
+    let allowed = toolsForIntent(intent, allNames);
+
+    // Safety net: basic tools always available, no matter the intent
+    for (const t of BASIC_TOOLS) allowed.add(t);
+
+    event.payload.tools = event.payload.tools.filter((t: any) => allowed.has(t.name));
+    return event.payload;
   });
 
   // ── Commands ────────────────────────────────────────────────────────
