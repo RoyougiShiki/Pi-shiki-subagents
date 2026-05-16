@@ -505,16 +505,6 @@ function buildPiOrchestratorPrompt(
   _config: OmniMoConfig | null,
   capabilities: PiDelegationCapabilities,
 ): string {
-  const allAgents = Object.keys(AGENT_PROMPTS).filter(
-    (name) => !disabledAgents.includes(name),
-  );
-
-  const agentDescriptions = allAgents
-    .map((name) => {
-      const info = AGENT_PROMPTS[name];
-      return `  @${name}: ${info.description}`;
-    })
-    .join("\n");
 
   const delegationGuide = capabilities.hasSubagent && capabilities.hasAgentMessage
     ? `
@@ -608,54 +598,12 @@ Use \`tasks\` for independent parallel specialist calls:
 \`\`\`
 `;
 
-  return `<CONSTITUTION>
+  const constPath = path.join(homedir(), ".pi", "agent", "constitution.md");
+  let constText = "";
+  try { if (fs.existsSync(constPath)) constText = fs.readFileSync(constPath, "utf-8").trim(); } catch {}
+  if (!constText) constText = `<CONSTITUTION>\n（未找到 constitution.md）\n</CONSTITUTION>`;
 
-你是一名严谨的AI编码编排器。在所有行为中，必须遵守以下不可动摇的纪律：
-
-## 1. 意图驱动
-回复开头必须先声明意图类型和路由，格式：\`Intent: <type> → <route>\`。
-常见映射：
-- 解释/如何工作 → Research → explore/librarian → 综合回答
-- 实现/添加 → Implementation → 规划 → 委托或执行
-- 调查/检查 → Investigation → explore → 报告发现
-- 评价 → Evaluation → 评估 → 提议 → 等待确认
-- 报错 → Fix → 诊断 → 最小修复
-- 重构/清理 → Open-ended → 先评估 → 提议方法
-若请求有歧义且工作量差异2倍以上，先澄清。
-
-## 2. 委托纪律
-始终选择最便宜且可靠的路径：自己 → 单个specialist → 并行specialist → 独立委员会 → 隐藏会议。
-- 单个specialist：有明确缺口时使用（explorer=找代码，librarian=文档，oracle=风险/设计，fixer=限域实现）。
-- 委员会/会议：仅在高价值分析、需要独立评审或辩论收敛时使用。简单任务禁止。
-
-## 3. 通信纪律
-- 直接回答，无前言。
-- 不主动总结已完成操作。
-- 委托时只简短通知，如"通过 @librarian 检查文档…"。
-- 禁止赞美用户输入。
-- 当用户方法有问题时，简洁陈述关注点+替代方案。
-
-## 4. 修改门禁
-在调用 write, edit, bash 等可能修改文件或系统状态的工具之前，必须先在回复中包含：
-- READY: <你对当前状态的理解>
-- APPROVED: <即将执行的变更摘要>
-并获得用户明确许可（可通过之前轮次中的"同意"确认）。
-
-</CONSTITUTION>
-
-<Role>
-You are an AI coding orchestrator that optimizes for quality, speed, cost, and reliability by delegating to specialists when it provides net efficiency gains.
-
-You are the main agent. The user talks to you. You decide when to delegate to specialists.
-</Role>
-
-<Available Agents>
-${agentDescriptions}
-</Available Agents>
-
-<Council Tool>
-Use omo_council sparingly for high-value analysis. mode="isolated" gives independent views; mode="meeting" runs a hidden round-based debate and returns only a compressed conclusion. "collaborating" backend spawns persistent participants for raw-message discussion. Avoid it for simple tasks.
-</Council Tool>`;
+    return constText || `<CONSTITUTION>\n（未找到 constitution.md）\n</CONSTITUTION>`;
 }
 
 // ─── Tool implementations ──────────────────────────────────────────────────
@@ -1125,6 +1073,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     cycle: 0, intent: false, ready: false, approved: false,
   };
 
+  // ── Context-aware gate state
+  let userTurn = 0;
+  let lastApprovedTurn: number | null = null;
+  let lastReadyTurn: number | null = null;
+  let lastIntentTurn: number | null = null;
+  const DECLARATION_EXPIRY_USER_MSGS = 5;
+
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Reset gate state for new agent cycle
@@ -1296,18 +1251,26 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         }
       }
 
-      // Readiness + Approval Gates: block once per cycle for edit/write.
+      // Readiness + Approval Gates: block once per cycle. Supports cross-cycle continuation.
       if (event.toolName === "edit" || event.toolName === "write") {
-        if (!hasReady && !gateState.ready) {
+        const hasContinued = hasDeclaration(assistantText, "CONTINUED");
+        if (hasContinued) { gateState.ready = true; gateState.approved = true; lastApprovedTurn = userTurn; }
+
+        if (!hasReady && !hasContinued && !hasApproved && !gateState.ready) {
+          if (lastApprovedTurn !== null && (userTurn - lastApprovedTurn) <= DECLARATION_EXPIRY_USER_MSGS && !gateState.approved) {
+            return { block: true, reason: `[ApprovalGate] ⚡ 检测到近期的批准记录（第 ${lastApprovedTurn} 轮）。延续任务？回复开头写 "CONTINUED: <任务名>"，否则写 READY+APPROVED` };
+          }
           return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
         }
-        if (hasReady) gateState.ready = true;
+        if (hasReady || hasContinued) gateState.ready = true;
 
-        if (!hasApproved && !gateState.approved) {
+        if (!hasApproved && !hasContinued && !gateState.approved) {
           return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
         }
-        if (hasApproved) gateState.approved = true;
-
+        if (hasApproved || hasContinued) {
+          gateState.ready = true; gateState.approved = true;
+          lastApprovedTurn = userTurn; lastReadyTurn = userTurn;
+        }
       }
     } catch (err) {
       console.error("[oh-my-opencode-slim] Gate error:", err);
