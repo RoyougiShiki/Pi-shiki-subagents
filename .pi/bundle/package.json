@@ -1,0 +1,15 @@
+{
+  "name": "omi-toolkit",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@juicesharp/rpiv-ask-user-question": "^1.7.0",
+    "@juicesharp/rpiv-todo": "^1.0.0"
+  },
+  "pi": {
+    "extensions": [
+      "node_modules/@juicesharp/rpiv-ask-user-question/index.ts",
+      "node_modules/@juicesharp/rpiv-todo/index.ts"
+    ]
+  }
+}

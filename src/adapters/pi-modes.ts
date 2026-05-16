@@ -472,39 +472,7 @@ function registerModeHooks(pi: ExtensionAPI): void {
     }
   });
 
-  // agent_end: 检测退出标记，自动切换模式
-  pi.on("agent_end", async (event, ctx) => {
-    // 从最后一条 assistant 消息中提取文本
-    const messages = (event as any).messages ?? [];
-    let lastAssistantText = "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === "assistant") {
-        const parts = m.content ?? [];
-        lastAssistantText = parts
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text)
-          .join("\n");
-        break;
-      }
-    }
-    if (!lastAssistantText) return;
-
-    const detected = detectExitMarker(lastAssistantText);
-    if (!detected) return;
-
-    const currentMode = loadActiveMode();
-    if (detected.nextMode === currentMode) return;
-
-    const ok = await ctx.ui.confirm(
-      `模式切换: ${MODES[currentMode]?.label} → ${MODES[detected.nextMode]?.label}`,
-      `检测到 ${detected.marker}，是否进入下一阶段？`,
-    );
-    if (ok) {
-      applyMode(pi, detected.nextMode);
-      pi.sendUserMessage(`/mode ${detected.nextMode}`, { deliverAs: "followUp" });
-    }
-  });
+  /* agent_end auto-switch removed - markers are text-only now */
 }
 
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
