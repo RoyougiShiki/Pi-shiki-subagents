@@ -575,7 +575,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
           const { session } = await createAgentSession({
             model: undefined, // use default pi model
-            tools: (config as any)?.agent_tools?.[agentName] || ["read", "bash", "edit", "write", "grep", "find", "ls"],
+            tools: (config as any)?.agent_tools?.[agentName] || ["read"],
             sessionManager: SessionManager.inMemory(),
             cwd: ctx.cwd,
           });
