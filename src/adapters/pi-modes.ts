@@ -10,6 +10,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
@@ -20,10 +21,6 @@ interface ModeDefinition {
   label: string;
   tools: string[];
   instructions: string;
-  exitMarker?: string;
-  nextMode?: string;
-  /** 额外的标记 → 目标模式映射（如 FAST_TRACK → worker） */
-  markers?: Record<string, string>;
 }
 
 const MODES: Record<string, ModeDefinition> = {
@@ -62,10 +59,7 @@ const MODES: Record<string, ModeDefinition> = {
 
 # 硬性禁令
 - 在用户批准方案前，不得输出模式切换信号。
-- 方案中禁止讨论实现细节。`,
-    exitMarker: "<<MODE:DESIGN>>",
-    nextMode: "designer",
-    markers: { "<<MODE:FAST_TRACK>>": "worker" },
+- 方案中禁止讨论实现细节。`
   },
   designer: {
     label: "技术设计",
@@ -196,8 +190,7 @@ git add 相关文件 && git commit -m "类型: 简短描述"
 # 子代理使用
 - 可委托 @explorer 确认文件路径或现有接口。
 - 可委托 @librarian 查阅第三方库行为。
-- 禁止委托任何实现类代理（如 @fixer）。`,
-    markers: { "<<MODE:SUBAGENT_EXECUTION>>": "worker", "<<MODE:BATCH_EXECUTION>>": "batch" },
+- 禁止委托任何实现类代理（如 @fixer）。`
   },
   worker: {
     label: "快速实施",
@@ -276,8 +269,7 @@ git add 相关文件 && git commit -m "类型: 简短描述"
 
 # 硬性约束
 - 同一 wave 内的任务可以并行派发，不同 wave 串行。
-- 每个实现者子代理只能处理一个任务。`,
-    markers: { "<<MODE:COMPLETE>>": "worker" },
+- 每个实现者子代理只能处理一个任务。`
   },
 };
 
@@ -396,25 +388,6 @@ export function getModeInstructions(name: string): string | undefined {
   return MODES[name]?.instructions;
 }
 
-/** 检测消息中是否包含退出标记 */
-function detectExitMarker(text: string): { nextMode: string; marker: string } | undefined {
-  for (const [, def] of Object.entries(MODES)) {
-    // 检查主 exitMarker
-    if (def.exitMarker && def.nextMode && text.includes(def.exitMarker)) {
-      return { nextMode: def.nextMode, marker: def.exitMarker };
-    }
-    // 检查额外 markers（如 FAST_TRACK → worker）
-    if (def.markers) {
-      for (const [marker, nextMode] of Object.entries(def.markers)) {
-        if (text.includes(marker)) {
-          return { nextMode, marker };
-        }
-      }
-    }
-  }
-  return undefined;
-}
-
 // ── 注册 pi 命令和事件 ────────────────────────────────────────────────────
 
 function registerModeCommands(pi: ExtensionAPI): void {
@@ -480,4 +453,30 @@ function registerModeHooks(pi: ExtensionAPI): void {
 export default function (pi: ExtensionAPI) {
   registerModeCommands(pi);
   registerModeHooks(pi);
+
+  // 注册 switch_mode 工具，供 LLM 在用户确认后调用
+  pi.registerTool({
+    name: "switch_mode",
+    label: "Switch Mode",
+    description: `Switch to another working mode. Only call this after the user has explicitly confirmed they want to proceed.
+Modes: thinker (analysis), designer (plan writing), worker (fast implementation), batch (batch execution).`,
+    parameters: Type.Object({
+      mode: Type.String({ description: "Target mode: thinker, designer, worker, or batch" }),
+    }),
+    async execute(_toolCallId: string, params: { mode: string }) {
+      const name = params.mode?.trim().toLowerCase();
+      if (!MODES[name]) {
+        return {
+          content: [{ type: "text" as const, text: `Unknown mode: "${name}". Available: ${Object.keys(MODES).join(", ")}` }],
+          isError: true,
+          details: {} as any,
+        };
+      }
+      applyMode(pi, name);
+      return {
+        content: [{ type: "text" as const, text: `Switched to: ${name} (${MODES[name].label})` }],
+        details: { mode: name },
+      };
+    },
+  });
 }
