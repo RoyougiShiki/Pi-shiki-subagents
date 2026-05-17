@@ -27,6 +27,8 @@ interface ModeDefinition {
 
 const MODES_DIR = path.join(homedir(), ".pi", "agent", "modes");
 const DEFAULTS_PATH = path.join(__dirname, "modes-default.json");
+const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-modes.json");
+let _currentSessionFile: string | undefined;
 
 function getConfigPath(): string {
   return path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
@@ -156,6 +158,9 @@ function saveMode(name: string): void {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     cfg.active_mode = name;
     fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+    if (_currentSessionFile) {
+      saveSessionMode(_currentSessionFile, name);
+    }
   } catch { /* skip */ }
 }
 
@@ -180,6 +185,22 @@ function seedDefaultModes(): void {
     raw.modes = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
     fs.writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2) + "\n", "utf-8");
   } catch {}
+}
+
+function saveSessionMode(sessionFile: string, mode: string): void {
+  try {
+    let map: Record<string, string> = {};
+    try { map = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8")); } catch {}
+    map[sessionFile] = mode;
+    fs.writeFileSync(SESSION_MODE_MAP_PATH, JSON.stringify(map, null, 2) + "\n", "utf-8");
+  } catch {}
+}
+
+function loadSessionMode(sessionFile: string): string | undefined {
+  try {
+    const map: Record<string, string> = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8"));
+    return map[sessionFile];
+  } catch { return undefined; }
 }
 
 // ── 模式应用 ──────────────────────────────────────────────────────────────
@@ -246,11 +267,32 @@ function registerModeCommands(pi: ExtensionAPI): void {
 }
 
 function registerModeHooks(pi: ExtensionAPI): void {
-  pi.on("session_start", async () => {
+  pi.on("session_start", async (event, ctx) => {
+    // Track current session file
+    try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
+
+    // If resuming a session, restore its saved mode
+    if (event.reason === "resume" && (event as any).previousSessionFile) {
+      const saved = loadSessionMode((event as any).previousSessionFile);
+      if (saved && getMode(saved)) {
+        _modeDefs = null;
+        seedDefaultModes();
+        applyMode(pi, saved);
+        return;
+      }
+    }
+
     _modeDefs = null;
     seedDefaultModes();
     const mode = loadActiveMode();
     applyMode(pi, mode);
+  });
+
+  pi.on("session_shutdown", async (_event, ctx) => {
+    try {
+      const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
+      if (sf) saveSessionMode(sf, loadActiveMode());
+    } catch {}
   });
 
   pi.on("before_agent_start", async (event) => {
