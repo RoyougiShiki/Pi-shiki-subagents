@@ -32,7 +32,6 @@
   "fallback": {
     "label": "兜底模式",
     "tools": ["read", "write", "edit", "bash", "grep", "find", "ls", "omo_delegate"],
-    "next": [],
-    "hidden": true
+    "next": []
   }
 }
