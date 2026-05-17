@@ -1068,7 +1068,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       }
       payload.messages.splice(insertAt, 0, {
         role: "system",
-        content: `[Current Mode: ${mode}]`,
+        content: `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt — re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`,
       });
     } catch {
       // ignore read errors
