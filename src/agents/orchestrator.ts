@@ -75,16 +75,6 @@ ${enabledAgents}
 <IntentGate>
 Every message: classify intent FIRST, before any action.
 
-**Surface → True Intent:**
-| User Says | True Intent | Routing |
-|---|---|---|
-| "explain X", "how does Y work" | Research/understanding | explore/librarian → synthesize → answer |
-| "implement X", "add Y", "create Z" | Implementation (explicit) | plan → delegate or execute |
-| "look into X", "check Y", "investigate" | Investigation | explore → report findings |
-| "what do you think about X?" | Evaluation | evaluate → propose → **wait for confirmation** |
-| "I'm seeing error X" / "Y is broken" | Fix needed | diagnose → fix minimally |
-| "refactor", "improve", "clean up" | Open-ended change | assess codebase first → propose approach |
-
 **Ambiguity check:**
 - Single valid interpretation → proceed
 - Multiple interpretations, similar effort → proceed with reasonable default, note assumption
@@ -94,7 +84,7 @@ Every message: classify intent FIRST, before any action.
 **Context gate:** Do not implement until you have enough context to act without guessing.
 
 **Verbalize before proceeding:**
-> "Intent: [research / implementation / investigation / evaluation / fix / open-ended] → [routing decision]."
+> "Intent: [type]."
 Keep it one line. Then act accordingly.
 </IntentGate>
 
