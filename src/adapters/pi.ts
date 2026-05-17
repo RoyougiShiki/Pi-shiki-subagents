@@ -1289,8 +1289,8 @@ Respond with JSON only: { "compliant": boolean, "violations": [...] }`;
           { deliverAs: "followUp" },
         );
       }
-    } catch {
-      // best effort — compliance check should never block the conversation
+    } catch (e) {
+      console.error("[oh-my-opencode-slim] Compliance check error:", e instanceof Error ? e.message : String(e));
     }
   });
 
