@@ -155,17 +155,22 @@ function getHiddenModes(): string[] {
 
 function saveMode(name: string): void {
   try {
+    if (_currentSessionFile) {
+      saveSessionMode(_currentSessionFile, name);
+      return;
+    }
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     cfg.active_mode = name;
     fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-    if (_currentSessionFile) {
-      saveSessionMode(_currentSessionFile, name);
-    }
-  } catch { /* skip */ }
+  } catch {}
 }
 
 function loadActiveMode(): string {
   try {
+    if (_currentSessionFile) {
+      const saved = loadSessionMode(_currentSessionFile);
+      if (saved && getMode(saved)) return saved;
+    }
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     const mode: string = cfg.active_mode ?? "";
     if (mode && getMode(mode)) return mode;
