@@ -1258,23 +1258,22 @@ Example: "Intent: investigation → explore the repo"` }],
 
       if (!agentOutput.trim()) return;
 
-      const { COMPLIANCE_CHECK_PROMPT } = await import("../agents/compliance-check");
+      const prompt = `Respond with JSON only: { "compliant": boolean, "violations": [{ "type": string, "severity": "blocking" | "major" | "minor", "description": string }] }
 
-      const prompt = `You are a compliance checker. Check if the agent's output violates the mode rules.
+You are a compliance checker. Check if the agent's output violates the mode rules.
 
 Mode rules:
 ${modePrompt.slice(0, 2000)}
 
 Agent output:
-${agentOutput.slice(0, 3000)}
+${agentOutput.slice(0, 3000)}`;
 
-Respond with JSON only: { "compliant": boolean, "violations": [...] }`;
-
+      const tmpFile = path.join(homedir(), ".pi", "agent", ".compliance-tmp.txt");
+      fs.writeFileSync(tmpFile, prompt, "utf-8");
       const { execFileSync } = await import("node:child_process");
-      const result = execFileSync("pi", ["--json", prompt], {
+      const result = execFileSync("pi", ["--print", "--no-tools", `@${tmpFile}`], {
         encoding: "utf-8",
-        timeout: 10000,
-        cwd: ctx.cwd,
+        timeout: 15000,
       });
 
       let checkResult: any;
