@@ -42,11 +42,16 @@ const MODES: Record<string, ModeDefinition> = {
   },
   worker: {
     label: "快速实施",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
+    tools: ["read", "bash", "edit", "write", "grep", "find", "ls", "omo_delegate"],
   },
   batch: {
     label: "批次执行",
     tools: ["read", "bash", "edit", "write", "grep", "find", "ls", "omo_delegate"],
+  },
+  // 兜底模式：仅用户手动切换，agent 不可自选、不可见
+  fallback: {
+    label: "兜底模式",
+    tools: ["read", "write", "edit", "bash", "grep", "find", "ls", "omo_delegate"],
   },
 };
 
