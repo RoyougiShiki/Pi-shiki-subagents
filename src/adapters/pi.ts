@@ -1064,6 +1064,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const payload = event.payload as Record<string, any>;
       if (!payload) return;
 
+      // Debug: log payload keys to see format
+      console.error("[oh-my-opencode-slim] Payload keys:", Object.keys(payload));
+      console.error("[oh-my-opencode-slim] Has messages array:", Array.isArray(payload.messages));
+
       // OpenAI format: messages array
       if (Array.isArray(payload.messages)) {
         payload.messages.push({
