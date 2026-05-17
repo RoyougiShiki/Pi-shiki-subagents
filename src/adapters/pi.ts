@@ -1070,7 +1070,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
       // OpenAI format: messages array
       if (Array.isArray(payload.messages)) {
-        payload.messages.push({
+        // Insert BEFORE the last user message so it's read together with user input
+        let insertAt = payload.messages.length - 1;
+        for (let i = payload.messages.length - 1; i >= 0; i--) {
+          if (payload.messages[i]?.role === "user") {
+            insertAt = i;
+            break;
+          }
+        }
+        payload.messages.splice(insertAt, 0, {
           role: "system",
           content: `[Current Mode: ${activeMode}]\n${rules}`,
         });
