@@ -175,16 +175,18 @@ export function getModeInstructions(name: string): string | undefined {
 function registerModeCommands(pi: ExtensionAPI): void {
   // 公开给用户手动切换的模式（designer/batch 是自动流转的内部模式）
   const PUBLIC_MODES = ["thinker-clarify", "thinker-analysis", "designer", "worker"];
+  // 隐藏模式：不在选择列表和帮助中显示，但用户可直接输入 /mode <name> 切换
+  const HIDDEN_MODES = ["fallback"];
 
   // /mode 命令：交互选择或直接切换
   pi.registerCommand("mode", {
-    description: "Switch mode: thinker-clarify (clarify requirements), thinker-analysis (analyze & propose), designer (plan), worker (implement). Usage: /mode <name>",
+    description: `Switch mode: ${PUBLIC_MODES.join(", ")}. Usage: /mode <name>`,
     handler: async (args: string, ctx: any) => {
       const trimmed = args.trim();
 
       if (trimmed) {
-        if (!PUBLIC_MODES.includes(trimmed)) {
-          ctx.ui.notify(`Unknown mode: "${trimmed}". Available: thinker-clarify, thinker-analysis, designer, worker`, "error");
+        if (![...PUBLIC_MODES, ...HIDDEN_MODES].includes(trimmed)) {
+          ctx.ui.notify(`Unknown mode: "${trimmed}". Available: ${PUBLIC_MODES.join(", ")}`, "error");
           return;
         }
         applyMode(pi, trimmed);
