@@ -563,6 +563,29 @@ function createToolImplementations(config: OmniMoConfig | null) {
         _onUpdate: any,
         ctx: ExtensionContext,
       ) {
+        // ── Mode-based delegation guard ──────────────────────────────
+        const writeAgents = ["fixer", "designer"];
+        const readOnlyModes = ["thinker", "designer"];
+        let currentMode = "";
+        try {
+          const raw = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
+          currentMode = (raw as any).active_mode ?? "";
+        } catch {}
+        if (readOnlyModes.includes(currentMode)) {
+          const requested = params.agent || params.tasks?.[0]?.agent || params.chain?.[0]?.agent || "";
+          if (writeAgents.includes(requested)) {
+            return { content: [{ type: "text" as const, text: `当前模式为 "${currentMode}"，不能委托写操作代理（${requested}）。请在切换到 worker 或 batch 模式后重试。` }], isError: true, details: {} as any };
+          }
+          const allAgents = [
+            ...(params.tasks?.map(t => t.agent) || []),
+            ...(params.chain?.map(c => c.agent) || []),
+          ].filter(Boolean);
+          const blocked = allAgents.find(a => writeAgents.includes(a));
+          if (blocked) {
+            return { content: [{ type: "text" as const, text: `当前模式为 "${currentMode}"，任务列表中包含写操作代理（${blocked}），不允许。` }], isError: true, details: {} as any };
+          }
+        }
+
         // ── Helper: run one agent via createAgentSession ────────────────
         async function runOne(
           agentName: string,
