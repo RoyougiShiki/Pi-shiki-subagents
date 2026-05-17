@@ -74,6 +74,7 @@ function loadModeFile(name: string): { instructions: string; tools?: string[]; h
 let _modeDefs: Record<string, ModeDefinition> | null = null;
 
 function loadModeDefinitions(): Record<string, ModeDefinition> {
+  if (_modeDefs) return _modeDefs;
   // 1. 从 oh-my-opencode-slim.json 的 modes 字段读取
   let raw: Record<string, any> = {};
   try {
