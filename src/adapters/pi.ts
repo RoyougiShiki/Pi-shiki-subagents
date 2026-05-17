@@ -1219,7 +1219,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Gate reminders in context ──────────────────────────────────────
   pi.on("context", async (event, _ctx) => {
-    const reminder = {
+    const reminders: any[] = [];
+
+    // Gate Rules reminder
+    reminders.push({
       role: "system" as const,
       content: [{ type: "text" as const, text: `[Gate Rules]
 YOU MUST write these declarations in YOUR assistant reply before calling any tool:
@@ -1228,12 +1231,46 @@ YOU MUST write these declarations in YOUR assistant reply before calling any too
 3. READY: <context> + APPROVED: <plan> (if using edit/write)
 
 Example: "Intent: investigation → explore the repo"` }],
-    };
-    const hasReminder = event.messages.some(
+    });
+
+    // Current mode rules reminder (near bottom of context where model generates output)
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
+      const activeMode: string = cfg.active_mode || "worker";
+      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
+      if (fs.existsSync(modeFilePath)) {
+        const modeContent = fs.readFileSync(modeFilePath, "utf-8");
+        // Extract the section after the frontmatter
+        const bodyMatch = modeContent.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
+        const body = bodyMatch ? bodyMatch[1].trim() : "";
+        // Extract role + core rules + forbidden sections (first ~300 chars)
+        const modeSummary = body.slice(0, 600);
+        reminders.push({
+          role: "system" as const,
+          content: [{ type: "text" as const, text: `[Current Mode: ${activeMode}]
+当前模式规则（置于末尾便于参考）：
+${modeSummary}
+
+在输出前，请确保你的回复符合上述模式的规则。` }],
+        });
+      }
+    } catch {}
+
+    const hasGateReminder = event.messages.some(
       (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
     );
-    if (!hasReminder) {
-      return { messages: [...event.messages, reminder] };
+    const hasModeReminder = event.messages.some(
+      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Current Mode:")),
+    );
+
+    const toInject = reminders.filter((r, i) => {
+      if (i === 0 && !hasGateReminder) return true;
+      if (i === 1 && !hasModeReminder) return true;
+      return false;
+    });
+
+    if (toInject.length > 0) {
+      return { messages: [...event.messages, ...toInject] };
     }
   });
 
