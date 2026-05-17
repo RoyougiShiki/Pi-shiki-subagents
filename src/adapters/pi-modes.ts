@@ -165,7 +165,7 @@ function saveMode(name: string): void {
   } catch {}
 }
 
-function loadActiveMode(): string {
+export function loadActiveMode(): string {
   try {
     if (_currentSessionFile) {
       const saved = loadSessionMode(_currentSessionFile);

@@ -30,6 +30,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
+import { loadActiveMode } from "./pi-modes";
 import {
   INTENT_GATE_BLOCK_MESSAGE,
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
@@ -568,11 +569,11 @@ function createToolImplementations(config: OmniMoConfig | null) {
         ctx: ExtensionContext,
       ) {
         // ── Mode-based delegation guard (config-driven) ─────────────
-        let currentMode = "";
+        const currentMode = loadActiveMode();
         let blocked: string[] = [];
         try {
-          const raw = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
-          currentMode = (raw as any).active_mode ?? "";
+          const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+          const raw = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
           const restrictions = (raw as any).mode_agent_restrictions ?? {};
           blocked = restrictions[currentMode]?.blocked ?? [];
         } catch {}
@@ -1065,8 +1066,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     try {
       const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
       if (!fs.existsSync(cfgPath)) return;
-      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
-      const mode: string = cfg.active_mode || "worker";
+      const mode: string = loadActiveMode();
       const payload = event.payload as Record<string, any>;
       if (!Array.isArray(payload?.messages)) return;
 
@@ -1303,7 +1303,7 @@ Declare these before calling tools:
       const config = loadOmniMoConfig();
       if (!config?.compliance_check?.enabled) return;
 
-      const activeMode = (config as any).active_mode ?? "worker";
+      const activeMode = loadActiveMode();
       const checkModes: string[] = (config.compliance_check?.modes as string[]) ?? ["thinker-clarify", "thinker-analysis"];
       if (!checkModes.includes(activeMode)) return;
 
