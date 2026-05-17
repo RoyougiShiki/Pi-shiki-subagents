@@ -75,28 +75,33 @@ let _modeDefs: Record<string, ModeDefinition> | null = null;
 
 function loadModeDefinitions(): Record<string, ModeDefinition> {
   if (_modeDefs) return _modeDefs;
-  // 1. 从 oh-my-opencode-slim.json 的 modes 字段读取
+
   let raw: Record<string, any> = {};
+  let modeRoles: Record<string, string[]> = {};
+  let roleTemplates: Record<string, string[]> = {};
+
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     raw = cfg.modes ?? {};
+    modeRoles = cfg.mode_roles ?? {};
+    roleTemplates = cfg.role_templates ?? {};
   } catch {}
 
-  // 2. 如果配置中没有 modes，尝试从内置默认文件加载
   if (Object.keys(raw).length === 0) {
     try {
       if (fs.existsSync(DEFAULTS_PATH)) {
-        raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+        const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+        raw = defaults;
+        if (defaults.mode_roles) modeRoles = defaults.mode_roles;
+        if (defaults.role_templates) roleTemplates = defaults.role_templates;
       }
     } catch {}
   }
 
-  // 3. 如果还是空，给一个最小兜底
   if (Object.keys(raw).length === 0) {
     raw = { worker: { label: "Worker", tools: ["read", "grep", "find", "ls", "omo_delegate"] } };
   }
 
-  // 4. 合并 .md 文件覆盖（instructions + tools + hidden）
   for (const name of Object.keys(raw)) {
     const file = loadModeFile(name);
     if (file) {
@@ -106,6 +111,18 @@ function loadModeDefinitions(): Record<string, ModeDefinition> {
       }
       if (file.hidden !== undefined) {
         raw[name].hidden = file.hidden;
+      }
+    }
+
+    if (!raw[name].tools || raw[name].tools.length === 0) {
+      const roleNames = modeRoles[name] ?? [];
+      const resolved = new Set<string>();
+      for (const rn of roleNames) {
+        const tmpl = roleTemplates[rn] ?? [];
+        for (const t of tmpl) resolved.add(t);
+      }
+      if (resolved.size > 0) {
+        raw[name].tools = Array.from(resolved);
       }
     }
   }
