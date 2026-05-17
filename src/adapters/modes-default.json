@@ -12,7 +12,8 @@
   "thinker": {
     "label": "需求分析",
     "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["thinker-analysis", "designer"]
+    "next": ["thinker-analysis", "designer"],
+    "hidden": true
   },
   "designer": {
     "label": "技术设计",
