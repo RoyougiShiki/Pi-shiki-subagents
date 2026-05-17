@@ -446,19 +446,6 @@
         }
       }
     },
-    "websearch": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "default": "exa",
-          "type": "string",
-          "enum": [
-            "exa",
-            "tavily"
-          ]
-        }
-      }
-    },
     "interview": {
       "type": "object",
       "properties": {
@@ -661,6 +648,15 @@
           "enum": [
             "parallel",
             "serial"
+          ]
+        },
+        "meeting_backend": {
+          "default": "session",
+          "description": "Backend for Pi omo_council(mode=\"meeting\"). \"session\" is stable/default; \"collaborating\" is reserved for future pi-collaborating-agents integration.",
+          "type": "string",
+          "enum": [
+            "session",
+            "collaborating"
           ]
         },
         "councillor_retries": {
