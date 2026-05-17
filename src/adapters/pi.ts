@@ -999,6 +999,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Mapping file path (user-local, not in repo) ──────────────────────
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
+    // Reset mode injection tracker for new session
+    _lastInjectedMode = "";
+
     ensureAgentFiles(config);
 
     // Hide subagent tool (broken + overlaps with omo_delegate).
