@@ -1287,8 +1287,7 @@ Declare these before calling tools:
 • ORCHESTRATION: self | delegate to <agent> — required BEFORE omo_delegate/agent tools.
    Why declare it? It forces you to consciously choose the right approach for each task.
    Not declaring = gate will block your delegation. You'll waste a turn.
-• READY: <context> + APPROVED: <plan> — required before write/edit tools.
-   Not declaring = gate will block the modification.` }],
+• READY: <context> + APPROVED: <plan> — only needed if write/edit tools are available in your current mode.` }],
     };
     const hasReminder = event.messages.some(
       (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
