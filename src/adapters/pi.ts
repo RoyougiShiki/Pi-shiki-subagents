@@ -235,6 +235,10 @@ export interface OmniMoConfig {
   agents?: Record<string, { model?: string; variant?: string; thinking?: string }>;
   disabled_agents?: string[];
   council?: PiCouncilConfig;
+  compliance_check?: {
+    enabled?: boolean;
+    modes?: string[];
+  };
 }
 
 interface PiDelegationCapabilities {
@@ -598,9 +602,9 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
           // Resolve tools from agent_roles + role_templates
           const rolesCfg = config as any;
-          const agentRoleNames = rolesCfg?.agent_roles?.[agentName] || [];
+          const agentRoleNames: string[] = rolesCfg?.agent_roles?.[agentName] || [];
           const templates = rolesCfg?.role_templates || {};
-          const resolvedAgentTools: string[] = [...new Set(agentRoleNames.flatMap((r: string) => (templates as any)[r] || []))];
+          const resolvedAgentTools: string[] = [...new Set(agentRoleNames.flatMap((r: string) => (templates as any)[r] || []) as string[])];
           const { session } = await createAgentSession({
             model: undefined, // use default pi model
             tools: resolvedAgentTools.length > 0 ? resolvedAgentTools : ["read"],
@@ -1230,6 +1234,63 @@ Example: "Intent: investigation → explore the repo"` }],
     );
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
+    }
+  });
+
+  // ── Compliance check on turn end ──────────────────────────────
+  pi.on("turn_end", async (event, ctx) => {
+    try {
+      const config = loadOmniMoConfig();
+      if (!config?.compliance_check?.enabled) return;
+
+      const activeMode = (config as any).active_mode ?? "worker";
+      const checkModes: string[] = (config.compliance_check?.modes as string[]) ?? ["thinker-clarify", "thinker-analysis"];
+      if (!checkModes.includes(activeMode)) return;
+
+      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
+      let modePrompt = "";
+      try { modePrompt = fs.readFileSync(modeFilePath, "utf-8"); } catch { return; }
+
+      const agentOutput = event.message?.content
+        ?.filter((c: any) => c.type === "text")
+        ?.map((c: any) => c.text)
+        ?.join("\n") ?? "";
+
+      if (!agentOutput.trim()) return;
+
+      const { COMPLIANCE_CHECK_PROMPT } = await import("../agents/compliance-check");
+
+      const prompt = `You are a compliance checker. Check if the agent's output violates the mode rules.
+
+Mode rules:
+${modePrompt.slice(0, 2000)}
+
+Agent output:
+${agentOutput.slice(0, 3000)}
+
+Respond with JSON only: { "compliant": boolean, "violations": [...] }`;
+
+      const { execFileSync } = await import("node:child_process");
+      const result = execFileSync("pi", ["--json", prompt], {
+        encoding: "utf-8",
+        timeout: 10000,
+        cwd: ctx.cwd,
+      });
+
+      let checkResult: any;
+      try { checkResult = JSON.parse(result.trim()); } catch { return; }
+
+      if (!checkResult.compliant && checkResult.violations?.length > 0) {
+        const violationMsg = checkResult.violations
+          .map((v: any) => `- [${v.severity}] ${v.type}: ${v.description}`)
+          .join("\n");
+        pi.sendUserMessage(
+          `[Compliance Check] 检测到违规行为，请修正：\n\n${violationMsg}`,
+          { deliverAs: "followUp" },
+        );
+      }
+    } catch {
+      // best effort — compliance check should never block the conversation
     }
   });
 
