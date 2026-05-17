@@ -1046,51 +1046,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
     const truncCfg = (toolCfg.truncate ?? {}) as Record<string, number>;
     const defaultTrunc = truncCfg.default ?? 0;
-    if (!(hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0)) {
-      trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
-    }
-
-    // ── Inject current mode rules at payload level ────
-    try {
-      const cfg = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
-      const activeMode: string = cfg.active_mode || "worker";
-      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
-      if (!fs.existsSync(modeFilePath)) return;
-      const modeContent = fs.readFileSync(modeFilePath, "utf-8");
-      const bodyMatch = modeContent.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
-      const body = bodyMatch ? bodyMatch[1].trim() : modeContent.trim();
-
-      const rules = body.slice(0, 500);
-      const payload = event.payload as Record<string, any>;
-      if (!payload) return;
-
-      // Debug: log payload keys to see format
-      console.error("[oh-my-opencode-slim] Payload keys:", Object.keys(payload));
-      console.error("[oh-my-opencode-slim] Has messages array:", Array.isArray(payload.messages));
-
-      // OpenAI format: messages array
-      if (Array.isArray(payload.messages)) {
-        // Insert BEFORE the last user message so it's read together with user input
-        let insertAt = payload.messages.length - 1;
-        for (let i = payload.messages.length - 1; i >= 0; i--) {
-          if (payload.messages[i]?.role === "user") {
-            insertAt = i;
-            break;
-          }
-        }
-        payload.messages.splice(insertAt, 0, {
-          role: "system",
-          content: `[Current Mode: ${activeMode}]\n${rules}`,
-        });
-        return payload;
-      }
-
-      // Anthropic format: system string + messages array
-      if (typeof payload.system === "string" && Array.isArray(payload.messages)) {
-        payload.system = `${payload.system}\n\n[Current Mode: ${activeMode}]\n${rules}`;
-        return payload;
-      }
-    } catch {}
+    if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
+    trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
   });
 
   // ── Register custom tools ───────────────────────────────────────────
@@ -1262,10 +1219,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Gate reminders in context ──────────────────────────────────────
   pi.on("context", async (event, _ctx) => {
-    const reminders: any[] = [];
-
-    // Gate Rules reminder
-    reminders.push({
+    const reminder = {
       role: "system" as const,
       content: [{ type: "text" as const, text: `[Gate Rules]
 YOU MUST write these declarations in YOUR assistant reply before calling any tool:
@@ -1274,46 +1228,12 @@ YOU MUST write these declarations in YOUR assistant reply before calling any too
 3. READY: <context> + APPROVED: <plan> (if using edit/write)
 
 Example: "Intent: investigation → explore the repo"` }],
-    });
-
-    // Current mode rules reminder (near bottom of context where model generates output)
-    try {
-      const cfg = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
-      const activeMode: string = cfg.active_mode || "worker";
-      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
-      if (fs.existsSync(modeFilePath)) {
-        const modeContent = fs.readFileSync(modeFilePath, "utf-8");
-        // Extract the section after the frontmatter
-        const bodyMatch = modeContent.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
-        const body = bodyMatch ? bodyMatch[1].trim() : "";
-        // Extract role + core rules + forbidden sections (first ~300 chars)
-        const modeSummary = body.slice(0, 600);
-        reminders.push({
-          role: "system" as const,
-          content: [{ type: "text" as const, text: `[Current Mode: ${activeMode}]
-当前模式规则（置于末尾便于参考）：
-${modeSummary}
-
-在输出前，请确保你的回复符合上述模式的规则。` }],
-        });
-      }
-    } catch {}
-
-    const hasGateReminder = event.messages.some(
+    };
+    const hasReminder = event.messages.some(
       (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
     );
-    const hasModeReminder = event.messages.some(
-      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Current Mode:")),
-    );
-
-    const toInject = reminders.filter((r, i) => {
-      if (i === 0 && !hasGateReminder) return true;
-      if (i === 1 && !hasModeReminder) return true;
-      return false;
-    });
-
-    if (toInject.length > 0) {
-      return { messages: [...event.messages, ...toInject] };
+    if (!hasReminder) {
+      return { messages: [...event.messages, reminder] };
     }
   });
 
