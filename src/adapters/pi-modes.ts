@@ -277,8 +277,8 @@ function registerModeHooks(pi: ExtensionAPI): void {
     try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
 
     // If resuming a session, restore its saved mode
-    if (event.reason === "resume" && (event as any).previousSessionFile) {
-      const saved = loadSessionMode((event as any).previousSessionFile);
+    if (event.reason === "resume" && _currentSessionFile) {
+      const saved = loadSessionMode(_currentSessionFile);
       if (saved && getMode(saved)) {
         _modeDefs = null;
         seedDefaultModes();

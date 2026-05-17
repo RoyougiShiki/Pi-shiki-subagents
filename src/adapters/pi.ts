@@ -1006,11 +1006,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     ensureAgentFiles(config);
 
     // Hide subagent tool (broken + overlaps with omo_delegate).
+    // 2026-05-17: Commented out — @e9n/pi-subagent now provides a working subagent tool.
     // Keep agent_message — omo_council collaborating backend needs it.
-    try {
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      pi.setActiveTools(all.filter((n: string) => n !== "subagent"));
-    } catch {}
+    // try {
+    //   const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+    //   pi.setActiveTools(all.filter((n: string) => n !== "subagent"));
+    // } catch {}
   });
 
   // ── Lifecycle-based gate state ─────────────────────────────────────
