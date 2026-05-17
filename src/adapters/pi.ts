@@ -1047,7 +1047,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Track last injected mode for first-after-switch detection ──
   let _lastInjectedMode = "";
 
-  // ── Trim tool descriptions in provider API payload ────────────────
+      // ── Trim tool descriptions in provider API payload ────────────────
   pi.on("before_provider_request", (event, _ctx) => {
     const toolCfg = (config as any)?.tool_descriptions ?? {};
     const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
@@ -1055,8 +1055,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const defaultTrunc = truncCfg.default ?? 0;
     if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+  });
 
-    // ── Inject mode identity before user message ────
+  // ── Inject mode identity before user message (always runs) ────
+  pi.on("before_provider_request", (event, _ctx) => {
     try {
       const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
       if (!fs.existsSync(cfgPath)) return;
@@ -1072,7 +1074,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       let content: string;
       if (isSwitch) {
         // Load full .md content for the new mode
-        const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${mode}.md`);
+        const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", "${mode}.md");
         let fullPrompt = "";
         try {
           if (fs.existsSync(modeFilePath)) {
@@ -1087,7 +1089,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             : `You just switched to this mode. Review your role and follow it.`) +
           `\n\n</systemReminder>`;
       } else {
-        content = `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt — re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`;
+        content = `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt \u2014 re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`;
       }
 
       // Insert before the last user message
