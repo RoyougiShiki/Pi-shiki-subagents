@@ -238,27 +238,45 @@ export default function (pi: ExtensionAPI) {
   registerModeCommands(pi);
   registerModeHooks(pi);
 
-  // 注册 switch_mode 工具，供 LLM 在用户确认后调用
+  // 注册 switch_mode 工具，供 LLM 在工作流链中切换
   pi.registerTool({
     name: "switch_mode",
     label: "Switch Mode",
-    description: `Switch to another working mode. Only call this after the user has explicitly confirmed they want to proceed.
-Modes: thinker-clarify (clarify requirements), thinker-analysis (analyze & propose), designer (plan writing), worker (fast implementation), batch (batch execution).`,
+    description: `Switch to the next mode in the workflow chain (clarify → analysis → design → implement). Can also return to the first (clarify) mode. Only call after the user explicitly confirms.`,
     parameters: Type.Object({
-      mode: Type.String({ description: "Target mode: thinker, designer, worker, or batch" }),
+      mode: Type.String({ description: "Target mode name" }),
     }),
     async execute(_toolCallId: string, params: { mode: string }) {
       const name = params.mode?.trim().toLowerCase();
-      if (!MODES[name]) {
+      if (!name || !MODES[name]) {
         return {
-          content: [{ type: "text" as const, text: `Unknown mode: "${name}". Available: ${Object.keys(MODES).join(", ")}` }],
+          content: [{ type: "text" as const, text: `不存在该模式。` }],
           isError: true,
           details: {} as any,
         };
       }
+
+      // Read agent mode transitions from config (not hardcoded)
+      let currentMode = "";
+      let allowed: string[] = [];
+      try {
+        const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+        currentMode = (raw as any).active_mode ?? "";
+        const transitions = (raw as any).mode_agent_transitions ?? {};
+        allowed = transitions[currentMode] ?? [];
+      } catch {}
+
+      if (!allowed.includes(name)) {
+        return {
+          content: [{ type: "text" as const, text: `当前模式不允许直接切换到目标模式。` }],
+          isError: true,
+          details: {} as any,
+        };
+      }
+
       applyMode(pi, name);
       return {
-        content: [{ type: "text" as const, text: `Switched to: ${name} (${MODES[name].label})` }],
+        content: [{ type: "text" as const, text: `切换到: ${name}` }],
         details: { mode: name },
       };
     },
