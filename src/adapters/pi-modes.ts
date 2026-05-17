@@ -46,7 +46,11 @@ const MODES: Record<string, ModeDefinition> = {
   },
   batch: {
     label: "批次执行",
-    tools: ["read", "bash", "edit", "write", "grep", "find", "ls", "omo_delegate"],
+    tools: ["read", "grep", "find", "ls", "omo_delegate"],
+  },
+  implementer: {
+    label: "标准实施",
+    tools: ["read", "grep", "find", "ls", "omo_delegate"],
   },
   // 兜底模式：仅用户手动切换，agent 不可自选、不可见
   fallback: {
@@ -174,7 +178,7 @@ export function getModeInstructions(name: string): string | undefined {
 
 function registerModeCommands(pi: ExtensionAPI): void {
   // 公开给用户手动切换的模式（designer/batch 是自动流转的内部模式）
-  const PUBLIC_MODES = ["thinker-clarify", "thinker-analysis", "designer", "worker"];
+  const PUBLIC_MODES = ["thinker-clarify", "thinker-analysis", "designer", "worker", "implementer"];
   // 隐藏模式：不在选择列表和帮助中显示，但用户可直接输入 /mode <name> 切换
   const HIDDEN_MODES = ["fallback"];
 
