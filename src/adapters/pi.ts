@@ -1048,6 +1048,31 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const defaultTrunc = truncCfg.default ?? 0;
     if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+
+    // ── Inject current mode identity before user message ────
+    try {
+      const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+      if (!fs.existsSync(cfgPath)) return;
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+      const mode: string = cfg.active_mode || "worker";
+      const payload = event.payload as Record<string, any>;
+      if (!Array.isArray(payload?.messages)) return;
+
+      // Insert [Current Mode: xxx] before the last user message
+      let insertAt = payload.messages.length - 1;
+      for (let i = payload.messages.length - 1; i >= 0; i--) {
+        if (payload.messages[i]?.role === "user") {
+          insertAt = i;
+          break;
+        }
+      }
+      payload.messages.splice(insertAt, 0, {
+        role: "system",
+        content: `[Current Mode: ${mode}]`,
+      });
+    } catch {
+      // ignore read errors
+    }
   });
 
   // ── Register custom tools ───────────────────────────────────────────
