@@ -1046,8 +1046,39 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
     const truncCfg = (toolCfg.truncate ?? {}) as Record<string, number>;
     const defaultTrunc = truncCfg.default ?? 0;
-    if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
-    trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+    if (!(hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0)) {
+      trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+    }
+
+    // ── Inject current mode rules at payload level ────
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
+      const activeMode: string = cfg.active_mode || "worker";
+      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
+      if (!fs.existsSync(modeFilePath)) return;
+      const modeContent = fs.readFileSync(modeFilePath, "utf-8");
+      const bodyMatch = modeContent.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
+      const body = bodyMatch ? bodyMatch[1].trim() : modeContent.trim();
+
+      const rules = body.slice(0, 500);
+      const payload = event.payload as Record<string, any>;
+      if (!payload) return;
+
+      // OpenAI format: messages array
+      if (Array.isArray(payload.messages)) {
+        payload.messages.push({
+          role: "system",
+          content: `[Current Mode: ${activeMode}]\n${rules}`,
+        });
+        return payload;
+      }
+
+      // Anthropic format: system string + messages array
+      if (typeof payload.system === "string" && Array.isArray(payload.messages)) {
+        payload.system = `${payload.system}\n\n[Current Mode: ${activeMode}]\n${rules}`;
+        return payload;
+      }
+    } catch {}
   });
 
   // ── Register custom tools ───────────────────────────────────────────
