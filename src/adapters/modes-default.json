@@ -1,37 +1,99 @@
 {
   "thinker-clarify": {
-    "label": "需求澄清",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["thinker-analysis"]
+    "label": "\u9700\u6c42\u6f84\u6e05",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate",
+      "ask_user_question"
+    ],
+    "next": [
+      "thinker-analysis"
+    ]
   },
   "thinker-analysis": {
-    "label": "需求分析",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["designer", "thinker-clarify"]
+    "label": "\u9700\u6c42\u5206\u6790",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate"
+    ],
+    "next": [
+      "designer",
+      "thinker-clarify"
+    ]
   },
   "designer": {
-    "label": "技术设计",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["implementer", "worker", "thinker-clarify"]
+    "label": "\u6280\u672f\u8bbe\u8ba1",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate"
+    ],
+    "next": [
+      "implementer",
+      "worker",
+      "thinker-clarify"
+    ]
   },
   "worker": {
-    "label": "快速实施",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["thinker-clarify"]
+    "label": "\u5feb\u901f\u5b9e\u65bd",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate",
+      "todo"
+    ],
+    "next": [
+      "thinker-clarify"
+    ]
   },
   "implementer": {
-    "label": "标准实施",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["thinker-clarify"]
+    "label": "\u6807\u51c6\u5b9e\u65bd",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate"
+    ],
+    "next": [
+      "thinker-clarify"
+    ]
   },
   "batch": {
-    "label": "批次执行",
-    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
-    "next": ["thinker-clarify"]
+    "label": "\u6279\u6b21\u6267\u884c",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate"
+    ],
+    "next": [
+      "thinker-clarify"
+    ]
   },
   "fallback": {
-    "label": "兜底模式",
-    "tools": ["read", "write", "edit", "bash", "grep", "find", "ls", "omo_delegate"],
+    "label": "\u515c\u5e95\u6a21\u5f0f",
+    "tools": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "find",
+      "ls",
+      "omo_delegate"
+    ],
     "next": []
   }
 }
