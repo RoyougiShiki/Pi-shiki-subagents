@@ -154,7 +154,7 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
 
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-    const allow = new Set([...mode.tools, "activate_tools", "describe_tool", "switch_mode"]);
+    const allow = new Set([...mode.tools, "switch_mode"]);
     // 始终隐藏 broken 的 subagent
     allow.delete("subagent");
     pi.setActiveTools(all.filter((n: string) => allow.has(n)));

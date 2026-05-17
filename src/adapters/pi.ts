@@ -58,7 +58,7 @@ export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMax
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
-const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "activate_tools", "describe_tool"];
+const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls"];
 
 function trimToolDescriptions(prompt: string, config: Record<string, any>): string {
   const hide = new Set((config?.hide as string[]) ?? []);
