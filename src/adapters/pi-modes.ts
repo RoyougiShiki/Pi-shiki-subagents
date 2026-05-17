@@ -1,12 +1,10 @@
 /**
- * Pi Mode Switching — thinker / designer / worker 模式管理
+ * Pi Mode Switching — 模式由 JSON 配置定义，代码只提供加载和执行机制
  *
- * 每个模式定义：
- * - 允许的工具列表
- * - 注入的系统提示词
- * - 停止标记（用于自动切换下一阶段）
- *
- * 独立 pi 扩展入口，自动注册 /mode 命令和 agent_end 自动切换。
+ * 模式定义来源（优先级从高到低）：
+ * 1. ~/.pi/agent/modes/{name}.md — 覆盖 instructions 和 tools
+ * 2. oh-my-opencode-slim.json → modes 字段 — 所有模式定义
+ * 3. src/adapters/modes-default.json — 内置默认值
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -15,54 +13,26 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 
-// ── 模式定义 ──────────────────────────────────────────────────────────────
+// ── 类型 ──────────────────────────────────────────────────────────────────
 
 interface ModeDefinition {
   label: string;
   tools: string[];
   instructions?: string;
+  next?: string[];
+  hidden?: boolean;
 }
 
-const MODES: Record<string, ModeDefinition> = {
-  "thinker-clarify": {
-    label: "需求澄清",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  "thinker-analysis": {
-    label: "需求分析",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  thinker: {
-    label: "需求分析",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  designer: {
-    label: "技术设计",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  worker: {
-    label: "快速实施",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  batch: {
-    label: "批次执行",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  implementer: {
-    label: "标准实施",
-    tools: ["read", "grep", "find", "ls", "omo_delegate"],
-  },
-  // 兜底模式：仅用户手动切换，agent 不可自选、不可见
-  fallback: {
-    label: "兜底模式",
-    tools: ["read", "write", "edit", "bash", "grep", "find", "ls", "omo_delegate"],
-  },
-};
-
-// ── 从外部文件加载提示词（覆盖内置默认值）───────────────────────────────
-// 用户可编辑 ~/.pi/agent/modes/{name}.md 自定义模式提示词
+// ── 常量 ──────────────────────────────────────────────────────────────────
 
 const MODES_DIR = path.join(homedir(), ".pi", "agent", "modes");
+const DEFAULTS_PATH = path.join(__dirname, "modes-default.json");
+
+function getConfigPath(): string {
+  return path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+}
+
+// ── .md 文件解析 ──────────────────────────────────────────────────────────
 
 function parseFrontmatter(content: string): { frontmatter: Record<string, any>; body: string } {
   const result: Record<string, any> = {};
@@ -78,7 +48,6 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, any>; 
     const m = line.match(/^(\w+):\s*(.*)$/);
     if (!m) continue;
     let value: any = m[2].trim();
-    // Parse JSON arrays like [read, grep, find]
     if (value.startsWith("[") && value.endsWith("]")) {
       try { value = JSON.parse(value); } catch { value = value; }
     } else if (value === "true") value = true;
@@ -88,152 +57,193 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, any>; 
   return { frontmatter: result, body };
 }
 
-function loadModeFile(name: string): { instructions: string; tools?: string[] } | null {
+function loadModeFile(name: string): { instructions: string; tools?: string[]; hidden?: boolean } | null {
   const filePath = path.join(MODES_DIR, `${name}.md`);
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, "utf-8").trim();
       const { frontmatter, body } = parseFrontmatter(content);
-      return { instructions: body, tools: frontmatter.tools };
+      return { instructions: body, tools: frontmatter.tools, hidden: frontmatter.hidden };
     }
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
   return null;
 }
 
-// 启动时从文件加载：tools 来自 frontmatter，instructions 来自 body
-for (const name of Object.keys(MODES)) {
-  const file = loadModeFile(name);
-  if (file) {
-    MODES[name].instructions = file.instructions;
-    if (file.tools && Array.isArray(file.tools) && file.tools.length > 0) {
-      MODES[name].tools = file.tools;
+// ── 从 JSON 配置加载模式定义 ──────────────────────────────────────────────
+
+let _modeDefs: Record<string, ModeDefinition> | null = null;
+
+function loadModeDefinitions(): Record<string, ModeDefinition> {
+  // 1. 从 oh-my-opencode-slim.json 的 modes 字段读取
+  let raw: Record<string, any> = {};
+  try {
+    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+    raw = cfg.modes ?? {};
+  } catch {}
+
+  // 2. 如果配置中没有 modes，尝试从内置默认文件加载
+  if (Object.keys(raw).length === 0) {
+    try {
+      if (fs.existsSync(DEFAULTS_PATH)) {
+        raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+      }
+    } catch {}
+  }
+
+  // 3. 如果还是空，给一个最小兜底
+  if (Object.keys(raw).length === 0) {
+    raw = { worker: { label: "Worker", tools: ["read", "grep", "find", "ls", "omo_delegate"] } };
+  }
+
+  // 4. 合并 .md 文件覆盖（instructions + tools + hidden）
+  for (const name of Object.keys(raw)) {
+    const file = loadModeFile(name);
+    if (file) {
+      raw[name].instructions = file.instructions;
+      if (file.tools && Array.isArray(file.tools) && file.tools.length > 0) {
+        raw[name].tools = file.tools;
+      }
+      if (file.hidden !== undefined) {
+        raw[name].hidden = file.hidden;
+      }
     }
   }
+
+  _modeDefs = raw as Record<string, ModeDefinition>;
+  return _modeDefs;
 }
 
-// ── 配置持久化 ────────────────────────────────────────────────────────────
-
-function getConfigPath(): string {
-  return path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+function getMode(name: string): ModeDefinition | undefined {
+  return (loadModeDefinitions())[name];
 }
+
+function getAllModeNames(): string[] {
+  return Object.keys(loadModeDefinitions());
+}
+
+function getPublicModes(): string[] {
+  const defs = loadModeDefinitions();
+  return Object.entries(defs).filter(([, v]) => !v.hidden).map(([k]) => k);
+}
+
+function getHiddenModes(): string[] {
+  const defs = loadModeDefinitions();
+  return Object.entries(defs).filter(([, v]) => v.hidden).map(([k]) => k);
+}
+
+// ── 配置持久化 ──────────────────────────────────────────────────────────
 
 function saveMode(name: string): void {
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
     cfg.active_mode = name;
     fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-  } catch {
-    // config not exists, skip persistence
-  }
+  } catch { /* skip */ }
 }
 
 function loadActiveMode(): string {
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    const mode: string = cfg.active_mode ?? "worker";
-    return MODES[mode] ? mode : "worker";
+    const mode: string = cfg.active_mode ?? "";
+    if (mode && getMode(mode)) return mode;
+    const publics = getPublicModes();
+    return publics.length > 0 ? publics[0] : "worker";
   } catch {
     return "worker";
   }
 }
 
-// ── 模式应用 ──────────────────────────────────────────────────────────────
-
-/** 获取模式定义（只读） */
-function getMode(name: string): ModeDefinition | undefined {
-  return MODES[name];
+/** 种子默认模式到用户配置（仅当 config 中无 modes 字段时写入） */
+function seedDefaultModes(): void {
+  try {
+    const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+    if (raw.modes) return;
+    if (!fs.existsSync(DEFAULTS_PATH)) return;
+    raw.modes = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+    fs.writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2) + "\n", "utf-8");
+  } catch {}
 }
 
-/** 获取当前模式名 */
+// ── 模式应用 ──────────────────────────────────────────────────────────────
+
 function getActiveMode(): string {
   return loadActiveMode();
 }
 
-/** 应用模式到当前会话 */
 function applyMode(pi: ExtensionAPI, name: string): boolean {
-  const mode = MODES[name];
+  const mode = getMode(name);
   if (!mode) return false;
 
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
     const allow = new Set([...mode.tools, "switch_mode"]);
-    // 始终隐藏 broken 的 subagent
     allow.delete("subagent");
     pi.setActiveTools(all.filter((n: string) => allow.has(n)));
     saveMode(name);
-  } catch {
-    // best effort
-  }
+  } catch {}
   return true;
 }
 
-/** 获取当前模式的注入提示词（附加到已有系统提示词） */
 export function getModeInstructions(name: string): string | undefined {
-  return MODES[name]?.instructions;
+  return getMode(name)?.instructions;
 }
 
-// ── 注册 pi 命令和事件 ────────────────────────────────────────────────────
+// ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 function registerModeCommands(pi: ExtensionAPI): void {
-  // 公开给用户手动切换的模式（designer/batch 是自动流转的内部模式）
-  const PUBLIC_MODES = ["thinker-clarify", "thinker-analysis", "designer", "worker", "implementer"];
-  // 隐藏模式：不在选择列表和帮助中显示，但用户可直接输入 /mode <name> 切换
-  const HIDDEN_MODES = ["fallback"];
+  seedDefaultModes();
 
-  // /mode 命令：交互选择或直接切换
   pi.registerCommand("mode", {
-    description: `Switch mode: ${PUBLIC_MODES.join(", ")}. Usage: /mode <name>`,
+    description: `Switch mode. Usage: /mode <name>`,
     handler: async (args: string, ctx: any) => {
       const trimmed = args.trim();
+      const publics = getPublicModes();
+      const allNames = getAllModeNames();
 
       if (trimmed) {
-        if (![...PUBLIC_MODES, ...HIDDEN_MODES].includes(trimmed)) {
-          ctx.ui.notify(`Unknown mode: "${trimmed}". Available: ${PUBLIC_MODES.join(", ")}`, "error");
+        if (!allNames.includes(trimmed)) {
+          ctx.ui.notify(`Unknown mode: "${trimmed}".`, "error");
           return;
         }
         applyMode(pi, trimmed);
-        ctx.ui.notify(`Switched to: ${trimmed} (${MODES[trimmed].label})`, "success");
+        const def = getMode(trimmed);
+        ctx.ui.notify(`Switched to: ${trimmed} (${def?.label ?? trimmed})`, "success");
         return;
       }
 
-      // 交互选择
       const current = loadActiveMode();
-      const options = PUBLIC_MODES.map((k) =>
-        `${k === current ? "● " : "○ "}${k} — ${MODES[k].label}`
-      );
+      const options = publics.map((k) => {
+        const def = getMode(k);
+        return `${k === current ? "\u25cf " : "\u25cb "}${k} \u2014 ${def?.label ?? k}`;
+      });
       const selected = await ctx.ui.select(`Current: ${current}. Select mode:`, options);
       if (!selected) return;
-
-      const picked = PUBLIC_MODES[options.indexOf(selected)];
+      const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
-
       applyMode(pi, picked);
-      ctx.ui.notify(`Switched to: ${picked} (${MODES[picked].label})`, "success");
+      const def = getMode(picked);
+      ctx.ui.notify(`Switched to: ${picked} (${def?.label ?? picked})`, "success");
     },
   });
 }
 
 function registerModeHooks(pi: ExtensionAPI): void {
-  // session_start: 恢复上次保存的模式
   pi.on("session_start", async () => {
+    _modeDefs = null;
+    seedDefaultModes();
     const mode = loadActiveMode();
     applyMode(pi, mode);
   });
 
-  // before_agent_start: 注入当前模式的 instructions（置顶）
   pi.on("before_agent_start", async (event) => {
     const mode = loadActiveMode();
-    const def = MODES[mode];
+    const def = getMode(mode);
     if (def?.instructions) {
       return {
         systemPrompt: `${def.instructions}\n\n---\n\n${event.systemPrompt}`,
       };
     }
   });
-
-  /* agent_end auto-switch removed - markers are text-only now */
 }
 
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
@@ -242,37 +252,35 @@ export default function (pi: ExtensionAPI) {
   registerModeCommands(pi);
   registerModeHooks(pi);
 
-  // 注册 switch_mode 工具，供 LLM 在工作流链中切换
   pi.registerTool({
     name: "switch_mode",
     label: "Switch Mode",
-    description: `Switch to the next mode in the workflow chain (clarify → analysis → design → implement). Can also return to the first (clarify) mode. Only call after the user explicitly confirms.`,
+    description: `Switch to the next mode in the workflow chain. Can return to the first mode. Only call after the user explicitly confirms.`,
     parameters: Type.Object({
       mode: Type.String({ description: "Target mode name" }),
     }),
     async execute(_toolCallId: string, params: { mode: string }) {
       const name = params.mode?.trim().toLowerCase();
-      if (!name || !MODES[name]) {
+      if (!name || !getMode(name)) {
         return {
-          content: [{ type: "text" as const, text: `不存在该模式。` }],
+          content: [{ type: "text" as const, text: `\u4e0d\u5b58\u5728\u8be5\u6a21\u5f0f\u3002` }],
           isError: true,
           details: {} as any,
         };
       }
 
-      // Read agent mode transitions from config (not hardcoded)
       let currentMode = "";
       let allowed: string[] = [];
       try {
         const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
         currentMode = (raw as any).active_mode ?? "";
-        const transitions = (raw as any).mode_agent_transitions ?? {};
-        allowed = transitions[currentMode] ?? [];
+        const currentDef = getMode(currentMode);
+        allowed = currentDef?.next ?? [];
       } catch {}
 
       if (!allowed.includes(name)) {
         return {
-          content: [{ type: "text" as const, text: `当前模式不允许直接切换到目标模式。` }],
+          content: [{ type: "text" as const, text: `\u5f53\u524d\u6a21\u5f0f\u4e0d\u5141\u8bb8\u76f4\u63a5\u5207\u6362\u5230\u76ee\u6807\u6a21\u5f0f\u3002` }],
           isError: true,
           details: {} as any,
         };
@@ -280,7 +288,7 @@ export default function (pi: ExtensionAPI) {
 
       applyMode(pi, name);
       return {
-        content: [{ type: "text" as const, text: `切换到: ${name}` }],
+        content: [{ type: "text" as const, text: `\u5207\u6362\u5230: ${name}` }],
         details: { mode: name },
       };
     },

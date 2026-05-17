@@ -1,0 +1,43 @@
+{
+  "thinker-clarify": {
+    "label": "需求澄清",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["thinker-analysis"]
+  },
+  "thinker-analysis": {
+    "label": "需求分析",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["designer", "thinker-clarify"]
+  },
+  "thinker": {
+    "label": "需求分析",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["thinker-analysis", "designer"]
+  },
+  "designer": {
+    "label": "技术设计",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["implementer", "worker", "thinker-clarify"]
+  },
+  "worker": {
+    "label": "快速实施",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["thinker-clarify"]
+  },
+  "implementer": {
+    "label": "标准实施",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["thinker-clarify"]
+  },
+  "batch": {
+    "label": "批次执行",
+    "tools": ["read", "grep", "find", "ls", "omo_delegate"],
+    "next": ["thinker-clarify"]
+  },
+  "fallback": {
+    "label": "兜底模式",
+    "tools": ["read", "write", "edit", "bash", "grep", "find", "ls", "omo_delegate"],
+    "next": [],
+    "hidden": true
+  }
+}
