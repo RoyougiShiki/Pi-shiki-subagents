@@ -334,14 +334,9 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      let currentMode = "";
-      let allowed: string[] = [];
-      try {
-        const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-        currentMode = (raw as any).active_mode ?? "";
-        const currentDef = getMode(currentMode);
-        allowed = currentDef?.next ?? [];
-      } catch {}
+      const currentMode = loadActiveMode();
+      const currentDef = getMode(currentMode);
+      const allowed = currentDef?.next ?? [];
 
       if (!allowed.includes(name)) {
         return {
