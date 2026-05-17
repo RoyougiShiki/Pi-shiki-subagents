@@ -1281,12 +1281,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const reminder = {
       role: "system" as const,
       content: [{ type: "text" as const, text: `[Gate Rules]
-YOU MUST write these declarations in YOUR assistant reply before calling any tool:
-1. Intent: <classification> → <routing>
-2. ORCHESTRATION: self | delegate to <agent> (if using agent/workflow/subagent/omo_delegate)
-3. READY: <context> + APPROVED: <plan> (if using edit/write)
+Declare these before calling tools:
 
-Example: "Intent: investigation → explore the repo"` }],
+• Intent: <type> — required before any tool call. Shows you've understood what to do.
+• ORCHESTRATION: self | delegate to <agent> — required BEFORE omo_delegate/agent tools.
+   Why declare it? It forces you to consciously choose the right approach for each task.
+   Not declaring = gate will block your delegation. You'll waste a turn.
+• READY: <context> + APPROVED: <plan> — required before write/edit tools.
+   Not declaring = gate will block the modification.` }],
     };
     const hasReminder = event.messages.some(
       (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),

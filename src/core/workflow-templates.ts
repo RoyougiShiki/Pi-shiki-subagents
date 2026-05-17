@@ -39,7 +39,7 @@ export const INTENT_GATE_INSTRUCTION = `[IntentGate]
 在调用任何工具前，先说明你理解用户这条消息真正想要什么，以及接下来准备如何推进。
 这一步不是为了补格式，而是为了避免在理解不清时直接执行。
 可接受的声明格式：
-- "Intent: <分类> → <行动方向>" — 说明当前意图判断与推进方式
+- "Intent: <type>" — 说明当前意图判断与推进方式
 - "AWAITING_APPROVAL: <方案>" — 提交方案等待用户批准
 - "READY: <已掌握信息>" — 已完成上下文分析确认就绪
 - "READY: need to check ..." — 还需要确认信息
@@ -50,7 +50,7 @@ export const INTENT_GATE_INSTRUCTION = `[IntentGate]
 export const INTENT_GATE_BLOCK_MESSAGE =
   '[IntentGate] 你还没有先说明你对用户真实意图的理解。\n' +
   '如果没先确认这一点就调用工具，容易在理解偏差下直接执行。\n' +
-  '请先在回复开头写出你的判断，例如："Intent: investigation → inspect the repo"，然后再继续。';
+  '请先在回复开头写出你的判断，例如："Intent: investigation"，然后再继续。';
 
 export const ORCHESTRATION_GATE_INSTRUCTION = `[OrchestrationGate]
 每次需要执行任务前，先想清楚：这件事应该自己做，还是更适合委托给子代理？
@@ -68,7 +68,7 @@ export const ORCHESTRATION_GATE_BLOCK_MESSAGE =
   '请先在回复开头写出编排决策，例如："ORCHESTRATION: self"，然后再调 task 工具。';
 
 export const ORCHESTRATOR_INTENT_GATE_REMINDER =
-  'Before any action, output one line: "Intent: [classification] → [routing decision]". Then execute.';
+  'Before any action, output one line: "Intent: [type]". Then execute.';
 
 export const ORCHESTRATOR_AGENT_DESCRIPTIONS = {
   explorer: `@explorer
