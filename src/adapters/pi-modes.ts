@@ -42,7 +42,7 @@ const MODES: Record<string, ModeDefinition> = {
   },
   worker: {
     label: "快速实施",
-    tools: ["read", "bash", "edit", "write", "grep", "find", "ls", "omo_delegate"],
+    tools: ["read", "grep", "find", "ls", "omo_delegate"],
   },
   batch: {
     label: "批次执行",
