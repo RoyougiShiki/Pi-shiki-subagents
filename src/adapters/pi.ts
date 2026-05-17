@@ -596,9 +596,14 @@ function createToolImplementations(config: OmniMoConfig | null) {
             return `[Unknown agent: ${agentName}]`;
           }
 
+          // Resolve tools from agent_roles + role_templates
+          const rolesCfg = config as any;
+          const agentRoleNames = rolesCfg?.agent_roles?.[agentName] || [];
+          const templates = rolesCfg?.role_templates || {};
+          const resolvedAgentTools: string[] = [...new Set(agentRoleNames.flatMap((r: string) => (templates as any)[r] || []))];
           const { session } = await createAgentSession({
             model: undefined, // use default pi model
-            tools: (config as any)?.agent_tools?.[agentName] || ["read"],
+            tools: resolvedAgentTools.length > 0 ? resolvedAgentTools : ["read"],
             sessionManager: SessionManager.inMemory(),
             cwd: ctx.cwd,
           });
