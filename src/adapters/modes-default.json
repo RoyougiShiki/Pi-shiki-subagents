@@ -20,7 +20,8 @@
       "grep",
       "find",
       "ls",
-      "omo_delegate"
+      "omo_delegate",
+      "ask_user_question"
     ],
     "next": [
       "designer",
