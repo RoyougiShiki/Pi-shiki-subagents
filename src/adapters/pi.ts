@@ -1044,6 +1044,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     };
   });
 
+  // ── Track last injected mode for first-after-switch detection ──
+  let _lastInjectedMode = "";
+
   // ── Trim tool descriptions in provider API payload ────────────────
   pi.on("before_provider_request", (event, _ctx) => {
     const toolCfg = (config as any)?.tool_descriptions ?? {};
@@ -1053,7 +1056,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
 
-    // ── Inject current mode identity before user message ────
+    // ── Inject mode identity before user message ────
     try {
       const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
       if (!fs.existsSync(cfgPath)) return;
@@ -1062,7 +1065,32 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const payload = event.payload as Record<string, any>;
       if (!Array.isArray(payload?.messages)) return;
 
-      // Insert [Current Mode: xxx] before the last user message
+      // Detect mode switch: first message after switch gets full prompt
+      const isSwitch = mode !== _lastInjectedMode;
+      _lastInjectedMode = mode;
+
+      let content: string;
+      if (isSwitch) {
+        // Load full .md content for the new mode
+        const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${mode}.md`);
+        let fullPrompt = "";
+        try {
+          if (fs.existsSync(modeFilePath)) {
+            const raw = fs.readFileSync(modeFilePath, "utf-8");
+            const bodyMatch = raw.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
+            fullPrompt = bodyMatch ? bodyMatch[1].trim() : raw.trim();
+          }
+        } catch {}
+        content = `<systemReminder>\n\n### [Current Mode: ${mode}]\n\n` +
+          (fullPrompt
+            ? `─────────────────────────────────────────────\n${fullPrompt}\n─────────────────────────────────────────────\n\nYou just switched to this mode. Read the rules above carefully before responding.`
+            : `You just switched to this mode. Review your role and follow it.`) +
+          `\n\n</systemReminder>`;
+      } else {
+        content = `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt — re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`;
+      }
+
+      // Insert before the last user message
       let insertAt = payload.messages.length - 1;
       for (let i = payload.messages.length - 1; i >= 0; i--) {
         if (payload.messages[i]?.role === "user") {
@@ -1070,10 +1098,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           break;
         }
       }
-      payload.messages.splice(insertAt, 0, {
-        role: "system",
-        content: `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt — re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`,
-      });
+      payload.messages.splice(insertAt, 0, { role: "system", content });
     } catch {
       // ignore read errors
     }
