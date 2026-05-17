@@ -567,26 +567,30 @@ function createToolImplementations(config: OmniMoConfig | null) {
         _onUpdate: any,
         ctx: ExtensionContext,
       ) {
-        // ── Mode-based delegation guard ──────────────────────────────
-        const writeAgents = ["fixer", "designer"];
-        const readOnlyModes = ["thinker", "designer"];
+        // ── Mode-based delegation guard (config-driven) ─────────────
         let currentMode = "";
+        let blocked: string[] = [];
         try {
           const raw = JSON.parse(fs.readFileSync(path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json"), "utf-8"));
           currentMode = (raw as any).active_mode ?? "";
+          const restrictions = (raw as any).mode_agent_restrictions ?? {};
+          blocked = restrictions[currentMode]?.blocked ?? [];
         } catch {}
-        if (readOnlyModes.includes(currentMode)) {
+
+        if (blocked.length > 0) {
           const requested = params.agent || params.tasks?.[0]?.agent || params.chain?.[0]?.agent || "";
-          if (writeAgents.includes(requested)) {
-            return { content: [{ type: "text" as const, text: `当前模式为 "${currentMode}"，不能委托写操作代理（${requested}）。请在切换到 worker 或 batch 模式后重试。` }], isError: true, details: {} as any };
+          if (blocked.includes(requested)) {
+            return {
+              content: [{ type: "text" as const, text: `[Agent Restricted] 当前模式为 "${currentMode}"，不支持委托代理 "${requested}"。该模式允许的代理：explorer, librarian。如需使用 ${requested}，请切换到 worker 或 batch 模式。` }], isError: true, details: {} as any };
           }
           const allAgents = [
             ...(params.tasks?.map(t => t.agent) || []),
             ...(params.chain?.map(c => c.agent) || []),
           ].filter(Boolean);
-          const blocked = allAgents.find(a => writeAgents.includes(a));
-          if (blocked) {
-            return { content: [{ type: "text" as const, text: `当前模式为 "${currentMode}"，任务列表中包含写操作代理（${blocked}），不允许。` }], isError: true, details: {} as any };
+          const blockedOne = allAgents.find(a => blocked.includes(a));
+          if (blockedOne) {
+            return {
+              content: [{ type: "text" as const, text: `[Agent Restricted] 当前模式为 "${currentMode}"，任务列表中包含受限代理 "${blockedOne}"。受限代理：${blocked.join(", ")}。请移除后重试。` }], isError: true, details: {} as any };
           }
         }
 
