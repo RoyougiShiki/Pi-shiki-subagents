@@ -70,7 +70,8 @@
       "codebase_memory_get_code_snippet",
       "codebase_memory_search_code",
       "codebase_memory_index_status",
-      "omo_council"
+      "omo_council",
+      "omo_subagent"
     ],
     "next": [
       "implementer",
