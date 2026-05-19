@@ -1,0 +1,604 @@
+/**
+ * omo-subagent — Lightweight subagent delegation using pi's built-in modes.
+ *
+ * Three modes:
+ *   - Single: one-shot via `pi --mode json`
+ *   - Pool: persistent agents via `pi --mode rpc`
+ *
+ * Zero external dependencies — only pi's own packages and Node built-ins.
+ *
+ * Configuration (in ~/.pi/agent/settings.json under "omo_subagent"):
+ *   maxConcurrent: number (default 4) — max parallel tasks at once
+ *   maxTotal: number (default 20) — max pool agents
+ *   timeoutMs: number (default 300000) — per-task timeout
+ */
+
+import { spawn, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+// Note: typebox is resolved by pi.ts from its own path, not from here.
+// We define inline JSON Schema instead.
+
+// ─── Types ────────────────────────────────────────────────────────────────
+
+export interface AgentConfig {
+  name: string;
+  description: string;
+  tools?: string[];
+  model?: string;
+  systemPrompt: string;
+}
+
+export interface SingleResult {
+  agent: string;
+  task: string;
+  exitCode: number;
+  response: string;
+  messages: any[];
+  usage: { input: number; output: number; cost: number; turns: number };
+  model?: string;
+  errorMessage?: string;
+  durationMs: number;
+}
+
+export interface PoolAgentInfo {
+  id: string;
+  agentName: string;
+  status: "starting" | "idle" | "streaming" | "dead";
+  startedAt: number;
+  messageCount: number;
+  model: string;
+  lastResponse?: string;
+}
+
+// ─── One-shot runner (pi --mode json) ─────────────────────────────────────
+
+function writeTempPrompt(content: string): { dir: string; path: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omo-subagent-"));
+  const fp = path.join(dir, "prompt.md");
+  fs.writeFileSync(fp, content, { encoding: "utf-8", mode: 0o600 });
+  return { dir, path: fp };
+}
+
+function extractText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const parts = content
+    .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+    .map((c: any) => c.text);
+  return parts.join("\n").trim();
+}
+
+/** Spawn pi --mode json for one-shot task, return when complete. */
+export async function runIsolatedTask(
+  opts: {
+    agent: AgentConfig;
+    task: string;
+    cwd?: string;
+    model?: string;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    onMessage?: (msg: any) => void;
+  },
+): Promise<SingleResult> {
+  const startTime = Date.now();
+  const tmp = opts.agent.systemPrompt
+    ? writeTempPrompt(`${opts.agent.systemPrompt}\n\n## Task\n${opts.task}`)
+    : writeTempPrompt(opts.task);
+
+  const args = ["--mode", "json", "-p", "--no-session", "-ne"];
+  if (opts.model) args.push("--model", opts.model);
+
+  const proc = spawn("pi", [...args, tmp.path], {
+    cwd: opts.cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    signal: opts.signal,
+  });
+
+  let buffer = "";
+  const decoder = new TextDecoder();
+  const messages: any[] = [];
+  let response = "";
+  let model = "";
+  let input = 0, output = 0, cost = 0, turns = 0;
+  let errorMessage = "";
+
+  const eventTypes = new Set<string>();
+
+  function processLine(line: string) {
+    if (!line.trim()) return;
+    try {
+      const ev = JSON.parse(line);
+      if (!ev || typeof ev !== "object") return;
+
+      if (ev.type === "message" && ev.message?.role === "assistant") {
+        messages.push(ev.message);
+        const text = extractText(ev.message.content);
+        if (text) response = text;
+        if (ev.message.stopReason === "toolUse") return;
+      }
+      if (ev.type === "message_end" && ev.message?.role === "assistant") {
+        const text = extractText(ev.message.content);
+        if (text) response = text;
+        const u = ev.message.usage;
+        if (u) {
+          input = u.input || 0;
+          output = u.output || 0;
+          cost = u.cost?.total ?? u.cost ?? 0;
+          turns = 1;
+        }
+        const m = ev.message.model || ev.message.api;
+        if (m) model = m;
+      }
+      if (ev.type === "session" && ev.model) model = ev.model;
+      eventTypes.add(ev.type);
+    } catch {}
+  }
+
+  return new Promise((resolve) => {
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      buffer += decoder.decode(chunk, { stream: true });
+      while (true) {
+        const idx = buffer.indexOf("\n");
+        if (idx === -1) break;
+        processLine(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 1);
+      }
+    });
+
+    let stderr = "";
+    proc.stderr!.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    proc.on("close", (code) => {
+      // Process remaining buffer
+      if (buffer.trim()) processLine(buffer.trim());
+
+      if (!response && stderr.trim()) {
+        response = stderr.trim();
+        errorMessage = stderr.trim();
+      }
+
+      resolve({
+        agent: opts.agent.name,
+        task: opts.task,
+        exitCode: code ?? 1,
+        response: response || "(no output)",
+        messages,
+        usage: { input, output, cost, turns },
+        model: model || undefined,
+        errorMessage: errorMessage || undefined,
+        durationMs: Date.now() - startTime,
+      });
+
+      // Cleanup temp file
+      try { fs.rmSync(tmp.dir, { recursive: true }); } catch {}
+    });
+
+    proc.on("error", (err) => {
+      // Cleanup temp file on spawn error too
+      try { fs.rmSync(tmp.dir, { recursive: true }); } catch {}
+      resolve({
+        agent: opts.agent.name,
+        task: opts.task,
+        exitCode: 1,
+        response: `Failed to spawn subagent: ${err.message}`,
+        messages: [],
+        usage: { input: 0, output: 0, cost: 0, turns: 0 },
+        errorMessage: err.message,
+        durationMs: Date.now() - startTime,
+      });
+    });
+  });
+}
+
+// ─── Pool manager (pi --mode rpc persistent agents) ──────────────────────
+
+interface PoolEntry {
+  id: string;
+  agentName: string;
+  proc: ChildProcess;
+  status: "starting" | "idle" | "streaming" | "dead";
+  startedAt: number;
+  messageCount: number;
+  model: string;
+  buffer: string;
+  lastResponse: string;
+  pendingResolve: ((result: { response: string; error?: string }) => void) | null;
+}
+
+class AgentPool {
+  private agents = new Map<string, PoolEntry>();
+  private decoder = new TextDecoder();
+
+  /** Spawn a new persistent agent via pi --mode rpc. */
+  async spawn(opts: {
+    id: string;
+    agent: AgentConfig;
+    task: string;
+    model?: string;
+    cwd?: string;
+  }): Promise<{ response: string; error?: string }> {
+    if (this.agents.has(opts.id)) {
+      return { response: "", error: `Agent "${opts.id}" already exists in pool` };
+    }
+
+    const args = ["--mode", "rpc", "--no-session"];
+    if (opts.model) args.push("--model", opts.model);
+
+    const proc = spawn("pi", args, {
+      cwd: opts.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const entry: PoolEntry = {
+      id: opts.id,
+      agentName: opts.agent.name,
+      proc,
+      status: "starting",
+      startedAt: Date.now(),
+      messageCount: 0,
+      model: opts.model || "default",
+      buffer: "",
+      lastResponse: "",
+      pendingResolve: null,
+    };
+
+    this.agents.set(opts.id, entry);
+
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      this.handleData(opts.id, chunk);
+    });
+
+    proc.on("close", () => {
+      entry.status = "dead";
+      if (entry.pendingResolve) {
+        entry.pendingResolve({ response: entry.lastResponse, error: "Process died" });
+        entry.pendingResolve = null;
+      }
+    });
+
+    // Send initial task
+    const systemPart = opts.agent.systemPrompt
+      ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
+      : opts.task;
+
+    return this.sendPrompt(opts.id, systemPart);
+  }
+
+  private handleData(id: string, chunk: Buffer) {
+    const entry = this.agents.get(id);
+    if (!entry) return;
+
+    entry.buffer += this.decoder.decode(chunk, { stream: true });
+
+    while (true) {
+      const idx = entry.buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = entry.buffer.slice(0, idx);
+      entry.buffer = entry.buffer.slice(idx + 1);
+      if (!line.trim()) continue;
+
+      try {
+        const ev = JSON.parse(line);
+        if (!ev || typeof ev !== "object") continue;
+
+        if (ev.type === "response") {
+          if (ev.command === "prompt" && ev.success) {
+            entry.status = "streaming";
+          }
+        }
+
+        if (ev.type === "agent_end") {
+          entry.status = "idle";
+          entry.messageCount++;
+
+          // Extract response from last assistant message
+          const msgs = ev.messages ?? [];
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const m = msgs[i];
+            if (m.role === "assistant") {
+              entry.lastResponse = extractText(m.content) || entry.lastResponse;
+              break;
+            }
+          }
+
+          if (entry.pendingResolve) {
+            entry.pendingResolve({ response: entry.lastResponse });
+            entry.pendingResolve = null;
+          }
+        }
+
+        if (ev.type === "message_end" && ev.message?.role === "assistant") {
+          const text = extractText(ev.message.content);
+          if (text) entry.lastResponse = text;
+        }
+      } catch {}
+    }
+  }
+
+  /** Send a prompt to an existing pool agent and wait for response. */
+  sendPrompt(id: string, message: string): Promise<{ response: string; error?: string }> {
+    const entry = this.agents.get(id);
+    if (!entry) {
+      return Promise.resolve({ response: "", error: `Agent "${id}" not found in pool` });
+    }
+    if (entry.status === "dead") {
+      return Promise.resolve({ response: "", error: `Agent "${id}" is dead` });
+    }
+
+    return new Promise((resolve) => {
+      entry.pendingResolve = resolve;
+      const cmd = JSON.stringify({ type: "prompt", message }) + "\n";
+      entry.proc.stdin!.write(cmd);
+    });
+  }
+
+  /** Get info about all pool agents. */
+  list(): PoolAgentInfo[] {
+    const result: PoolAgentInfo[] = [];
+    for (const [id, entry] of this.agents) {
+      result.push({
+        id,
+        agentName: entry.agentName,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        messageCount: entry.messageCount,
+        model: entry.model,
+        lastResponse: entry.lastResponse.slice(0, 200),
+      });
+    }
+    return result;
+  }
+
+  /** Kill a pool agent. */
+  kill(id: string): boolean {
+    const entry = this.agents.get(id);
+    if (!entry) return false;
+    try { entry.proc.kill(); } catch {}
+    this.agents.delete(id);
+    return true;
+  }
+
+  /** Kill all pool agents. */
+  killAll(): void {
+    for (const [id] of this.agents) this.kill(id);
+  }
+}
+
+// Singleton pool instance (lifetime = pi session)
+let activePool: AgentPool | null = null;
+
+function getPool(): AgentPool {
+  if (!activePool) activePool = new AgentPool();
+  return activePool;
+}
+
+// ─── Agent discovery (reads .md files) ────────────────────────────────────
+
+function findNearestDir(start: string, target: string): string | null {
+  let current = start;
+  while (true) {
+    const candidate = path.join(current, target);
+    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch {}
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function discoverAgents(cwd: string): AgentConfig[] {
+  const homeDir = os.homedir();
+  const dirs: string[] = [
+    path.join(homeDir, ".pi", "agents"),
+  ];
+  const projectDir = findNearestDir(cwd, ".pi/agents");
+  if (projectDir) dirs.push(projectDir);
+
+  const agents: AgentConfig[] = [];
+  const seen = new Set<string>();
+
+  for (const dir of dirs) {
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.name.endsWith(".md")) continue;
+        if (entry.name.endsWith(".chain.md")) continue;
+        const filePath = path.join(dir, entry.name);
+        const content = fs.readFileSync(filePath, "utf-8");
+        const nameMatch = content.match(/^name:\s*(.+)$/m);
+        const descMatch = content.match(/^description:\s*(.+)$/m);
+        if (!nameMatch || !descMatch) continue;
+        const name = nameMatch[1].trim();
+        if (seen.has(name)) continue;
+        seen.add(name);
+
+        const toolsMatch = content.match(/^tools:\s*(.+)$/m);
+        const modelMatch = content.match(/^model:\s*(.+)$/m);
+        const bodyMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+
+        agents.push({
+          name,
+          description: descMatch[1].trim(),
+          tools: toolsMatch ? toolsMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
+          model: modelMatch ? modelMatch[1].trim() : undefined,
+          systemPrompt: bodyMatch ? bodyMatch[1].trim() : content,
+        });
+      }
+    } catch {}
+  }
+
+  return agents;
+}
+
+// ─── Tool registration ────────────────────────────────────────────────────
+
+export function registerSubagentTool(pi: ExtensionAPI): void {
+  // ── omo_subagent tool ──────────────────────────────────────────────
+  pi.registerTool({
+    name: "omo_subagent",
+    label: "OMO Subagent",
+    description: [
+      "Single: { agent, task } — 一次性查询，适合单次任务",
+      "Pool spawn: { pool: \"spawn\", id, agent, task } — 创建长驻子代理，持续对话",
+      "Pool send: { pool: \"send\", id, message } — 继续与已有子代理对话",
+      "Pool list: { pool: \"list\" } — 查看活跃子代理",
+      "Pool kill: { pool: \"kill\", id } — 杀掉子代理",
+      "",
+      "实际工作流：同一个话题一般 pool:spawn 创建后反复 pool:send 推进，而不是每次重新 spawn。",
+    ].join("\n"),
+    parameters: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Agent name (for single mode)" },
+        task: { type: "string", description: "Task prompt (for single mode)" },
+        pool: { type: "string", description: "Pool action: spawn | send | list | kill" },
+        id: { type: "string", description: "Pool agent ID (for spawn/send/kill)" },
+        message: { type: "string", description: "Message for pool send action" },
+        model: { type: "string", description: "Model override" },
+      },
+    },
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const cwd = ctx.cwd;
+      const agents = discoverAgents(cwd);
+      const defaultModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+
+      // ── Mode-based agent restriction check ────────────────────────────
+      const checkAgentAllowed = (agentName: string): string | null => {
+        try {
+          const configPath = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+          const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+          let currentMode = "fallback";
+          try {
+            const sessionModePath = path.join(os.homedir(), ".pi", "agent", ".session-modes.json");
+            const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+            if (sessionFile && fs.existsSync(sessionModePath)) {
+              const map = JSON.parse(fs.readFileSync(sessionModePath, "utf-8"));
+              currentMode = map[sessionFile] || "fallback";
+            }
+          } catch {}
+          const blocked: string[] = cfg.mode_agent_restrictions?.[currentMode]?.blocked || [];
+          if (blocked.includes(agentName)) {
+            const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
+            return allowed.length > 0 ? allowed.join(", ") : "(无可用子代理)";
+          }
+        } catch {}
+        return null;
+      };
+
+      if (params.agent) {
+        const blocked = checkAgentAllowed(params.agent);
+        if (blocked !== null) {
+          return {
+            content: [{ type: "text", text: `当前模式下可用子代理：${blocked}。` }],
+            details: {}, isError: true,
+          };
+        }
+      }
+
+      // ── Pool mode ────────────────────────────────────────────────────
+      if (params.pool) {
+        const pool = getPool();
+        if (params.pool === "spawn") {
+          if (!params.id || !params.agent || !params.task) {
+            return { content: [{ type: "text", text: "pool spawn requires id, agent, and task" }], details: {}, isError: true };
+          }
+          const agentCfg = agents.find((a) => a.name === params.agent);
+          if (!agentCfg) {
+            return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
+          }
+          const result = await pool.spawn({
+            id: params.id,
+            agent: agentCfg,
+            task: params.task,
+            model: params.model || agentCfg.model || defaultModel,
+            cwd,
+          });
+          if (result.error) {
+            return { content: [{ type: "text", text: `✗ ${result.error}` }], details: {}, isError: true };
+          }
+          return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned.\n\n${result.response}` }], details: {} };
+        }
+
+        if (params.pool === "send") {
+          if (!params.id || !params.message) {
+            return { content: [{ type: "text", text: "pool send requires id and message" }], details: {}, isError: true };
+          }
+          const result = await pool.sendPrompt(params.id, params.message);
+          if (result.error) {
+            return { content: [{ type: "text", text: `✗ ${result.error}` }], details: {}, isError: true };
+          }
+          return { content: [{ type: "text", text: `Response from ${params.id}:\n\n${result.response}` }], details: {} };
+        }
+
+        if (params.pool === "list") {
+          const list = pool.list();
+          if (list.length === 0) {
+            return { content: [{ type: "text", text: "Pool is empty." }], details: {} };
+          }
+          const lines = list.map((a: PoolAgentInfo) =>
+            `  ${a.status === "dead" ? "✗" : "●"} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`
+          );
+          return { content: [{ type: "text", text: `Pool agents (${list.length}):\n${lines.join("\n")}` }], details: {} };
+        }
+
+        if (params.pool === "kill") {
+          if (!params.id) {
+            return { content: [{ type: "text", text: "pool kill requires id" }], details: {}, isError: true };
+          }
+          const ok = pool.kill(params.id);
+          return { content: [{ type: "text", text: ok ? `✓ Killed "${params.id}"` : `✗ Agent "${params.id}" not found` }], details: {} };
+        }
+      }
+
+      // ── Single mode ─────────────────────────────────────────────────
+      if (params.agent && params.task) {
+        const agentCfg = agents.find((a) => a.name === params.agent);
+        if (!agentCfg) {
+          return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
+        }
+        const result = await runIsolatedTask({
+          agent: agentCfg,
+          task: params.task,
+          model: params.model || agentCfg.model || defaultModel,
+          cwd,
+        });
+        return {
+          content: [{ type: "text", text: result.response }],
+          details: {
+            agent: params.agent,
+            exitCode: result.exitCode,
+            durationMs: result.durationMs,
+            usage: result.usage,
+            model: result.model,
+          },
+          isError: result.exitCode !== 0,
+        };
+      }
+
+      return { content: [{ type: "text", text: "Invalid params. Use single (agent+task) or pool action." }], details: {}, isError: true };
+    },
+  });
+
+  // ── /subagents command (list pool status) ─────────────────────────────
+  pi.registerCommand("subagents", {
+    description: "List all pool agents and their status",
+    handler: async (_args, ctx) => {
+      if (!activePool) {
+        ctx.ui.notify("No pool agents", "info");
+        return;
+      }
+      const list = activePool.list();
+      if (list.length === 0) {
+        ctx.ui.notify("Pool is empty", "info");
+        return;
+      }
+      for (const a of list) {
+        const statusIcon = a.status === "dead" ? "✗" : a.status === "streaming" ? "▶" : "●";
+        const age = Math.floor((Date.now() - a.startedAt) / 1000);
+        const msg = `${statusIcon} ${a.id} (${a.agentName}) — ${a.status} | ${a.messageCount} msgs | ${age}s ago | model: ${a.model}`;
+        ctx.ui.notify(msg, "info");
+      }
+    },
+  });
+}

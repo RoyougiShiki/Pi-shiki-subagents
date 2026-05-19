@@ -56,6 +56,7 @@ import {
 } from "../core/tool-detector";
 import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
+import { registerSubagentTool } from "./subagent-pool";
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
@@ -440,6 +441,24 @@ function ensureAgentFiles(config: OmniMoConfig | null): void {
   }
 }
 
+function ensureModeFiles(): void {
+  const modesDir = path.join(homedir(), ".pi", "agent", "modes");
+  const defaultModesDir = path.join(__dirname, "modes");
+  fs.mkdirSync(modesDir, { recursive: true });
+  try {
+    const files = fs.readdirSync(defaultModesDir);
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+      const target = path.join(modesDir, file);
+      if (!fs.existsSync(target)) {
+        const content = fs.readFileSync(path.join(defaultModesDir, file), "utf-8");
+        fs.writeFileSync(target, content, "utf-8");
+        console.error(`[oh-my-opencode-slim] Generated mode file: ${file}`);
+      }
+    }
+  } catch {}
+}
+
 function updateAgentModels(config: OmniMoConfig | null, presetName: string): void {
   const agentsDir = path.join(path.dirname(getAgentDir()), "agents");
   const preset = config?.presets?.[presetName];
@@ -523,198 +542,6 @@ function buildPiOrchestratorPrompt(
 
 function createToolImplementations(config: OmniMoConfig | null) {
   return {
-    delegate: {
-      name: "omo_delegate",
-      label: "OMO Delegate",
-      description:
-        "Delegate tasks to specialist agents in-process (no subprocess).\n" +
-        "Modes: single (agent + task), chain (sequential with context), tasks (parallel).\n" +
-        "Agents: explorer, librarian, oracle, fixer, designer, observer.",
-      promptSnippet:
-        "Delegate a focused subtask to a specialist agent (in-process, returns result)",
-      parameters: Type.Object({
-        agent: Type.Optional(Type.String({
-          description: "Agent name: explorer | librarian | oracle | fixer | designer | observer",
-        })),
-        task: Type.Optional(Type.String({ description: "Task to delegate" })),
-        tasks: Type.Optional(
-          Type.Array(
-            Type.Object({
-              agent: Type.String(),
-              task: Type.String(),
-            }),
-            { description: "Parallel tasks array" },
-          ),
-        ),
-        chain: Type.Optional(
-          Type.Array(
-            Type.Object({
-              agent: Type.String(),
-              task: Type.String(),
-            }),
-            { description: "Chain of agents for sequential execution" },
-          ),
-        ),
-      }),
-      async execute(
-        _toolCallId: string,
-        params: {
-          agent?: string;
-          task?: string;
-          tasks?: Array<{ agent: string; task: string }>;
-          chain?: Array<{ agent: string; task: string }>;
-        },
-        _signal: AbortSignal | undefined,
-        _onUpdate: any,
-        ctx: ExtensionContext,
-      ) {
-        // ── Mode-based delegation guard (config-driven) ─────────────
-        const currentMode = loadActiveMode();
-        let blocked: string[] = [];
-        try {
-          const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-          const raw = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
-          const restrictions = (raw as any).mode_agent_restrictions ?? {};
-          blocked = restrictions[currentMode]?.blocked ?? [];
-        } catch {}
-
-        if (blocked.length > 0) {
-          const requested = params.agent || params.tasks?.[0]?.agent || params.chain?.[0]?.agent || "";
-          if (blocked.includes(requested)) {
-            return {
-              content: [{ type: "text" as const, text: `[Agent Restricted] 当前模式为 "${currentMode}"，不支持委托代理 "${requested}"。该模式允许的代理：explorer, librarian。如需使用 ${requested}，请切换到 worker 或 batch 模式。` }], isError: true, details: {} as any };
-          }
-          const allAgents = [
-            ...(params.tasks?.map(t => t.agent) || []),
-            ...(params.chain?.map(c => c.agent) || []),
-          ].filter(Boolean);
-          const blockedOne = allAgents.find(a => blocked.includes(a));
-          if (blockedOne) {
-            return {
-              content: [{ type: "text" as const, text: `[Agent Restricted] 当前模式为 "${currentMode}"，任务列表中包含受限代理 "${blockedOne}"。受限代理：${blocked.join(", ")}。请移除后重试。` }], isError: true, details: {} as any };
-          }
-        }
-
-        // ── Helper: run one agent via createAgentSession ────────────────
-        async function runOne(
-          agentName: string,
-          taskText: string,
-        ): Promise<string> {
-          const agentInfo = AGENT_PROMPTS[agentName];
-          if (!agentInfo) {
-            return `[Unknown agent: ${agentName}]`;
-          }
-
-          // Resolve tools from agent_roles + role_templates
-          const rolesCfg = config as any;
-          const agentRoleNames: string[] = rolesCfg?.agent_roles?.[agentName] || [];
-          const templates = rolesCfg?.role_templates || {};
-          const resolvedAgentTools: string[] = [...new Set(agentRoleNames.flatMap((r: string) => (templates as any)[r] || []) as string[])];
-          const { session } = await createAgentSession({
-            model: undefined, // use default pi model
-            tools: resolvedAgentTools.length > 0 ? resolvedAgentTools : ["read"],
-            sessionManager: SessionManager.inMemory(),
-            cwd: ctx.cwd,
-          });
-
-          const fullPrompt = `${agentInfo.prompt}\n\n## Task\n${taskText}`;
-          await session.prompt(fullPrompt, { source: "extension" });
-
-          // Extract last assistant text
-          const msgs = session.state.messages ?? [];
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            const m = msgs[i];
-            if (m.role === "assistant") {
-              const parts = m.content ?? [];
-              const texts = parts
-                .filter((p: any) => p.type === "text")
-                .map((p: any) => p.text)
-                .filter(Boolean);
-              if (texts.length > 0) return texts.join("\n");
-            }
-          }
-          return "(completed)";
-        }
-
-        // ── Parallel mode ───────────────────────────────────────────────
-        if (params.tasks && params.tasks.length > 0) {
-          try {
-            const results = await Promise.all(
-              params.tasks.map((t) => runOne(t.agent, t.task)),
-            );
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: results.map((r, i) => `[${params.tasks![i].agent}]\n${r}`).join("\n\n---\n\n"),
-                },
-              ],
-              details: { mode: "parallel", count: params.tasks.length },
-            };
-          } catch (err: any) {
-            return {
-              content: [{ type: "text" as const, text: `Parallel delegation failed: ${err.message}` }],
-              details: {},
-              isError: true,
-            };
-          }
-        }
-
-        // ── Chain mode ─────────────────────────────────────────────────
-        if (params.chain && params.chain.length > 0) {
-          const results: string[] = [];
-          let context = "";
-          for (let i = 0; i < params.chain.length; i++) {
-            const step = params.chain[i];
-            const taskWithContext = context ? `${step.task}\n\nPrevious output:\n${context}` : step.task;
-            try {
-              const output = await runOne(step.agent, taskWithContext);
-              results.push(output);
-              context = output;
-            } catch (err: any) {
-              return {
-                content: [{ type: "text" as const, text: `Step ${i + 1} (${step.agent}) failed: ${err.message}` }],
-                details: {},
-                isError: true,
-              };
-            }
-          }
-          return {
-            content: [{ type: "text" as const, text: results.join("\n\n---\n\n") }],
-            details: { mode: "chain", steps: results.length },
-          };
-        }
-
-        // ── Single mode ────────────────────────────────────────────────
-        if (!params.agent || !params.task) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Provide agent + task, or tasks[], or chain[]. Available agents: ${Object.keys(AGENT_PROMPTS).join(", ")}`,
-              },
-            ],
-            details: {},
-            isError: true,
-          };
-        }
-
-        try {
-          const output = await runOne(params.agent, params.task);
-          return {
-            content: [{ type: "text" as const, text: output }],
-            details: { mode: "single", agent: params.agent },
-          };
-        } catch (err: any) {
-          return {
-            content: [{ type: "text" as const, text: `Delegation failed: ${err.message}` }],
-            details: {},
-            isError: true,
-          };
-        }
-      },
-    },
-
     council: {
       name: "omo_council",
       label: "OMO Council",
@@ -1004,14 +831,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     _lastInjectedMode = "";
 
     ensureAgentFiles(config);
+    ensureModeFiles();
 
-    // Hide subagent tool (broken + overlaps with omo_delegate).
-    // 2026-05-17: Commented out — @e9n/pi-subagent now provides a working subagent tool.
-    // Keep agent_message — omo_council collaborating backend needs it.
-    // try {
-    //   const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-    //   pi.setActiveTools(all.filter((n: string) => n !== "subagent"));
-    // } catch {}
+    // omo_subagent replaces the old subagent tool — registered in registerSubagentTool
   });
 
   // ── Lifecycle-based gate state ─────────────────────────────────────
@@ -1112,10 +934,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Register custom tools ───────────────────────────────────────────
   const tools = createToolImplementations(config);
-  pi.registerTool(tools.delegate);
   pi.registerTool(tools.council);
   pi.registerTool(tools.astGrepSearch);
   pi.registerTool(tools.astGrepReplace);
+
+  // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
+  registerSubagentTool(pi);
 
   // ── Tool activation & description tools (always available) ─────────
   pi.registerTool({
@@ -1245,7 +1069,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
       // Orchestration Gate: block each time for delegation tools.
       // Each delegate call is an independent orchestration decision.
-      if (["agent", "workflow", "subagent", "omo_delegate"].includes(event.toolName)) {
+      if (["agent", "workflow", "subagent"].includes(event.toolName)) {
         if (!hasOrchestration) {
           return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
         }
@@ -1285,7 +1109,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 Declare these before calling tools:
 
 • Intent: <type> — required before any tool call. Shows you've understood what to do.
-• ORCHESTRATION: self | delegate to <agent> — required BEFORE omo_delegate/agent tools.
+• ORCHESTRATION: self | delegate to <agent> — required before delegation tools.
    Why declare it? It forces you to consciously choose the right approach for each task.
    Not declaring = gate will block your delegation. You'll waste a turn.
 • READY: <context> + APPROVED: <plan> — only needed if write/edit tools are available in your current mode.` }],

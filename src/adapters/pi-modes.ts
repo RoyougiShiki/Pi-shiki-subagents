@@ -108,15 +108,15 @@ function loadModeDefinitions(): Record<string, ModeDefinition> {
     const file = loadModeFile(name);
     if (file) {
       raw[name].instructions = file.instructions;
-      if (file.tools && Array.isArray(file.tools) && file.tools.length > 0) {
-        raw[name].tools = file.tools;
-      }
+      // .md no longer overrides tools — JSON/role_templates is the single source
       if (file.hidden !== undefined) {
         raw[name].hidden = file.hidden;
       }
     }
 
     if (!raw[name].tools || raw[name].tools.length === 0) {
+      // Fallback mode: empty tools = all tools, skip role_templates resolution
+      if (name === "fallback") continue;
       const roleNames = modeRoles[name] ?? [];
       const resolved = new Set<string>();
       for (const rn of roleNames) {
@@ -157,11 +157,7 @@ function saveMode(name: string): void {
   try {
     if (_currentSessionFile) {
       saveSessionMode(_currentSessionFile, name);
-      return;
     }
-    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    cfg.active_mode = name;
-    fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2) + "\n", "utf-8");
   } catch {}
 }
 
@@ -171,9 +167,6 @@ export function loadActiveMode(): string {
       const saved = loadSessionMode(_currentSessionFile);
       if (saved && getMode(saved)) return saved;
     }
-    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    const mode: string = cfg.active_mode ?? "";
-    if (mode && getMode(mode)) return mode;
     const publics = getPublicModes();
     return publics.length > 0 ? publics[0] : "worker";
   } catch {
@@ -220,9 +213,16 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
 
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-    const allow = new Set([...mode.tools, "switch_mode"]);
+    // Empty tools = allow all (used by fallback mode)
+    const tools = mode.tools && mode.tools.length > 0 ? mode.tools : all;
+    const allow = new Set([...tools, "switch_mode"]);
     allow.delete("subagent");
-    pi.setActiveTools(all.filter((n: string) => allow.has(n)));
+    const active = all.filter((n: string) => allow.has(n));
+    const missing = all.filter(t => !allow.has(t));
+    if (missing.length > 0) {
+      console.error(`[omo-modes] applyMode("${name}") tools=${tools.length}, all=${all.length}, active=${active.length}, missing=${missing.length}: ${missing.slice(0,10).join(",")}...`);
+    }
+    pi.setActiveTools(active);
     saveMode(name);
   } catch {}
   return true;
