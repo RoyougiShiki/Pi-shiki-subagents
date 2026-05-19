@@ -26,7 +26,8 @@
       "fixer",
       "designer",
       "oracle"
-    ]
+    ],
+    "label": "\u9700\u6c42\u6f84\u6e05"
   },
   "thinker-analysis": {
     "type": "mode",
@@ -59,10 +60,11 @@
     "blocked": [
       "fixer",
       "designer"
-    ]
+    ],
+    "label": "\u9700\u6c42\u5206\u6790"
   },
   "designer": {
-    "type": "both",
+    "type": "mode",
     "tools": [
       "read",
       "write",
@@ -91,10 +93,11 @@
     ],
     "blocked": [
       "fixer"
-    ]
+    ],
+    "label": "\u6280\u672f\u8bbe\u8ba1"
   },
   "worker": {
-    "type": "both",
+    "type": "mode",
     "tools": [
       "read",
       "write",
@@ -123,10 +126,11 @@
     ],
     "next": [
       "thinker-clarify"
-    ]
+    ],
+    "label": "\u5feb\u901f\u5b9e\u65bd"
   },
   "implementer": {
-    "type": "both",
+    "type": "mode",
     "tools": [
       "read",
       "write",
@@ -155,10 +159,11 @@
     ],
     "next": [
       "thinker-clarify"
-    ]
+    ],
+    "label": "\u6807\u51c6\u5b9e\u65bd"
   },
   "batch": {
-    "type": "both",
+    "type": "mode",
     "tools": [
       "read",
       "write",
@@ -187,12 +192,14 @@
     ],
     "next": [
       "thinker-clarify"
-    ]
+    ],
+    "label": "\u6279\u6b21\u6267\u884c"
   },
   "fallback": {
     "type": "mode",
     "tools": [],
-    "next": []
+    "next": [],
+    "label": "\u515c\u5e95\u6a21\u5f0f"
   },
   "explorer": {
     "type": "subagent",
@@ -202,7 +209,8 @@
       "find",
       "ls"
     ],
-    "next": []
+    "next": [],
+    "label": "\u641c\u7d22"
   },
   "librarian": {
     "type": "subagent",
@@ -212,7 +220,8 @@
       "find",
       "ls"
     ],
-    "next": []
+    "next": [],
+    "label": "\u67e5\u9605"
   },
   "oracle": {
     "type": "subagent",
@@ -222,7 +231,8 @@
       "find",
       "ls"
     ],
-    "next": []
+    "next": [],
+    "label": "\u8bc4\u5ba1"
   },
   "fixer": {
     "type": "subagent",
@@ -235,13 +245,15 @@
       "find",
       "ls"
     ],
-    "next": []
+    "next": [],
+    "label": "\u5b9e\u73b0"
   },
   "observer": {
     "type": "subagent",
     "tools": [
       "read"
     ],
-    "next": []
+    "next": [],
+    "label": "\u770b\u56fe"
   }
 }

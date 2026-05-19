@@ -395,7 +395,7 @@ function discoverAgents(cwd: string): AgentConfig[] {
   const projectDir = findNearestDir(cwd, ".pi/agents");
   if (projectDir) dirs.push(projectDir);
 
-  const agents: AgentConfig[] = [];
+  let agents: AgentConfig[] = [];
   const seen = new Set<string>();
 
   for (const dir of dirs) {
@@ -427,6 +427,16 @@ function discoverAgents(cwd: string): AgentConfig[] {
     } catch {}
   }
 
+  // Filter out mode-only agents (subagents only)
+  try {
+    const configPath = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+    const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const agentTypes = cfg.agents || {};
+    agents = agents.filter(a => {
+      const info = agentTypes[a.name];
+      return !info || info.type !== "mode"; // exclude mode-only agents
+    });
+  } catch {}
   return agents;
 }
 

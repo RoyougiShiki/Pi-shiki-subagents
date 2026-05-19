@@ -232,7 +232,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("mode", {
-    description: `切换模式。用法：/mode <名字> 或 /mode 弹出选择`,
+    description: `切换模式。用法: /mode <名字> 或 /mode 弹出选择`,
     handler: async (args: string, ctx: any) => {
       const trimmed = args.trim().toLowerCase();
       const publics = getPublicAgents();
