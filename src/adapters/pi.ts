@@ -30,7 +30,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadActiveMode } from "./pi-modes";
+import { loadActiveMode, getModeInstructions } from "./pi-modes";
 import {
   INTENT_GATE_BLOCK_MESSAGE,
   CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
@@ -57,6 +57,7 @@ import {
 import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 import { registerSubagentTool } from "./subagent-pool";
+
 
 // ─── Config helpers ────────────────────────────────────────────────────────
 
@@ -418,42 +419,20 @@ prompt = """${escapeTomlMultilineString(prompt)}
 `;
 }
 
-function ensureAgentFiles(config: OmniMoConfig | null): void {
-  const agentsDir = path.join(path.dirname(getAgentDir()), "agents");
+function ensureAgentFiles(): void {
+  const agentsDir = path.join(homedir(), ".pi", "agents");
+  const defaultAgentsDir = path.join(__dirname, "agents");
   fs.mkdirSync(agentsDir, { recursive: true });
-
-  for (const [name, info] of Object.entries(AGENT_PROMPTS)) {
-    const model = getDefaultModel(name, config);
-
-    const mdPath = path.join(agentsDir, `${name}.md`);
-    if (!fs.existsSync(mdPath)) {
-      const content = generateAgentMd(name, info.prompt, info.description, model);
-      fs.writeFileSync(mdPath, content, "utf-8");
-      console.error(`[oh-my-opencode-slim] Generated Pi agent: ${name}.md (${model})`);
-    }
-
-    const tomlPath = path.join(agentsDir, `${name}.toml`);
-    if (!fs.existsSync(tomlPath)) {
-      const content = generateAgentToml(name, info.prompt, info.description, model);
-      fs.writeFileSync(tomlPath, content, "utf-8");
-      console.error(`[oh-my-opencode-slim] Generated collaborating subagent type: ${name}.toml (${model})`);
-    }
-  }
-}
-
-function ensureModeFiles(): void {
-  const modesDir = path.join(homedir(), ".pi", "agent", "modes");
-  const defaultModesDir = path.join(__dirname, "modes");
-  fs.mkdirSync(modesDir, { recursive: true });
   try {
-    const files = fs.readdirSync(defaultModesDir);
+    if (!fs.existsSync(defaultAgentsDir)) return;
+    const files = fs.readdirSync(defaultAgentsDir);
     for (const file of files) {
       if (!file.endsWith(".md")) continue;
-      const target = path.join(modesDir, file);
+      const target = path.join(agentsDir, file);
       if (!fs.existsSync(target)) {
-        const content = fs.readFileSync(path.join(defaultModesDir, file), "utf-8");
+        const content = fs.readFileSync(path.join(defaultAgentsDir, file), "utf-8");
         fs.writeFileSync(target, content, "utf-8");
-        console.error(`[oh-my-opencode-slim] Generated mode file: ${file}`);
+        console.error(`[oh-my-opencode-slim] Generated agent file: ${file}`);
       }
     }
   } catch {}
@@ -556,6 +535,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
         maxRounds: Type.Optional(Type.Integer({ description: "Meeting discussion rounds, clamped to 1..5" })),
         maxDurationMs: Type.Optional(Type.Number({ description: "Meeting timeout budget in milliseconds" })),
         includeTranscript: Type.Optional(Type.Boolean({ description: "Debug only: include raw hidden meeting transcript in the tool result" })),
+        backend: Type.Optional(Type.String({ description: "Meeting backend: session (轮次讨论) | pool (实时讨论)" })),
         participants: Type.Optional(
           Type.Array(
             Type.Object({
@@ -578,6 +558,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
           maxRounds?: number;
           maxDurationMs?: number;
           includeTranscript?: boolean;
+          backend?: string;
           participants?: PiCouncilParticipantConfig[];
         },
         _signal: AbortSignal | undefined,
@@ -594,6 +575,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
             maxRounds: params.maxRounds,
             maxDurationMs: params.maxDurationMs,
             includeTranscript: params.includeTranscript,
+            backend: params.backend,
             ctx,
             config,
           });
@@ -830,8 +812,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Reset mode injection tracker for new session
     _lastInjectedMode = "";
 
-    ensureAgentFiles(config);
-    ensureModeFiles();
+
+    ensureAgentFiles();
 
     // omo_subagent replaces the old subagent tool — registered in registerSubagentTool
   });
@@ -853,6 +835,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
+    // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
+    // Sub-agents (council participants) have appendSystemPrompt set as a marker
+    if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__") {
+      return { systemPrompt: event.systemPrompt };
+    }
+    
     // Reset gate state for new agent cycle
     gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
@@ -866,8 +854,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Trim verbose tool descriptions in system prompt
     const trimmedPrompt = trimToolDescriptions(event.systemPrompt, (config as any)?.tool_descriptions ?? {});
 
+    // Inject mode instructions
+    let modeSuffix = "";
+    try {
+      const modeName = loadActiveMode();
+      const instructions = getModeInstructions(modeName);
+      if (instructions) {
+        modeSuffix = `\n\n---\n\n${instructions}`;
+      }
+    } catch {}
+
     return {
-      systemPrompt: `${omniPrompt}\n\n---\n\n${trimmedPrompt}`,
+      systemPrompt: `${omniPrompt}${modeSuffix}\n\n---\n\n${trimmedPrompt}`,
     };
   });
 
@@ -900,7 +898,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       let content: string;
       if (isSwitch) {
         // Load full .md content for the new mode
-        const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", "${mode}.md");
+        const modeFilePath = path.join(homedir(), ".pi", "agents", "${mode}.md");
         let fullPrompt = "";
         try {
           if (fs.existsSync(modeFilePath)) {
@@ -1132,7 +1130,7 @@ Declare these before calling tools:
       const checkModes: string[] = (config.compliance_check?.modes as string[]) ?? ["thinker-clarify", "thinker-analysis"];
       if (!checkModes.includes(activeMode)) return;
 
-      const modeFilePath = path.join(homedir(), ".pi", "agent", "modes", `${activeMode}.md`);
+      const modeFilePath = path.join(homedir(), ".pi", "agents", `${activeMode}.md`);
       let modePrompt = "";
       try { modePrompt = fs.readFileSync(modeFilePath, "utf-8"); } catch { return; }
 

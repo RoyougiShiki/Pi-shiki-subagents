@@ -444,7 +444,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       "Pool list: { pool: \"list\" } — 查看活跃子代理",
       "Pool kill: { pool: \"kill\", id } — 杀掉子代理",
       "",
-      "实际工作流：同一个话题一般 pool:spawn 创建后反复 pool:send 推进，而不是每次重新 spawn。",
+      "实际工作流：同一个话题一般 pool:spawn 创建后反复 pool:send 推进。",
+      "注意：任务描述中应包含文件路径和代码上下文，子代理会自动读取分析。",
     ].join("\n"),
     parameters: {
       type: "object",
@@ -477,7 +478,9 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
               currentMode = map[sessionFile] || "fallback";
             }
           } catch {}
-          const blocked: string[] = cfg.mode_agent_restrictions?.[currentMode]?.blocked || [];
+          // Read blocked list from agent config (replaces old mode_agent_restrictions)
+          const currentAgent = cfg.agents?.[currentMode];
+          const blocked: string[] = currentAgent?.blocked || [];
           if (blocked.includes(agentName)) {
             const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
             return allowed.length > 0 ? allowed.join(", ") : "(无可用子代理)";
@@ -507,17 +510,15 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (!agentCfg) {
             return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
           }
-          const result = await pool.spawn({
+          // Fire-and-forget: spawn without awaiting initial response
+          pool.spawn({
             id: params.id,
             agent: agentCfg,
             task: params.task,
             model: params.model || agentCfg.model || defaultModel,
             cwd,
-          });
-          if (result.error) {
-            return { content: [{ type: "text", text: `✗ ${result.error}` }], details: {}, isError: true };
-          }
-          return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned.\n\n${result.response}` }], details: {} };
+          }).catch(() => {}); // ignore background errors
+          return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Use pool:send to interact.` }], details: {} };
         }
 
         if (params.pool === "send") {

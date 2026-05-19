@@ -620,6 +620,7 @@ export async function runPiMeeting(args: {
   maxRounds?: number;
   maxDurationMs?: number;
   includeTranscript?: boolean;
+  backend?: string;
   ctx: ExtensionContext;
   config: OmniMoConfig | null;
 }): Promise<{ result?: PiMeetingResult; error?: string }> {
@@ -630,7 +631,7 @@ export async function runPiMeeting(args: {
   });
   if (resolved.error) return { error: resolved.error };
 
-  const resolution = resolvePiMeetingBackend(args.config?.council?.meeting_backend);
+  const resolution = resolvePiMeetingBackend(args.backend || args.config?.council?.meeting_backend);
 
   const request: PiMeetingRequest = {
     meetingId: createPiMeetingId(),

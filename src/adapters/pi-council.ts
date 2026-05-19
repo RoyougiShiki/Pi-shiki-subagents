@@ -140,12 +140,13 @@ export async function runPiCouncilParticipant(args: {
       };
     }
 
-    const created = await createAgentSession({
+    const created = await (createAgentSession as any)({
       cwd: ctx.cwd,
       model,
       thinkingLevel: "low",
       tools: ["read", "bash", "grep", "find", "ls"],
       sessionManager: SessionManager.inMemory(),
+      appendSystemPrompt: "__OMO_SUB_AGENT__",
     });
     session = created.session;
 

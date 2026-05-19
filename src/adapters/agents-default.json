@@ -1,6 +1,6 @@
 {
   "thinker-clarify": {
-    "label": "\u9700\u6c42\u6f84\u6e05",
+    "type": "mode",
     "tools": [
       "read",
       "grep",
@@ -15,16 +15,21 @@
       "web_search",
       "fetch_content",
       "code_search",
-      "ask_user_question",
       "omo_subagent",
-      "omo_council"
+      "omo_council",
+      "ask_user_question"
     ],
     "next": [
       "thinker-analysis"
+    ],
+    "blocked": [
+      "fixer",
+      "designer",
+      "oracle"
     ]
   },
   "thinker-analysis": {
-    "label": "\u9700\u6c42\u5206\u6790",
+    "type": "mode",
     "tools": [
       "read",
       "grep",
@@ -43,24 +48,29 @@
       "fetch_content",
       "code_search",
       "get_search_content",
+      "omo_subagent",
       "omo_council",
       "ask_user_question"
     ],
     "next": [
       "designer",
       "thinker-clarify"
+    ],
+    "blocked": [
+      "fixer",
+      "designer"
     ]
   },
   "designer": {
-    "label": "\u6280\u672f\u8bbe\u8ba1",
+    "type": "both",
     "tools": [
       "read",
-      "grep",
-      "find",
-      "ls",
       "write",
       "edit",
       "bash",
+      "grep",
+      "find",
+      "ls",
       "context_mode_ctx_search",
       "context_mode_ctx_stats",
       "context_mode_ctx_execute",
@@ -70,19 +80,26 @@
       "codebase_memory_get_code_snippet",
       "codebase_memory_search_code",
       "codebase_memory_index_status",
+      "omo_subagent",
       "omo_council",
-      "omo_subagent"
+      "mcp"
     ],
     "next": [
       "implementer",
       "worker",
       "thinker-clarify"
+    ],
+    "blocked": [
+      "fixer"
     ]
   },
   "worker": {
-    "label": "\u5feb\u901f\u5b9e\u65bd",
+    "type": "both",
     "tools": [
       "read",
+      "write",
+      "edit",
+      "bash",
       "grep",
       "find",
       "ls",
@@ -98,8 +115,8 @@
       "web_search",
       "fetch_content",
       "code_search",
-      "omo_council",
       "omo_subagent",
+      "omo_council",
       "ask_user_question",
       "todo",
       "mcp"
@@ -109,9 +126,12 @@
     ]
   },
   "implementer": {
-    "label": "\u6807\u51c6\u5b9e\u65bd",
+    "type": "both",
     "tools": [
       "read",
+      "write",
+      "edit",
+      "bash",
       "grep",
       "find",
       "ls",
@@ -127,8 +147,8 @@
       "web_search",
       "fetch_content",
       "code_search",
-      "omo_council",
       "omo_subagent",
+      "omo_council",
       "ask_user_question",
       "todo",
       "mcp"
@@ -138,9 +158,12 @@
     ]
   },
   "batch": {
-    "label": "\u6279\u6b21\u6267\u884c",
+    "type": "both",
     "tools": [
       "read",
+      "write",
+      "edit",
+      "bash",
       "grep",
       "find",
       "ls",
@@ -156,8 +179,8 @@
       "web_search",
       "fetch_content",
       "code_search",
-      "omo_council",
       "omo_subagent",
+      "omo_council",
       "ask_user_question",
       "todo",
       "mcp"
@@ -167,8 +190,58 @@
     ]
   },
   "fallback": {
-    "label": "\u515c\u5e95\u6a21\u5f0f",
+    "type": "mode",
     "tools": [],
+    "next": []
+  },
+  "explorer": {
+    "type": "subagent",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls"
+    ],
+    "next": []
+  },
+  "librarian": {
+    "type": "subagent",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls"
+    ],
+    "next": []
+  },
+  "oracle": {
+    "type": "both",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls"
+    ],
+    "next": []
+  },
+  "fixer": {
+    "type": "subagent",
+    "tools": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "find",
+      "ls"
+    ],
+    "next": []
+  },
+  "observer": {
+    "type": "subagent",
+    "tools": [
+      "read"
+    ],
     "next": []
   }
 }

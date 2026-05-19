@@ -1,10 +1,16 @@
 /**
- * Pi Mode Switching — 模式由 JSON 配置定义，代码只提供加载和执行机制
+ * Pi Agent Switching — 统一 Agent 架构
  *
- * 模式定义来源（优先级从高到低）：
- * 1. ~/.pi/agent/modes/{name}.md — 覆盖 instructions 和 tools
- * 2. oh-my-opencode-slim.json → modes 字段 — 所有模式定义
- * 3. src/adapters/modes-default.json — 内置默认值
+ * agent 由 JSON 配置的 `agents` 段定义，行为指令由 ~/.pi/agents/{name}.md 提供。
+ *
+ * 配置来源（优先级从高到低）：
+ * 1. ~/.pi/agent/oh-my-opencode-slim.json → agents 字段
+ * 2. src/adapters/agents-default.json — 内置默认值
+ *
+ * 每个 agent 有 type:
+ *   "mode"     — 只能通过 switch_mode 切换为主 agent
+ *   "subagent" — 只能被 omo_subagent 调用
+ *   "both"     — 两者皆可
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -15,18 +21,19 @@ import { homedir } from "node:os";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
-interface ModeDefinition {
+interface AgentDefinition {
+  type: "mode" | "subagent" | "both";
   label: string;
   tools: string[];
-  instructions?: string;
   next?: string[];
+  instructions?: string;
   hidden?: boolean;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────────────────
 
-const MODES_DIR = path.join(homedir(), ".pi", "agent", "modes");
-const DEFAULTS_PATH = path.join(__dirname, "modes-default.json");
+const AGENTS_DIR = path.join(homedir(), ".pi", "agents");
+const DEFAULTS_PATH = path.join(__dirname, "agents-default.json");
 const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-modes.json");
 let _currentSessionFile: string | undefined;
 
@@ -39,19 +46,16 @@ function getConfigPath(): string {
 function parseFrontmatter(content: string): { frontmatter: Record<string, any>; body: string } {
   const result: Record<string, any> = {};
   if (!content.startsWith("---")) return { frontmatter: result, body: content };
-
   const end = content.indexOf("\n---", 3);
   if (end === -1) return { frontmatter: result, body: content };
-
   const block = content.slice(4, end);
   const body = content.slice(end + 4).trim();
-
   for (const line of block.split("\n")) {
     const m = line.match(/^(\w+):\s*(.*)$/);
     if (!m) continue;
     let value: any = m[2].trim();
     if (value.startsWith("[") && value.endsWith("]")) {
-      try { value = JSON.parse(value); } catch { value = value; }
+      try { value = JSON.parse(value); } catch {}
     } else if (value === "true") value = true;
     else if (value === "false") value = false;
     result[m[1]] = value;
@@ -59,101 +63,75 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, any>; 
   return { frontmatter: result, body };
 }
 
-function loadModeFile(name: string): { instructions: string; tools?: string[]; hidden?: boolean } | null {
-  const filePath = path.join(MODES_DIR, `${name}.md`);
+function loadAgentFile(name: string): { instructions: string; tools?: string[]; hidden?: boolean } | null {
+  const filePath = path.join(AGENTS_DIR, `${name}.md`);
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, "utf-8").trim();
       const { frontmatter, body } = parseFrontmatter(content);
       return { instructions: body, tools: frontmatter.tools, hidden: frontmatter.hidden };
     }
-  } catch { /* ignore */ }
+  } catch { }
   return null;
 }
 
-// ── 从 JSON 配置加载模式定义 ──────────────────────────────────────────────
+// ── Agent 定义加载 ────────────────────────────────────────────────────────
 
-let _modeDefs: Record<string, ModeDefinition> | null = null;
+let _agentDefs: Record<string, AgentDefinition> | null = null;
 
-function loadModeDefinitions(): Record<string, ModeDefinition> {
-  if (_modeDefs) return _modeDefs;
+function loadAgentDefinitions(): Record<string, AgentDefinition> {
+  if (_agentDefs) return _agentDefs;
 
   let raw: Record<string, any> = {};
-  let modeRoles: Record<string, string[]> = {};
-  let roleTemplates: Record<string, string[]> = {};
-
   try {
     const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    raw = cfg.modes ?? {};
-    modeRoles = cfg.mode_roles ?? {};
-    roleTemplates = cfg.role_templates ?? {};
+    raw = cfg.agents ?? {};
   } catch {}
 
+  // Fallback to built-in defaults
   if (Object.keys(raw).length === 0) {
     try {
       if (fs.existsSync(DEFAULTS_PATH)) {
-        const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
-        raw = defaults;
-        if (defaults.mode_roles) modeRoles = defaults.mode_roles;
-        if (defaults.role_templates) roleTemplates = defaults.role_templates;
+        raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
       }
     } catch {}
   }
 
-  if (Object.keys(raw).length === 0) {
-    raw = { worker: { label: "Worker", tools: ["read", "grep", "find", "ls", "omo_delegate"] } };
-  }
-
+  // Populate instructions from .md files
   for (const name of Object.keys(raw)) {
-    const file = loadModeFile(name);
+    const file = loadAgentFile(name);
     if (file) {
-      raw[name].instructions = file.instructions;
-      // .md no longer overrides tools — JSON/role_templates is the single source
-      if (file.hidden !== undefined) {
-        raw[name].hidden = file.hidden;
-      }
+      raw[name].instructions = file.instructions || "";
+      if (file.hidden !== undefined) raw[name].hidden = file.hidden;
     }
-
-    if (!raw[name].tools || raw[name].tools.length === 0) {
-      // Fallback mode: empty tools = all tools, skip role_templates resolution
-      if (name === "fallback") continue;
-      const roleNames = modeRoles[name] ?? [];
-      const resolved = new Set<string>();
-      for (const rn of roleNames) {
-        const tmpl = roleTemplates[rn] ?? [];
-        for (const t of tmpl) resolved.add(t);
-      }
-      if (resolved.size > 0) {
-        raw[name].tools = Array.from(resolved);
-      }
-    }
+    raw[name].label = raw[name].label || name;
   }
 
-  _modeDefs = raw as Record<string, ModeDefinition>;
-  return _modeDefs;
+  _agentDefs = raw as Record<string, AgentDefinition>;
+  return _agentDefs;
 }
 
-function getMode(name: string): ModeDefinition | undefined {
-  return (loadModeDefinitions())[name];
+function getAgent(name: string): AgentDefinition | undefined {
+  return loadAgentDefinitions()[name];
 }
 
-function getAllModeNames(): string[] {
-  return Object.keys(loadModeDefinitions());
+function getAllAgentNames(): string[] {
+  return Object.keys(loadAgentDefinitions());
 }
 
-function getPublicModes(): string[] {
-  const defs = loadModeDefinitions();
-  return Object.entries(defs).filter(([, v]) => !v.hidden).map(([k]) => k);
+function getPublicAgents(): string[] {
+  const defs = loadAgentDefinitions();
+  return Object.entries(defs)
+    .filter(([, v]) => !v.hidden && (v.type === "mode" || v.type === "both"))
+    .map(([k]) => k);
 }
 
-function getHiddenModes(): string[] {
-  const defs = loadModeDefinitions();
+function getHiddenAgents(): string[] {
+  const defs = loadAgentDefinitions();
   return Object.entries(defs).filter(([, v]) => v.hidden).map(([k]) => k);
 }
 
-// ── 配置持久化 ──────────────────────────────────────────────────────────
-
-function saveMode(name: string): void {
+function saveAgent(name: string): void {
   try {
     if (_currentSessionFile) {
       saveSessionMode(_currentSessionFile, name);
@@ -161,28 +139,19 @@ function saveMode(name: string): void {
   } catch {}
 }
 
+// ── Session mode persistence ───────────────────────────────────────────
+
 export function loadActiveMode(): string {
   try {
     if (_currentSessionFile) {
       const saved = loadSessionMode(_currentSessionFile);
-      if (saved && getMode(saved)) return saved;
+      if (saved && getAgent(saved)) return saved;
     }
-    const publics = getPublicModes();
+    const publics = getPublicAgents();
     return publics.length > 0 ? publics[0] : "worker";
   } catch {
     return "worker";
   }
-}
-
-/** 种子默认模式到用户配置（仅当 config 中无 modes 字段时写入） */
-function seedDefaultModes(): void {
-  try {
-    const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    if (raw.modes) return;
-    if (!fs.existsSync(DEFAULTS_PATH)) return;
-    raw.modes = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
-    fs.writeFileSync(getConfigPath(), JSON.stringify(raw, null, 2) + "\n", "utf-8");
-  } catch {}
 }
 
 function saveSessionMode(sessionFile: string, mode: string): void {
@@ -201,20 +170,18 @@ function loadSessionMode(sessionFile: string): string | undefined {
   } catch { return undefined; }
 }
 
-// ── 模式应用 ──────────────────────────────────────────────────────────────
-
 function getActiveMode(): string {
   return loadActiveMode();
 }
 
 function applyMode(pi: ExtensionAPI, name: string): boolean {
-  const mode = getMode(name);
-  if (!mode) return false;
+  const agent = getAgent(name);
+  if (!agent || (agent.type !== "mode" && agent.type !== "both")) return false;
 
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-    // Empty tools = allow all (used by fallback mode)
-    const tools = mode.tools && mode.tools.length > 0 ? mode.tools : all;
+    // Empty tools = allow all (used by fallback agent)
+    const tools = agent.tools && agent.tools.length > 0 ? agent.tools : all;
     const allow = new Set([...tools, "switch_mode"]);
     allow.delete("subagent");
     const active = all.filter((n: string) => allow.has(n));
@@ -223,72 +190,62 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
       console.error(`[omo-modes] applyMode("${name}") tools=${tools.length}, all=${all.length}, active=${active.length}, missing=${missing.length}: ${missing.slice(0,10).join(",")}...`);
     }
     pi.setActiveTools(active);
-    saveMode(name);
+    saveAgent(name);
   } catch {}
   return true;
 }
 
 export function getModeInstructions(name: string): string | undefined {
-  return getMode(name)?.instructions;
+  return getAgent(name)?.instructions;
 }
 
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 function registerModeCommands(pi: ExtensionAPI): void {
-  seedDefaultModes();
+  // Auto-populate oh-my-opencode-slim.json with agents from defaults if empty
+  try {
+    const configPath = getConfigPath();
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (!raw.agents && fs.existsSync(DEFAULTS_PATH)) {
+      raw.agents = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+      fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
+    }
+  } catch {}
 
-  pi.registerCommand("mode", {
-    description: `Switch mode. Usage: /mode <name>`,
-    handler: async (args: string, ctx: any) => {
-      const trimmed = args.trim();
-      const publics = getPublicModes();
-      const allNames = getAllModeNames();
-
-      if (trimmed) {
-        if (!allNames.includes(trimmed)) {
-          ctx.ui.notify(`Unknown mode: "${trimmed}".`, "error");
-          return;
-        }
-        applyMode(pi, trimmed);
-        const def = getMode(trimmed);
-        ctx.ui.notify(`Switched to: ${trimmed} (${def?.label ?? trimmed})`, "success");
-        return;
-      }
-
+  // /modes command (kept for backward compatibility)
+  pi.registerCommand("subagents", {
+    description: "List all available agents and their types",
+    handler: async (_args, ctx) => {
+      const all = getAllAgentNames();
+      const publics = getPublicAgents();
       const current = loadActiveMode();
-      const options = publics.map((k) => {
-        const def = getMode(k);
-        return `${k === current ? "\u25cf " : "\u25cb "}${k} \u2014 ${def?.label ?? k}`;
-      });
-      const selected = await ctx.ui.select(`Current: ${current}. Select mode:`, options);
-      if (!selected) return;
-      const picked = publics[options.indexOf(selected)];
-      if (!picked || picked === current) return;
-      applyMode(pi, picked);
-      const def = getMode(picked);
-      ctx.ui.notify(`Switched to: ${picked} (${def?.label ?? picked})`, "success");
+      const lines = all.map(n => {
+        const a = getAgent(n);
+        if (!a) return "";
+        const marker = n === current ? " ●" : "  ";
+        const label = a.label || n;
+        const typeLabel = a.type === "mode" ? "模式" : a.type === "subagent" ? "子代理" : "两者";
+        return `${marker} ${n} (${label}) — ${typeLabel}`;
+      }).filter(Boolean);
+      ctx.ui.notify(`可用 agents (${all.length}):\n${lines.join("\n")}`, "info");
     },
   });
 }
 
 function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
-    // Track current session file
     try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
 
-    // If resuming a session, restore its saved mode
     if (event.reason === "resume" && _currentSessionFile) {
       const saved = loadSessionMode(_currentSessionFile);
-      if (saved && getMode(saved)) {
-        _modeDefs = null;
-        seedDefaultModes();
+      if (saved && getAgent(saved)) {
+        _agentDefs = null;
         applyMode(pi, saved);
         return;
       }
     }
 
-    _modeDefs = null;
-    seedDefaultModes();
+    _agentDefs = null;
     const mode = loadActiveMode();
     applyMode(pi, mode);
   });
@@ -298,16 +255,6 @@ function registerModeHooks(pi: ExtensionAPI): void {
       const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
       if (sf) saveSessionMode(sf, loadActiveMode());
     } catch {}
-  });
-
-  pi.on("before_agent_start", async (event) => {
-    const mode = loadActiveMode();
-    const def = getMode(mode);
-    if (def?.instructions) {
-      return {
-        systemPrompt: `${def.instructions}\n\n---\n\n${event.systemPrompt}`,
-      };
-    }
   });
 }
 
@@ -320,37 +267,30 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "switch_mode",
     label: "Switch Mode",
-    description: `Switch to the next mode in the workflow chain. Can return to the first mode. Only call after the user explicitly confirms.`,
+    description: `Switch to the next agent/mode in the workflow chain. Can return to the first. Only call after the user explicitly confirms.`,
     parameters: Type.Object({
-      mode: Type.String({ description: "Target mode name" }),
+      mode: Type.String({ description: "Target agent/mode name" }),
     }),
     async execute(_toolCallId: string, params: { mode: string }) {
       const name = params.mode?.trim().toLowerCase();
-      if (!name || !getMode(name)) {
-        return {
-          content: [{ type: "text" as const, text: `\u4e0d\u5b58\u5728\u8be5\u6a21\u5f0f\u3002` }],
-          isError: true,
-          details: {} as any,
-        };
+      if (!name || !getAgent(name)) {
+        return { content: [{ type: "text" as const, text: `不存在该 agent。` }], isError: true, details: {} as any };
+      }
+      const agent = getAgent(name)!;
+      if (agent.type !== "mode" && agent.type !== "both") {
+        return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
 
       const currentMode = loadActiveMode();
-      const currentDef = getMode(currentMode);
+      const currentDef = getAgent(currentMode);
       const allowed = currentDef?.next ?? [];
 
       if (!allowed.includes(name)) {
-        return {
-          content: [{ type: "text" as const, text: `\u5f53\u524d\u6a21\u5f0f\u4e0d\u5141\u8bb8\u76f4\u63a5\u5207\u6362\u5230\u76ee\u6807\u6a21\u5f0f\u3002` }],
-          isError: true,
-          details: {} as any,
-        };
+        return { content: [{ type: "text" as const, text: `当前模式不允许直接切换到目标模式。` }], isError: true, details: {} as any };
       }
 
       applyMode(pi, name);
-      return {
-        content: [{ type: "text" as const, text: `\u5207\u6362\u5230: ${name}` }],
-        details: { mode: name },
-      };
+      return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };
     },
   });
 }
