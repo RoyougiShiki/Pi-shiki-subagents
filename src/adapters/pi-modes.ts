@@ -213,8 +213,8 @@ function registerModeCommands(pi: ExtensionAPI): void {
   } catch {}
 
   // /modes command (kept for backward compatibility)
-  pi.registerCommand("subagents", {
-    description: "List all available agents and their types",
+  pi.registerCommand("agents", {
+    description: "列出所有可用 agent 及其类型",
     handler: async (_args, ctx) => {
       const all = getAllAgentNames();
       const publics = getPublicAgents();
@@ -228,6 +228,43 @@ function registerModeCommands(pi: ExtensionAPI): void {
         return `${marker} ${n} (${label}) — ${typeLabel}`;
       }).filter(Boolean);
       ctx.ui.notify(`可用 agents (${all.length}):\n${lines.join("\n")}`, "info");
+    },
+  });
+
+  pi.registerCommand("mode", {
+    description: `切换模式。用法：/mode <名字> 或 /mode 弹出选择`,
+    handler: async (args: string, ctx: any) => {
+      const trimmed = args.trim().toLowerCase();
+      const publics = getPublicAgents();
+      const allNames = getAllAgentNames();
+
+      if (trimmed) {
+        if (!allNames.includes(trimmed)) {
+          ctx.ui.notify(`未知模式: "${trimmed}"。`, "error");
+          return;
+        }
+        const agent = getAgent(trimmed);
+        if (agent && (agent.type === "mode" || agent.type === "both")) {
+          applyMode(pi, trimmed);
+          ctx.ui.notify(`切换到: ${trimmed}`, "info");
+        } else {
+          ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
+        }
+        return;
+      }
+
+      const current = loadActiveMode();
+      const options = publics.map((k: string) => {
+        const a = getAgent(k);
+        const label = a?.label || k;
+        return `${k === current ? "● " : "○ "}${k} — ${label}`;
+      });
+      const selected = await ctx.ui.select(`当前: ${current}. 选择模式:`, options);
+      if (!selected) return;
+      const picked = publics[options.indexOf(selected)];
+      if (!picked || picked === current) return;
+      applyMode(pi, picked);
+      ctx.ui.notify(`切换到: ${picked}`, "info");
     },
   });
 }

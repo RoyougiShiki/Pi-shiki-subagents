@@ -815,6 +815,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     ensureAgentFiles();
 
+    // Update status with current mode
+    try {
+      const m = loadActiveMode();
+      ctx.ui.setStatus("mode", `Mode: ${m}`);
+    } catch {}
+
     // omo_subagent replaces the old subagent tool — registered in registerSubagentTool
   });
 

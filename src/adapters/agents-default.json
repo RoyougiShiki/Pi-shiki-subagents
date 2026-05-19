@@ -215,7 +215,7 @@
     "next": []
   },
   "oracle": {
-    "type": "both",
+    "type": "subagent",
     "tools": [
       "read",
       "grep",
