@@ -57,6 +57,9 @@ declare module "@earendil-works/pi-coding-agent" {
 
   export interface ExtensionCommandContext extends ExtensionContext {
     waitForIdle(): Promise<void>;
+    switchSession(sessionPath: string, options?: {
+      withSession?: (ctx: any) => Promise<void>;
+    }): Promise<{ cancelled: boolean }>;
   }
 
   export interface ISessionManager {

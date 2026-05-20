@@ -387,7 +387,6 @@ export function getPool(): AgentPool {
   return activePool;
 }
 
-/** 获取某个池子进程的引用，供 hub 使用 */
 /** 获取某个池子进程的 ChildProcess */
 export function getPoolProcess(id: string): ChildProcess | undefined {
   return getPool().getProcess(id);
@@ -624,24 +623,4 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
   });
 
   // ── /subagents command (list pool status) ─────────────────────────────
-  pi.registerCommand("subagents", {
-    description: "List all pool agents and their status",
-    handler: async (_args, ctx) => {
-      if (!activePool) {
-        ctx.ui.notify("No pool agents", "info");
-        return;
-      }
-      const list = activePool.list();
-      if (list.length === 0) {
-        ctx.ui.notify("Pool is empty", "info");
-        return;
-      }
-      for (const a of list) {
-        const statusIcon = a.status === "dead" ? "✗" : a.status === "streaming" ? "▶" : "●";
-        const age = Math.floor((Date.now() - a.startedAt) / 1000);
-        const msg = `${statusIcon} ${a.id} (${a.agentName}) — ${a.status} | ${a.messageCount} msgs | ${age}s ago | model: ${a.model}`;
-        ctx.ui.notify(msg, "info");
-      }
-    },
-  });
 }
