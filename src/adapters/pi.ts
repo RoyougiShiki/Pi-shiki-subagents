@@ -56,7 +56,9 @@ import {
 } from "../core/tool-detector";
 import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
-import { registerSubagentTool } from "./subagent-pool";
+import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "./subagent-pool";
+import { getHub } from "./pi-hub";
+import { runPrivateChat, runGroupChat } from "./pi-chat-bridge";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -567,40 +569,90 @@ function createToolImplementations(config: OmniMoConfig | null) {
       ) {
         const mode = params.mode ?? "isolated";
         if (mode === "meeting") {
-          const meeting = await runPiMeeting({
-            question: params.question,
+          // 非阻塞会议模式：立即返回，后台运行
+          const resolved = resolvePiCouncilParticipants({
+            config,
             preset: params.preset,
             participants: params.participants,
-            objective: params.objective,
-            maxRounds: params.maxRounds,
-            maxDurationMs: params.maxDurationMs,
-            includeTranscript: params.includeTranscript,
-            backend: params.backend,
-            ctx,
-            config,
           });
-          if (meeting.error || !meeting.result) {
+          if (resolved.error) {
+            return { content: [{ type: "text" as const, text: resolved.error }], details: {}, isError: true };
+          }
+
+          const { spawn } = await import("node:child_process");
+          const hub = getHub();
+          const meetingId = `omo-meet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const spawnedProcs: import("node:child_process").ChildProcess[] = [];
+          const errors: string[] = [];
+
+          // 启动每个 participant RPC 进程
+          for (const participant of resolved.participants) {
+            const agentPrompt = AGENT_PROMPTS[participant.agent]?.prompt || "You are a specialist.";
+            const task = [
+              `You are ${participant.name} (${participant.agent}) in a group discussion.`,
+              `Topic: ${params.question}`,
+              `Objective: ${params.objective || "discuss"}`,
+              "",
+              agentPrompt,
+              participant.prompt ? `\nRole guidance: ${participant.prompt}` : "",
+              "",
+              "--- Protocol ---",
+              "You are in a real-time chat with other agents and a user.",
+              "You will receive messages from others with [Name]: prefix.",
+              "Each new message is sent to you as a prompt.",
+              "Read and respond when you have something to add.",
+              "Respond concisely and directly.",
+              "Stay in context of the topic.",
+            ].filter(Boolean).join("\n");
+
+            try {
+              const sessionDir = path.join(homedir(), ".pi", "agent", "sessions", "subagents");
+              fs.mkdirSync(sessionDir, { recursive: true });
+              const proc = spawn("pi", ["--mode", "rpc", "--session-dir", sessionDir], {
+                stdio: ["pipe", "pipe", "pipe"],
+                env: { ...process.env, OMO_SUB_AGENT: "1" },
+              });
+              spawnedProcs.push(proc);
+              proc.stdin!.write(JSON.stringify({ type: "prompt", message: task }) + "\n");
+            } catch (e: any) {
+              errors.push(`${participant.name}: spawn failed - ${e.message}`);
+            }
+          }
+
+          if (spawnedProcs.length === 0) {
             return {
-              content: [{ type: "text" as const, text: meeting.error ?? "Meeting failed before starting." }],
-              details: { mode, question: params.question },
+              content: [{ type: "text" as const, text: `❌ 群聊创建失败，所有参与者都无法启动。\n${errors.join("\n")}` }],
+              details: { mode, question: params.question, errors },
               isError: true,
             };
           }
+
+          // 注册到 hub
+          const participants = resolved.participants
+            .filter((_, i) => i < spawnedProcs.length)
+            .map((p, i) => ({
+              name: p.name,
+              agentType: p.agent,
+              proc: spawnedProcs[i],
+            }));
+          hub.registerMeeting(meetingId, params.question.slice(0, 60), participants);
+
+          // 无需 setTimeout——用户加入群聊后第一条消息就是讨论开始
+          // 每个 participant 已经收到了初始任务（含 topic），等待第一条消息触发回复
+
+          const warnText = errors.length > 0 ? `\n\n⚠️ 部分参与者启动失败:\n${errors.join("\n")}` : "";
+
           return {
-            content: [{ type: "text" as const, text: formatPiMeetingResult(meeting.result) }],
+            content: [{ type: "text" as const, text: `✅ 群聊已创建: "${params.question.slice(0, 60)}"\n参与: ${participants.map(p => p.name).join(", ")}${warnText}\n\n使用 /chat 加入讨论，发言会被同步给所有人。` }],
             details: {
               mode,
               question: params.question,
-              meetingId: meeting.result.meetingId,
-              status: meeting.result.status,
-              roundsCompleted: meeting.result.roundsCompleted,
-              requestedBackend: meeting.result.requestedBackend,
-              backendUsed: meeting.result.backendUsed,
-              fallbackReason: meeting.result.fallbackReason,
-              participants: meeting.result.participants.map((p: PiMeetingParticipantResult) => ({ name: p.name, agent: p.agent, status: p.status })),
-              keySignals: meeting.result.keySignals,
+              meetingId,
+              status: "active",
+              participants: participants.map(p => ({ name: p.name, agentType: p.agentType })),
+              errors: errors.length > 0 ? errors : undefined,
             },
-            isError: meeting.result.status === "failed" || meeting.result.status === "timed_out",
+
           };
         }
 
@@ -843,7 +895,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, _ctx) => {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
-    if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__") {
+    if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
       return { systemPrompt: event.systemPrompt };
     }
     
@@ -888,8 +940,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
   });
 
-  // ── Inject mode identity before user message (always runs) ────
+  // ── Inject mode identity before user message (skip sub-agents) ────
   pi.on("before_provider_request", (event, _ctx) => {
+    if (process.env.OMO_SUB_AGENT === "1") return;
     try {
       const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
       if (!fs.existsSync(cfgPath)) return;
@@ -1366,6 +1419,89 @@ ${agentOutput.slice(0, 3000)}`;
         ctx.ui.notify("操作失败: " + err.message, "error");
       }
     },
+  });
+
+  // ── /chat command ────────────────────────────────────────────────
+  pi.registerCommand("chat", {
+    description: "与子代理私聊或加入群聊。交互式选择后进入对话。",
+    handler: async (_args, ctx) => {
+      const pool = getPool();
+      const hub = getHub();
+
+      interface ChatOption {
+        label: string;
+        type: "chat" | "group";
+        meetingId: string;
+        name: string;
+      }
+      const options: ChatOption[] = [];
+
+      const agents = pool.list();
+      for (const a of agents) {
+        if (a.status === "dead") continue;
+        if (hub.getMeeting(a.id)) continue;
+        const displayName = a.name || a.agentName;
+        const label = `${displayName} (${a.agentName}) — ${a.messageCount}条消息`;
+        options.push({ label, type: "chat", meetingId: a.id, name: displayName });
+      }
+
+      // 活跃的群聊（只显示 type=group 的）
+      const meetings = hub.getActiveMeetings();
+      for (const m of meetings) {
+        if (m.type === "group") {
+        const names = m.participants.map(p => p.name).join(", ");
+        const label = `群聊: ${m.name} (${names}) — ${m.messages.length}条消息`;
+        options.push({ label, type: "group", meetingId: m.id, name: m.name });
+        }
+      }
+
+      // 已有的私聊（可继续）
+      for (const m of meetings) {
+        if (m.type !== "chat") continue;
+        const label = `继续私聊: ${m.name} — ${m.messages.length}条消息`;
+        options.push({ label, type: "chat", meetingId: m.id, name: m.name });
+      }
+
+      if (options.length === 0) {
+        ctx.ui.notify("没有活跃的子代理或群聊", "info");
+        return;
+      }
+
+      const selected = await ctx.ui.select("选择要进入的会话:", options.map(o => o.label));
+      if (!selected) return;
+      const picked = options.find(o => o.label === selected);
+      if (!picked) return;
+
+      if (picked.type === "chat") {
+        const existing = hub.getMeeting(picked.meetingId);
+        if (!existing) {
+          const proc = getPoolProcess(picked.meetingId);
+          if (!proc) {
+            ctx.ui.notify("子代理进程已不存在", "error");
+            return;
+          }
+          const agentInfo = agents.find((a: PoolAgentInfo) => a.id === picked.meetingId);
+          hub.registerChat(picked.meetingId, picked.name, {
+            name: picked.name,
+            agentType: agentInfo?.agentName ?? "agent",
+            proc,
+          });
+        }
+        await runPrivateChat(picked.meetingId, picked.name, ctx);
+      } else {
+        await runGroupChat(picked.meetingId, picked.name, ctx);
+      }
+    },
+  });
+
+  // ── Cleanup on session shutdown ────────────────────────────────────
+  pi.on("session_shutdown", async () => {
+    try {
+      const { getPool } = await import("./subagent-pool");
+      getPool().killAll();
+    } catch (err) {
+      console.error("[pi-hub] Cleanup error:", err);
+    }
   });
 
   // ── Log startup ─────────────────────────────────────────────────────

@@ -149,6 +149,9 @@ export async function runPiCouncilParticipant(args: {
       appendSystemPrompt: "__OMO_SUB_AGENT__",
     });
     session = created.session;
+    if (!session) {
+      return { name: participant.name, agent: participant.agent, status: "failed" as const, error: "Failed to create agent session" };
+    }
 
     const prompt = `${AGENT_PROMPTS[participant.agent]?.prompt ?? ""}\n\n${formatPiCouncilPrompt(question, participant)}`;
     const promptPromise = session.prompt(prompt, { source: "extension" });

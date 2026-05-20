@@ -45,6 +45,7 @@ export interface SingleResult {
 
 export interface PoolAgentInfo {
   id: string;
+  name: string;         // 人类可读名称
   agentName: string;
   status: "starting" | "idle" | "streaming" | "dead";
   startedAt: number;
@@ -196,6 +197,7 @@ export async function runIsolatedTask(
 
 interface PoolEntry {
   id: string;
+  name: string;         // 人类可读名称
   agentName: string;
   proc: ChildProcess;
   status: "starting" | "idle" | "streaming" | "dead";
@@ -214,6 +216,7 @@ class AgentPool {
   /** Spawn a new persistent agent via pi --mode rpc. */
   async spawn(opts: {
     id: string;
+    name: string;        // 人类可读名称
     agent: AgentConfig;
     task: string;
     model?: string;
@@ -223,16 +226,20 @@ class AgentPool {
       return { response: "", error: `Agent "${opts.id}" already exists in pool` };
     }
 
-    const args = ["--mode", "rpc", "--no-session"];
+    const sessionDir = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
+    fs.mkdirSync(sessionDir, { recursive: true });
+    const args = ["--mode", "rpc", "--session-dir", sessionDir];
     if (opts.model) args.push("--model", opts.model);
 
     const proc = spawn("pi", args, {
       cwd: opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, OMO_SUB_AGENT: "1" },
     });
 
     const entry: PoolEntry = {
       id: opts.id,
+      name: opts.name,
       agentName: opts.agent.name,
       proc,
       status: "starting",
@@ -340,6 +347,7 @@ class AgentPool {
     for (const [id, entry] of this.agents) {
       result.push({
         id,
+        name: entry.name,
         agentName: entry.agentName,
         status: entry.status,
         startedAt: entry.startedAt,
@@ -349,6 +357,11 @@ class AgentPool {
       });
     }
     return result;
+  }
+
+  /** 获取某个进程的 ChildProcess */
+  getProcess(id: string): ChildProcess | undefined {
+    return this.agents.get(id)?.proc;
   }
 
   /** Kill a pool agent. */
@@ -369,9 +382,15 @@ class AgentPool {
 // Singleton pool instance (lifetime = pi session)
 let activePool: AgentPool | null = null;
 
-function getPool(): AgentPool {
+export function getPool(): AgentPool {
   if (!activePool) activePool = new AgentPool();
   return activePool;
+}
+
+/** 获取某个池子进程的引用，供 hub 使用 */
+/** 获取某个池子进程的 ChildProcess */
+export function getPoolProcess(id: string): ChildProcess | undefined {
+  return getPool().getProcess(id);
 }
 
 // ─── Agent discovery (reads .md files) ────────────────────────────────────
@@ -448,14 +467,24 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
     name: "omo_subagent",
     label: "OMO Subagent",
     description: [
-      "Single: { agent, task } — 一次性查询，适合单次任务",
-      "Pool spawn: { pool: \"spawn\", id, agent, task } — 创建长驻子代理，持续对话",
-      "Pool send: { pool: \"send\", id, message } — 继续与已有子代理对话",
-      "Pool list: { pool: \"list\" } — 查看活跃子代理",
-      "Pool kill: { pool: \"kill\", id } — 杀掉子代理",
+      "╔══════════════════════════════════════════════════╗",
+      "║  选择指南（选错会阻塞主 agent 或无法继续对话）      ║",
+      "║  • 只需要一次结果，不需要后续对话 → Single         ║",
+      "║  • 需要持续对话 / 用户可能要用 /chat 聊天 → Pool  ║",
+      "╚══════════════════════════════════════════════════╝",
       "",
-      "实际工作流：同一个话题一般 pool:spawn 创建后反复 pool:send 推进。",
-      "注意：任务描述中应包含文件路径和代码上下文，子代理会自动读取分析。",
+      "Single: { agent, task }",
+      "  → 一次性查询，阻塞主 agent，不可继续对话",
+      "",
+      "Pool spawn: { pool: \"spawn\", id, agent, task }",
+      "  → 后台创建长驻子代理（非阻塞）",
+      "  → 之后可用 pool:send 继续，也可用 /chat 命令进入聊天面板",
+      "",
+      "Pool send: { pool: \"send\", id, message }",
+      "  → 继续与已有长驻子代理对话，非阻塞",
+      "",
+      "Pool list: { pool: \"list\" } → 查看活跃子代理",
+      "Pool kill: { pool: \"kill\", id } → 杀掉子代理",
     ].join("\n"),
     parameters: {
       type: "object",
@@ -520,14 +549,17 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (!agentCfg) {
             return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
           }
-          // Fire-and-forget: spawn without awaiting initial response
+          // Fire-and-forget: spawn without awaiting
           pool.spawn({
             id: params.id,
+            name: params.id,
             agent: agentCfg,
             task: params.task,
             model: params.model || agentCfg.model || defaultModel,
             cwd,
-          }).catch(() => {}); // ignore background errors
+          }).catch((err) => {
+            console.error(`[omo-subagent] Spawn ${params.id} failed:`, err);
+          });
           return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Use pool:send to interact.` }], details: {} };
         }
 

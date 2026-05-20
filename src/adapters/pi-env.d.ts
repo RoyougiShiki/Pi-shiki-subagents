@@ -92,7 +92,7 @@ declare module "@earendil-works/pi-coding-agent" {
     setStatus(id: string, text: string): void;
     setWidget(id: string, lines: string[] | undefined): void;
     custom<T>(
-      builder: (tui: any, theme: any, keybindings: any, done: () => void) => any,
+      builder: (tui: any, theme: any, keybindings: any, done: (result: T) => void) => any,
       options?: any,
     ): Promise<T>;
   }
@@ -166,6 +166,12 @@ declare module "@earendil-works/pi-coding-agent" {
   export function isEditToolResult(event: ToolResultEvent): boolean;
   export function isReadToolResult(event: ToolResultEvent): boolean;
   export function isWriteToolResult(event: ToolResultEvent): boolean;
+  export class DynamicBorder {
+    constructor(color?: (str: string) => string);
+    invalidate(): void;
+    render(width: number): string[];
+  }
+
   export function getAgentDir(): string;
   export function parseFrontmatter<T>(content: string): { frontmatter: T; body: string };
   export function stripFrontmatter(content: string): string;
@@ -186,6 +192,46 @@ declare module "@earendil-works/pi-coding-agent" {
     dispose(): void;
     abort(): Promise<void>;
     isStreaming: boolean;
+  }
+}
+
+declare module "@earendil-works/pi-tui" {
+  export enum Key {
+    up = "up",
+    down = "down",
+    pageUp = "pageUp",
+    pageDown = "pageDown",
+  }
+  export function matchesKey(data: string, key: Key): boolean;
+
+  export class Container {
+    children: any[];
+    addChild(c: any): void;
+    removeChild(c: any): void;
+    clear(): void;
+    invalidate(): void;
+    render(width: number): string[];
+  }
+  export class Input {
+    focused: boolean;
+    onSubmit?: (value: string) => void;
+    onEscape?: () => void;
+    getValue(): string;
+    setValue(value: string): void;
+    handleInput(data: string): void;
+    invalidate(): void;
+    render(width: number): string[];
+  }
+  export class Spacer {
+    constructor(n?: number);
+    invalidate(): void;
+    render(width: number): string[];
+  }
+  export class Text {
+    constructor(text: string, paddingX?: number, paddingY?: number);
+    setText(text: string): void;
+    invalidate(): void;
+    render(width: number): string[];
   }
 }
 

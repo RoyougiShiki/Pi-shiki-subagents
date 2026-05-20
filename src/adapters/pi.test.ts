@@ -28,10 +28,50 @@ mock.module('@earendil-works/pi-coding-agent', () => ({
     },
   })),
   getAgentDir: () => '/tmp/omo-pi-test/agent',
+  DynamicBorder: class { constructor(_c?: any) {} invalidate() {} render(_w: number) { return ['']; } },
   SessionManager: {
     inMemory: () => ({ getBranch: () => [], getEntries: () => [], getLeafId: () => undefined, getSessionFile: () => undefined }),
   },
 }));
+mock.module("@earendil-works/pi-tui", () => {
+  class MockInput {
+    focused = false;
+    onSubmit;
+    onEscape;
+    getValue() { return ""; }
+    setValue(_v) {}
+    handleInput(_d) {}
+    invalidate() {}
+    render(_w) { return [""]; }
+  }
+  class MockContainer {
+    children = [];
+    addChild(c) { this.children.push(c); }
+    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); }
+    clear() { this.children = []; }
+    invalidate() {}
+    render(_w) { return [""]; }
+  }
+  class MockSpacer {
+    constructor(_n) {}
+    invalidate() {}
+    render(_w) { return [""]; }
+  }
+  class MockText {
+    constructor(_t, _x, _y) {}
+    invalidate() {}
+    render(_w) { return [""]; }
+  }
+  return {
+    Input: MockInput,
+    Container: MockContainer,
+    Spacer: MockSpacer,
+    Text: MockText,
+    matchesKey: () => false,
+    Key: { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown' },
+  };
+});
+
 
 describe('Pi adapter config helpers', () => {
   test('strips JSON comments without breaking URLs inside strings', async () => {
@@ -149,7 +189,7 @@ describe('Pi adapter meeting helpers', () => {
 
     expect(normalizePiMeetingBackend(undefined)).toBe('session');
     expect(normalizePiMeetingBackend('session')).toBe('session');
-    expect(normalizePiMeetingBackend('collaborating')).toBe('collaborating');
+    expect(normalizePiMeetingBackend('collaborating')).toBe('pool');
     expect(normalizePiMeetingBackend('internal-store')).toBe('session');
   });
 
@@ -162,45 +202,13 @@ describe('Pi adapter meeting helpers', () => {
     expect(sessionResolution.fallbackReason).toBeUndefined();
 
     const collaboratingResolution = resolvePiMeetingBackend('collaborating');
-    expect(collaboratingResolution.requestedBackend).toBe('collaborating');
-    expect(collaboratingResolution.backendUsed).toBe('collaborating');
+    // collaborating 已被 pool 替代
+    expect(collaboratingResolution.requestedBackend).toBe('pool');
+    expect(collaboratingResolution.backendUsed).toBe('pool');
     expect(collaboratingResolution.fallbackReason).toBeUndefined();
   });
 
-  test('resolves collaborating package root from known install locations', async () => {
-    const { resolveCollaboratingPackageRoot } = await import('./pi-meeting');
 
-    const root = resolveCollaboratingPackageRoot();
-    expect(root.includes('pi-collaborating-agents')).toBe(true);
-  });
-
-  test('builds collaborating spawn options without child session-control', async () => {
-    const { createCollaboratingSpawnOptions } = await import('./pi-meeting');
-
-    const onLaunch = () => {};
-    const options = createCollaboratingSpawnOptions({
-      meetingId: 'omo-meet-smoke',
-      phase: 'discussion',
-      round: 1,
-      index: 2,
-      chairName: 'omo-collab-chair-omo-meet-smoke',
-      collabConfig: {
-        subagentLaunchMode: 'process',
-        closeCompletedCmuxPanes: true,
-      } as any,
-      onLaunch,
-    });
-
-    expect(options).toMatchObject({
-      runId: 'omo-meet-smoke-discussion-1',
-      parentAgentName: 'omo-collab-chair-omo-meet-smoke',
-      enableSessionControl: false,
-      launchMode: 'process',
-      closeCompletedCmuxPane: true,
-      launchDelayMs: 300,
-    });
-    expect(options.onLaunch).toBe(onLaunch);
-  });
 
   test('formats completed collaborating backend metadata from live-smoke path', async () => {
     const { formatPiMeetingResult } = await import('./pi');
