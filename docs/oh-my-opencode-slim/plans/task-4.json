@@ -1,0 +1,29 @@
+{
+  "id": 4,
+  "title": "接通 workflow stage 与 Chat overlay/hub",
+  "context": "此前 autoOpenChat 使用 subagent-${agent}，但 workflow 没注册对应 hub meeting。此任务改为让 poolId 同时作为 pool/hub/chat/stage id，支持当前 stage 多轮交互。",
+  "status": "completed",
+  "files": [
+    "src/adapters/pi.ts",
+    "src/adapters/pi-hub.ts",
+    "src/adapters/pi-hub.test.ts",
+    "src/adapters/pi-chat-bridge.ts",
+    "src/adapters/workflow-chat-binding.ts",
+    "src/adapters/workflow-chat-binding.test.ts",
+    "src/adapters/workflow-manager.ts"
+  ],
+  "dependencies": [2],
+  "steps": [
+    "StageEvent 携带 poolId。",
+    "stage pool 启动后注册 hub private chat。",
+    "autoOpenChat 改为使用 poolId。",
+    "支持主对话补充转发到当前 stage。",
+    "更新 pi-hub/chat 相关测试。",
+    "提取 workflow-chat-binding helper，验证 running event 注册 private chat、用户消息路由到 workflowManager.sendUserMessage，message event autoOpenChat。"
+  ],
+  "validation": [
+    "bun test src/adapters/pi-hub.test.ts src/adapters/workflow-chat-binding.test.ts",
+    "bun test src/config/loader.test.ts src/config/utils.test.ts src/config/workflows-and-tools.test.ts src/adapters/agents-config.test.ts src/adapters/pi-hub.test.ts src/adapters/workflow-chat-binding.test.ts src/adapters/delegation-rules.test.ts src/adapters/agent-discovery.test.ts src/adapters/agent-runtime-config.test.ts src/adapters/subagent-pool.test.ts src/adapters/workflow-manager.test.ts",
+    "bun run typecheck"
+  ]
+}

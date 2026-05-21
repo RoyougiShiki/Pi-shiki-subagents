@@ -234,7 +234,6 @@ describe('config-io', () => {
     paths.ensureConfigDir();
 
     const result = writeLiteConfig({
-      hasTmux: true,
       installSkills: false,
       installCustomSkills: false,
       reset: false,
@@ -247,7 +246,6 @@ describe('config-io', () => {
     );
     expect(saved.preset).toBe('openai');
     expect(saved.presets.openai).toBeDefined();
-    expect(saved.tmux.enabled).toBe(true);
   });
 
   test('disableDefaultAgents disables explore and general agents', () => {
@@ -327,7 +325,6 @@ describe('config-io', () => {
             librarian: { model: 'zai-coding-plan/glm-4.7' },
           },
         },
-        tmux: { enabled: true },
       }),
     );
 
@@ -338,7 +335,6 @@ describe('config-io', () => {
     expect(detected.hasAnthropic).toBe(true);
     expect(detected.hasCopilot).toBe(true);
     expect(detected.hasZaiPlan).toBe(true);
-    expect(detected.hasTmux).toBe(true);
   });
 
   test('detectCurrentConfig treats local repo path entries as installed', () => {

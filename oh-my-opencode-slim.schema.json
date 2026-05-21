@@ -256,6 +256,9 @@
             "variant": {
               "type": "string"
             },
+            "thinking": {
+              "type": "string"
+            },
             "skills": {
               "type": "array",
               "items": {
@@ -267,6 +270,38 @@
               "items": {
                 "type": "string"
               }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "mode",
+                "subagent",
+                "both"
+              ]
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "delegates": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "blocked": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "hidden": {
+              "type": "boolean"
+            },
+            "label": {
+              "type": "string"
             },
             "prompt": {
               "type": "string",
@@ -340,6 +375,9 @@
           "variant": {
             "type": "string"
           },
+          "thinking": {
+            "type": "string"
+          },
           "skills": {
             "type": "array",
             "items": {
@@ -351,6 +389,38 @@
             "items": {
               "type": "string"
             }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mode",
+              "subagent",
+              "both"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "delegates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hidden": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
           },
           "prompt": {
             "type": "string",
@@ -386,64 +456,6 @@
       "type": "array",
       "items": {
         "type": "string"
-      }
-    },
-    "multiplexer": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "default": "none",
-          "type": "string",
-          "enum": [
-            "auto",
-            "tmux",
-            "zellij",
-            "none"
-          ]
-        },
-        "layout": {
-          "default": "main-vertical",
-          "type": "string",
-          "enum": [
-            "main-horizontal",
-            "main-vertical",
-            "tiled",
-            "even-horizontal",
-            "even-vertical"
-          ]
-        },
-        "main_pane_size": {
-          "default": 60,
-          "type": "number",
-          "minimum": 20,
-          "maximum": 80
-        }
-      }
-    },
-    "tmux": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "default": false,
-          "type": "boolean"
-        },
-        "layout": {
-          "default": "main-vertical",
-          "type": "string",
-          "enum": [
-            "main-horizontal",
-            "main-vertical",
-            "tiled",
-            "even-horizontal",
-            "even-vertical"
-          ]
-        },
-        "main_pane_size": {
-          "default": 60,
-          "type": "number",
-          "minimum": 20,
-          "maximum": 80
-        }
       }
     },
     "interview": {
@@ -497,6 +509,150 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 50
+        }
+      }
+    },
+    "workflows": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "default": "standard-dev",
+          "type": "string"
+        },
+        "list": {
+          "default": [
+            {
+              "name": "standard-dev",
+              "description": "标准开发流程：澄清 → 分析 → 计划 → 标准实施",
+              "stages": [
+                {
+                  "id": "clarify",
+                  "agent": "thinker-clarify",
+                  "description": "澄清用户需求",
+                  "outputSchema": "clarify"
+                },
+                {
+                  "id": "analysis",
+                  "agent": "thinker-analysis",
+                  "description": "分析影响范围、方案和风险",
+                  "outputSchema": "analysis"
+                },
+                {
+                  "id": "plan",
+                  "agent": "designer",
+                  "description": "生成实施计划与任务文件",
+                  "outputSchema": "plan"
+                },
+                {
+                  "id": "implement",
+                  "agent": "implementer",
+                  "description": "按计划驱动实现与审查",
+                  "outputSchema": "implementation"
+                }
+              ]
+            },
+            {
+              "name": "quick-fix",
+              "description": "快速修复流程：分析 → 快速实施",
+              "stages": [
+                {
+                  "id": "analysis",
+                  "agent": "thinker-analysis",
+                  "description": "确认小范围修复边界",
+                  "outputSchema": "analysis"
+                },
+                {
+                  "id": "worker",
+                  "agent": "worker",
+                  "description": "驱动 fixer 实现并用 oracle 审查",
+                  "outputSchema": "implementation"
+                }
+              ]
+            },
+            {
+              "name": "batch-dev",
+              "description": "批量开发流程：分析 → 计划 → 批次执行",
+              "stages": [
+                {
+                  "id": "analysis",
+                  "agent": "thinker-analysis",
+                  "description": "识别可批量处理的独立任务",
+                  "outputSchema": "analysis"
+                },
+                {
+                  "id": "plan",
+                  "agent": "designer",
+                  "description": "生成批量任务计划",
+                  "outputSchema": "plan"
+                },
+                {
+                  "id": "batch",
+                  "agent": "batch",
+                  "description": "按依赖分批驱动 fixer/oracle",
+                  "outputSchema": "implementation"
+                }
+              ]
+            },
+            {
+              "name": "review-only",
+              "description": "只读审查流程：分析 → oracle 审查",
+              "stages": [
+                {
+                  "id": "analysis",
+                  "agent": "thinker-analysis",
+                  "description": "整理审查目标和上下文",
+                  "outputSchema": "analysis"
+                },
+                {
+                  "id": "review",
+                  "agent": "oracle",
+                  "description": "进行只读审查并输出风险",
+                  "outputSchema": "review"
+                }
+              ]
+            },
+            {
+              "name": "research-only",
+              "description": "研究流程：澄清 → 分析",
+              "stages": [
+                {
+                  "id": "clarify",
+                  "agent": "thinker-clarify",
+                  "description": "澄清研究问题",
+                  "outputSchema": "clarify"
+                },
+                {
+                  "id": "analysis",
+                  "agent": "thinker-analysis",
+                  "description": "只读研究并给出结论",
+                  "outputSchema": "analysis"
+                }
+              ]
+            }
+          ],
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "stages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "stages"
+            ]
+          }
         }
       }
     },
@@ -690,6 +846,88 @@
       "items": {
         "type": "string"
       }
+    }
+  },
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "agent": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "task": {
+              "type": "string"
+            },
+            "outputSchema": {
+              "type": "string"
+            },
+            "keepAlive": {
+              "type": "boolean"
+            },
+            "allowedSubagents": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "agent"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "choice"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "branches": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "stages": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": [
+                  "label",
+                  "description",
+                  "stages"
+                ]
+              }
+            }
+          },
+          "required": [
+            "type",
+            "branches"
+          ]
+        }
+      ]
     }
   },
   "title": "oh-my-opencode-slim",

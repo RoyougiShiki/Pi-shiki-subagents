@@ -11,7 +11,6 @@ describe('providers', () => {
 
   test('generateLiteConfig always generates openai preset', () => {
     const config = generateLiteConfig({
-      hasTmux: false,
       installSkills: false,
       installCustomSkills: false,
       reset: false,
@@ -31,7 +30,6 @@ describe('providers', () => {
 
   test('generateLiteConfig uses correct OpenAI models', () => {
     const config = generateLiteConfig({
-      hasTmux: false,
       installSkills: false,
       installCustomSkills: false,
       reset: false,
@@ -51,22 +49,8 @@ describe('providers', () => {
     expect(agents.designer.variant).toBe('medium');
   });
 
-  test('generateLiteConfig enables tmux when requested', () => {
-    const config = generateLiteConfig({
-      hasTmux: true,
-      installSkills: false,
-      installCustomSkills: false,
-      reset: false,
-    });
-
-    expect(config.tmux).toBeDefined();
-    expect((config.tmux as any).enabled).toBe(true);
-    expect((config.tmux as any).layout).toBe('main-vertical');
-  });
-
   test('generateLiteConfig includes default skills', () => {
     const config = generateLiteConfig({
-      hasTmux: false,
       installSkills: true,
       installCustomSkills: false,
       reset: false,
@@ -94,7 +78,6 @@ describe('providers', () => {
 
   test('generateLiteConfig includes mcps field', () => {
     const config = generateLiteConfig({
-      hasTmux: false,
       installSkills: false,
       installCustomSkills: false,
       reset: false,
@@ -109,7 +92,6 @@ describe('providers', () => {
 
   test('generateLiteConfig openai includes correct mcps', () => {
     const config = generateLiteConfig({
-      hasTmux: false,
       installSkills: false,
       installCustomSkills: false,
       reset: false,

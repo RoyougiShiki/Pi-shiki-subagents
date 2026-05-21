@@ -143,19 +143,6 @@ export async function isOpenCodeInstalled(): Promise<boolean> {
   return false;
 }
 
-export async function isTmuxInstalled(): Promise<boolean> {
-  try {
-    const proc = crossSpawn(['tmux', '-V'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    await proc.exited;
-    return proc.exitCode === 0;
-  } catch {
-    return false;
-  }
-}
-
 export async function getOpenCodeVersion(): Promise<string | null> {
   const opencodePath = resolveOpenCodePath();
   try {

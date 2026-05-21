@@ -2,27 +2,40 @@
 
 ## Responsibility
 
-- `opencode.ts` keeps the original OpenCode plugin adapter untouched.
-- `pi.ts` is the Pi extension entrypoint: prompt injection, gate reminders/blocking, tool registration, preset command handling, config loading, agent file materialization, and test-facing re-exports.
-- `pi-agents.ts` owns Pi specialist agent prompt material.
-- `pi-council.ts` implements stable isolated council execution with independent `createAgentSession()` participants.
-- `pi-meeting.ts` implements hidden meeting backends and result formatting helpers.
-- `persistent-join.js`, `persistent-poll.js`, `persistent-send.js` are standalone Node scripts loaded by the collaborating backend's spawned participants.
+- `opencode.ts` keeps the original OpenCode plugin adapter isolated from Pi runtime work.
+- `pi.ts` is the Pi extension entrypoint: it wires runtime config loading, mode/tool activation, gate reminders, workflow commands, subagent tooling, chat/hub integration, and extension-level event handling.
+- `pi-modes.ts` applies runtime agent definitions and active tool sets for coordinator / fallback / subagent execution.
+- `agent-runtime-config.ts` is the runtime authority bridge for Pi agents: defaults + Pi-native fallback + shared loader merge for `tools`, `delegates`, `model`, `thinking`, `blocked`, and related fields.
+- `agent-discovery.ts` resolves real agent markdown prompts and merges runtime JSON config onto discovered agents.
+- `workflow-manager.ts` drives workflow execution as real pool-backed stages with validated `StageOutput`, `needs_user` continuation, and observable `lastError` / `lastEvent` status.
+- `workflow-commands.ts` exposes workflow control tools (`start_workflow`, `workflow_status`, `send_stage_message`, etc.).
+- `workflow-chat-binding.ts` connects workflow stage events to Pi hub/private chat registration and overlay auto-open behavior.
+- `subagent-pool.ts` owns one-shot and persistent Pi subagent execution, lifecycle control, timeout handling, and environment propagation.
+- `delegation-rules.ts` enforces delegation matrix, max depth, and stage-level `allowedSubagents` narrowing.
+- `pi-hub.ts` and `pi-chat-bridge.ts` implement chat/meeting registration, routing, and overlay presentation.
+- `pi-agents.ts`, `pi-council.ts`, and `pi-meeting.ts` hold Pi-specific prompt/council/meeting helpers.
 
-## Pi meeting backends
+## Pi workflow architecture
 
-- `session` is the stable default hidden round-based backend. Each participant turn is a fresh `createAgentSession()` call; the runtime carries a digest forward and returns only the final chair report to the main context.
-- `collaborating` spawns each participant ONCE with an LLM-driven polling loop. Participants read raw messages from the shared message log, generate content via their own LLM, and respond directly to the chair (not broadcast). Participants see and reference each other's original messages (not a chair-compiled digest).
-  - Round-spawn was removed in favor of this single-spawn polling approach.
+- `WorkflowManager` executes stage nodes with `resolveAgent(...) + pool.spawn(...)`.
+- Stage execution stays isolated inside pool-backed agent sessions.
+- Stage outputs are parsed as `StageOutput`; invalid JSON gets one repair round on the same pool session.
+- `needs_user` pauses the current stage and resumes via `send_stage_message` / `retry_stage` against the same pool session.
+- `workflow_status` surfaces the current stage/choice plus `lastError` and `lastEvent` for fire-and-forget visibility.
+- Workflow stage `allowedSubagents` is enforced at runtime through `OMO_ALLOWED_SUBAGENTS` + `delegation-rules.ts`.
 
 ## Key design decisions
 
-- `enableSessionControl: false` — spawned children don't support `--session-control`.
-- All participant messages go direct-to-chair, not broadcast, to avoid disturbing other active Pi sessions.
-- Node scripts are extracted to standalone `.js` files for maintainability, loaded at module init via `import.meta.url`.
+- Workflow defines process order; agent prompts define role boundaries and output contracts.
+- Agent markdown frontmatter is intentionally minimal: `name` + `description` only.
+- Runtime JSON config is authoritative for tools/delegates/model/thinking.
+- Subagent depth is capped at 2 and enforced in tool/runtime logic, not only by prompts.
+- Timeout lifecycle for pool agents is fail-safe: timeout resolves with error, kills the child, and removes the pool entry so late responses are ignored.
+- Chat overlay registration uses `poolId` as the shared identity across workflow stage, pool process, and private chat meeting.
 
 ## Guardrails
 
-- Keep `src/adapters/opencode.ts` isolated from Pi runtime work.
-- Treat gates as conservative reminders, not an expanding policy engine.
-- `"persistent"` is a deprecated config alias for `"collaborating"`.
+- Keep `src/adapters/opencode.ts` isolated from Pi runtime migration work.
+- Do not reintroduce workflow flow logic into agent prompts.
+- Do not move runtime tool/model authority back into markdown frontmatter.
+- Treat completed plan state as living in `docs/oh-my-opencode-slim/plans/*.json`; this codemap is an architecture summary, not a task tracker.

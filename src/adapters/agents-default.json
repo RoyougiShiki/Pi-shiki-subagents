@@ -1,205 +1,107 @@
 {
-  "thinker-clarify": {
+  "coordinator": {
     "type": "mode",
     "tools": [
+      "start_workflow",
+      "list_workflows",
+      "select_branch",
+      "workflow_status",
+      "send_stage_message",
+      "abort_workflow",
+      "retry_stage",
+      "ask_user_question"
+    ],
+    "delegates": [],
+    "label": "工作流协调器"
+  },
+  "thinker-clarify": {
+    "type": "subagent",
+    "tools": [
+      "ask_user_question",
       "read",
       "grep",
       "find",
       "ls",
-      "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "web_search",
-      "fetch_content",
-      "code_search",
-      "omo_subagent",
-      "omo_council",
-      "ask_user_question"
+      "omo_subagent"
     ],
-    "next": [
-      "thinker-analysis"
-    ],
-    "blocked": [
-      "fixer",
-      "designer",
-      "oracle"
-    ],
-    "label": "\u9700\u6c42\u6f84\u6e05"
+    "delegates": ["explorer", "librarian", "observer"],
+    "label": "需求澄清"
   },
   "thinker-analysis": {
-    "type": "mode",
+    "type": "subagent",
     "tools": [
       "read",
       "grep",
       "find",
       "ls",
       "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_batch_execute",
       "codebase_memory_search_graph",
+      "codebase_memory_search_code",
       "codebase_memory_trace_path",
       "codebase_memory_get_code_snippet",
-      "codebase_memory_search_code",
-      "codebase_memory_index_status",
-      "web_search",
-      "fetch_content",
-      "code_search",
-      "get_search_content",
       "omo_subagent",
-      "omo_council",
-      "ask_user_question"
+      "omo_council"
     ],
-    "next": [
-      "designer",
-      "thinker-clarify"
-    ],
-    "blocked": [
-      "fixer",
-      "designer"
-    ],
-    "label": "\u9700\u6c42\u5206\u6790"
+    "delegates": ["explorer", "librarian", "observer", "oracle"],
+    "label": "需求分析"
   },
   "designer": {
-    "type": "mode",
+    "type": "subagent",
     "tools": [
       "read",
       "write",
       "edit",
-      "bash",
       "grep",
       "find",
       "ls",
-      "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_batch_execute",
-      "codebase_memory_search_graph",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "codebase_memory_search_code",
-      "codebase_memory_index_status",
       "omo_subagent",
-      "omo_council",
-      "mcp"
+      "omo_council"
     ],
-    "next": [
-      "implementer",
-      "worker",
-      "thinker-clarify"
-    ],
-    "blocked": [
-      "fixer"
-    ],
-    "label": "\u6280\u672f\u8bbe\u8ba1"
+    "delegates": ["explorer", "librarian", "observer", "oracle"],
+    "label": "技术设计"
   },
   "worker": {
-    "type": "mode",
+    "type": "subagent",
     "tools": [
+      "todo",
+      "omo_subagent",
       "read",
-      "write",
-      "edit",
-      "bash",
       "grep",
       "find",
-      "ls",
-      "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_batch_execute",
-      "codebase_memory_search_graph",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "codebase_memory_search_code",
-      "codebase_memory_index_status",
-      "web_search",
-      "fetch_content",
-      "code_search",
-      "omo_subagent",
-      "omo_council",
-      "ask_user_question",
-      "todo",
-      "mcp"
+      "ls"
     ],
-    "next": [
-      "thinker-clarify"
-    ],
-    "label": "\u5feb\u901f\u5b9e\u65bd"
+    "delegates": ["fixer", "oracle"],
+    "label": "快速实施"
   },
   "implementer": {
-    "type": "mode",
+    "type": "subagent",
     "tools": [
       "read",
       "write",
       "edit",
-      "bash",
-      "grep",
-      "find",
-      "ls",
-      "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_batch_execute",
-      "codebase_memory_search_graph",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "codebase_memory_search_code",
-      "codebase_memory_index_status",
-      "web_search",
-      "fetch_content",
-      "code_search",
-      "omo_subagent",
-      "omo_council",
-      "ask_user_question",
       "todo",
-      "mcp"
+      "omo_subagent"
     ],
-    "next": [
-      "thinker-clarify"
-    ],
-    "label": "\u6807\u51c6\u5b9e\u65bd"
+    "delegates": ["fixer", "oracle"],
+    "label": "标准实施"
   },
   "batch": {
-    "type": "mode",
+    "type": "subagent",
     "tools": [
       "read",
       "write",
       "edit",
-      "bash",
-      "grep",
-      "find",
-      "ls",
-      "context_mode_ctx_search",
-      "context_mode_ctx_stats",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_batch_execute",
-      "codebase_memory_search_graph",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "codebase_memory_search_code",
-      "codebase_memory_index_status",
-      "web_search",
-      "fetch_content",
-      "code_search",
-      "omo_subagent",
-      "omo_council",
-      "ask_user_question",
-      "todo",
-      "mcp"
+      "omo_subagent"
     ],
-    "next": [
-      "thinker-clarify"
-    ],
-    "label": "\u6279\u6b21\u6267\u884c"
+    "delegates": ["fixer", "oracle"],
+    "label": "批次执行"
   },
   "fallback": {
     "type": "mode",
     "tools": [],
+    "delegates": [],
     "next": [],
-    "label": "\u515c\u5e95\u6a21\u5f0f"
+    "label": "兜底模式"
   },
   "explorer": {
     "type": "subagent",
@@ -207,21 +109,27 @@
       "read",
       "grep",
       "find",
-      "ls"
+      "ls",
+      "codebase_memory_search_graph",
+      "codebase_memory_search_code",
+      "codebase_memory_trace_path",
+      "codebase_memory_get_code_snippet"
     ],
+    "delegates": [],
     "next": [],
-    "label": "\u641c\u7d22"
+    "label": "搜索"
   },
   "librarian": {
     "type": "subagent",
     "tools": [
-      "read",
-      "grep",
-      "find",
-      "ls"
+      "web_search",
+      "code_search",
+      "fetch_content",
+      "get_search_content"
     ],
+    "delegates": [],
     "next": [],
-    "label": "\u67e5\u9605"
+    "label": "查阅"
   },
   "oracle": {
     "type": "subagent",
@@ -229,10 +137,15 @@
       "read",
       "grep",
       "find",
-      "ls"
+      "ls",
+      "codebase_memory_search_graph",
+      "codebase_memory_search_code",
+      "codebase_memory_trace_path",
+      "codebase_memory_get_code_snippet"
     ],
+    "delegates": [],
     "next": [],
-    "label": "\u8bc4\u5ba1"
+    "label": "评审"
   },
   "fixer": {
     "type": "subagent",
@@ -245,15 +158,17 @@
       "find",
       "ls"
     ],
+    "delegates": [],
     "next": [],
-    "label": "\u5b9e\u73b0"
+    "label": "实现"
   },
   "observer": {
     "type": "subagent",
     "tools": [
       "read"
     ],
+    "delegates": [],
     "next": [],
-    "label": "\u770b\u56fe"
+    "label": "看图"
   }
 }

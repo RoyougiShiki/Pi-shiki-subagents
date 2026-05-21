@@ -40,6 +40,7 @@ export interface ActiveMeeting {
   startedAt: number;
   status: "active" | "ended";
   report?: string;
+  onUserMessage?: (message: string) => Promise<{ response?: string; error?: string } | void>;
 }
 
 type MessageCallback = (msg: ChatMessage, meeting: ActiveMeeting) => void;
@@ -72,13 +73,13 @@ class Hub {
     return meeting;
   }
 
-  registerChat(id: string, name: string, participant: MeetingParticipant): ActiveMeeting {
+  registerChat(id: string, name: string, participant: MeetingParticipant, onUserMessage?: ActiveMeeting["onUserMessage"]): ActiveMeeting {
     if (this.meetings.has(id)) {
       throw new Error(`Meeting "${id}" already exists`);
     }
     const meeting: ActiveMeeting = {
       id, name, type: "chat", participants: [participant], messages: [],
-      startedAt: Date.now(), status: "active",
+      startedAt: Date.now(), status: "active", onUserMessage,
     };
     this.meetings.set(id, meeting);
     this.watchParticipant(meeting, participant);
@@ -149,6 +150,12 @@ class Hub {
     if (!meeting || meeting.status === "ended") return;
 
     this.publishMessage(meeting, fromName, message);
+
+    if (meeting.onUserMessage && fromName === "You") {
+      const result = await meeting.onUserMessage(message);
+      if (result?.error) console.error(`[pi-hub] 用户消息处理失败: ${result.error}`);
+      return;
+    }
 
     const promises = meeting.participants.map(p =>
       sendPrompt(p.proc, message).catch(err => {

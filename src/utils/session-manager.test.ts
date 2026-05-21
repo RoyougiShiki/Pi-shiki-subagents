@@ -58,8 +58,8 @@ describe('SessionManager', () => {
     manager.addContext('task-1', [
       { path: 'src/index.ts', lineCount: 42, lastReadAt: 1 },
       {
-        path: 'src/multiplexer/session-manager.ts',
-        lineCount: 24,
+        path: 'src/utils/env.ts',
+        lineCount: 12,
         lastReadAt: 2,
       },
     ]);
@@ -67,7 +67,7 @@ describe('SessionManager', () => {
     const prompt = manager.formatForPrompt('parent-1');
     expect(prompt).toContain('exp-1 session manager');
     expect(prompt).toContain(
-      'Context read by exp-1: src/multiplexer/session-manager.ts (24 lines), src/index.ts (42 lines)',
+      'Context read by exp-1: src/utils/env.ts (12 lines), src/index.ts (42 lines)',
     );
   });
 

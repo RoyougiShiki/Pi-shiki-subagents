@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
 import { CouncilConfigSchema } from './council-schema';
+import type { WorkflowNode, ChoiceNode, WorkflowDefinition } from '../core/workflow-types';
 
 const FALLBACK_AGENT_NAMES = [
   'orchestrator',
@@ -100,52 +101,21 @@ export const AgentOverrideConfigSchema = z
       .optional(),
     temperature: z.number().min(0).max(2).optional(),
     variant: z.string().optional().catch(undefined),
+    thinking: z.string().optional(),
     skills: z.array(z.string()).optional(), // skills this agent can use ("*" = all, "!item" = exclude)
     mcps: z.array(z.string()).optional(), // MCPs this agent can use ("*" = all, "!item" = exclude)
+    type: z.enum(['mode', 'subagent', 'both']).optional(),
+    tools: z.array(z.string()).optional(),
+    delegates: z.array(z.string()).optional(),
+    blocked: z.array(z.string()).optional(),
+    hidden: z.boolean().optional(),
+    label: z.string().optional(),
     prompt: z.string().min(1).optional(),
     orchestratorPrompt: z.string().min(1).optional(),
     options: z.record(z.string(), z.unknown()).optional(), // provider-specific model options (e.g., textVerbosity, thinking budget)
     displayName: z.string().min(1).optional(),
   })
   .strict();
-
-// Multiplexer type options
-export const MultiplexerTypeSchema = z.enum(['auto', 'tmux', 'zellij', 'none']);
-export type MultiplexerType = z.infer<typeof MultiplexerTypeSchema>;
-
-// Layout options (shared across multiplexers)
-export const MultiplexerLayoutSchema = z.enum([
-  'main-horizontal', // Main pane on top, agents stacked below
-  'main-vertical', // Main pane on left, agents stacked on right
-  'tiled', // All panes equal size grid
-  'even-horizontal', // All panes side by side
-  'even-vertical', // All panes stacked vertically
-]);
-
-export type MultiplexerLayout = z.infer<typeof MultiplexerLayoutSchema>;
-
-// Legacy Tmux layout options (for backward compatibility)
-export const TmuxLayoutSchema = MultiplexerLayoutSchema;
-export type TmuxLayout = MultiplexerLayout;
-
-// Multiplexer integration configuration (new unified config)
-export const MultiplexerConfigSchema = z.object({
-  type: MultiplexerTypeSchema.default('none'),
-  layout: MultiplexerLayoutSchema.default('main-vertical'),
-  main_pane_size: z.number().min(20).max(80).default(60), // percentage for main pane
-});
-
-export type MultiplexerConfig = z.infer<typeof MultiplexerConfigSchema>;
-
-// Legacy Tmux integration configuration (for backward compatibility)
-// When tmux.enabled is true, it's equivalent to multiplexer.type = 'tmux'
-export const TmuxConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  layout: TmuxLayoutSchema.default('main-vertical'),
-  main_pane_size: z.number().min(20).max(80).default(60), // percentage for main pane
-});
-
-export type TmuxConfig = z.infer<typeof TmuxConfigSchema>;
 
 export type AgentOverrideConfig = z.infer<typeof AgentOverrideConfigSchema>;
 
@@ -238,6 +208,91 @@ export const FailoverConfigSchema = z.object({
 
 export type FailoverConfig = z.infer<typeof FailoverConfigSchema>;
 
+export const StageNodeSchema = z.object({
+  id: z.string().optional(),
+  agent: z.string(),
+  description: z.string().optional(),
+  task: z.string().optional(),
+  outputSchema: z.string().optional(),
+  keepAlive: z.boolean().optional(),
+  allowedSubagents: z.array(z.string()).optional(),
+});
+
+export const ChoiceNodeSchema: z.ZodType<ChoiceNode> = z.lazy(() => z.object({
+  id: z.string().optional(),
+  type: z.literal("choice"),
+  prompt: z.string().optional(),
+  branches: z.array(z.object({
+    label: z.string(),
+    description: z.string(),
+    stages: z.array(WorkflowNodeSchema),
+  })),
+}));
+
+export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = z.union([
+  StageNodeSchema,
+  ChoiceNodeSchema,
+]);
+
+export const WorkflowDefinitionSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  stages: z.array(WorkflowNodeSchema),
+});
+
+export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
+  {
+    name: "standard-dev",
+    description: "标准开发流程：澄清 → 分析 → 计划 → 标准实施",
+    stages: [
+      { id: "clarify", agent: "thinker-clarify", description: "澄清用户需求", outputSchema: "clarify" },
+      { id: "analysis", agent: "thinker-analysis", description: "分析影响范围、方案和风险", outputSchema: "analysis" },
+      { id: "plan", agent: "designer", description: "生成实施计划与任务文件", outputSchema: "plan" },
+      { id: "implement", agent: "implementer", description: "按计划驱动实现与审查", outputSchema: "implementation" },
+    ],
+  },
+  {
+    name: "quick-fix",
+    description: "快速修复流程：分析 → 快速实施",
+    stages: [
+      { id: "analysis", agent: "thinker-analysis", description: "确认小范围修复边界", outputSchema: "analysis" },
+      { id: "worker", agent: "worker", description: "驱动 fixer 实现并用 oracle 审查", outputSchema: "implementation" },
+    ],
+  },
+  {
+    name: "batch-dev",
+    description: "批量开发流程：分析 → 计划 → 批次执行",
+    stages: [
+      { id: "analysis", agent: "thinker-analysis", description: "识别可批量处理的独立任务", outputSchema: "analysis" },
+      { id: "plan", agent: "designer", description: "生成批量任务计划", outputSchema: "plan" },
+      { id: "batch", agent: "batch", description: "按依赖分批驱动 fixer/oracle", outputSchema: "implementation" },
+    ],
+  },
+  {
+    name: "review-only",
+    description: "只读审查流程：分析 → oracle 审查",
+    stages: [
+      { id: "analysis", agent: "thinker-analysis", description: "整理审查目标和上下文", outputSchema: "analysis" },
+      { id: "review", agent: "oracle", description: "进行只读审查并输出风险", outputSchema: "review" },
+    ],
+  },
+  {
+    name: "research-only",
+    description: "研究流程：澄清 → 分析",
+    stages: [
+      { id: "clarify", agent: "thinker-clarify", description: "澄清研究问题", outputSchema: "clarify" },
+      { id: "analysis", agent: "thinker-analysis", description: "只读研究并给出结论", outputSchema: "analysis" },
+    ],
+  },
+];
+
+export const WorkflowsConfigSchema = z.object({
+  default: z.string().default("standard-dev"),
+  list: z.array(WorkflowDefinitionSchema).default(DEFAULT_WORKFLOWS),
+});
+
+export type WorkflowsConfig = z.infer<typeof WorkflowsConfigSchema>;
+
 function validateCustomOnlyPromptFields(
   overrides: Record<string, z.infer<typeof AgentOverrideConfigSchema>>,
   ctx: z.RefinementCtx,
@@ -301,13 +356,10 @@ export const PluginConfigSchema = z
           'All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.',
       ),
       disabled_mcps: z.array(z.string()).optional(),
-      // Multiplexer config (new unified config - preferred)
-    multiplexer: MultiplexerConfigSchema.optional(),
-    // Legacy tmux config (for backward compatibility)
-    // When tmux.enabled is true, it's equivalent to multiplexer.type = 'tmux'
-    tmux: TmuxConfigSchema.optional(),
+
     interview: InterviewConfigSchema.optional(),
     sessionManager: SessionManagerConfigSchema.optional(),
+    workflows: WorkflowsConfigSchema.optional(),
     todoContinuation: TodoContinuationConfigSchema.optional(),
     fallback: FailoverConfigSchema.optional(),
     council: CouncilConfigSchema.optional(),

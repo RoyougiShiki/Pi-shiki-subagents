@@ -96,6 +96,22 @@ describe('Hub', () => {
     expect(aliceCall.message).toBe('大家好');
   });
 
+  test('private chat can route user input through custom handler', async () => {
+    const mod = await import('./pi-hub');
+    const freshHub = mod.getHub();
+
+    const alice = createMockProc('alice');
+    const handler = mock(async () => ({ response: 'ok' }));
+    freshHub.registerChat('chat-handler', 'Alice', {
+      name: 'Alice', agentType: 'explorer', proc: alice,
+    }, handler);
+
+    await freshHub.broadcast('chat-handler', '补充信息');
+
+    expect(handler).toHaveBeenCalledWith('补充信息');
+    expect(alice.stdin.write).not.toHaveBeenCalled();
+  });
+
   test('broadcast stores message in history', async () => {
     const mod = await import('./pi-hub');
     const freshHub = mod.getHub();

@@ -14,7 +14,6 @@ import {
   fetchLatestVersion,
   getOpenCodeVersion,
   isOpenCodeInstalled,
-  isTmuxInstalled,
 } from './system';
 
 describe('system', () => {
@@ -44,11 +43,6 @@ describe('system', () => {
     // We don't necessarily want to depend on the host system
     // but for a basic test we can just check it returns a boolean
     const result = await isOpenCodeInstalled();
-    expect(typeof result).toBe('boolean');
-  });
-
-  test('isTmuxInstalled returns boolean', async () => {
-    const result = await isTmuxInstalled();
     expect(typeof result).toBe('boolean');
   });
 

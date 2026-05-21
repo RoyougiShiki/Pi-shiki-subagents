@@ -18,6 +18,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
+import { loadRuntimeAgentDefinitions } from "./agent-runtime-config";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -82,20 +83,7 @@ let _agentDefs: Record<string, AgentDefinition> | null = null;
 function loadAgentDefinitions(): Record<string, AgentDefinition> {
   if (_agentDefs) return _agentDefs;
 
-  let raw: Record<string, any> = {};
-  try {
-    const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    raw = cfg.agents ?? {};
-  } catch {}
-
-  // Fallback to built-in defaults
-  if (Object.keys(raw).length === 0) {
-    try {
-      if (fs.existsSync(DEFAULTS_PATH)) {
-        raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
-      }
-    } catch {}
-  }
+  const raw: Record<string, any> = loadRuntimeAgentDefinitions();
 
   // Populate instructions from .md files
   for (const name of Object.keys(raw)) {
@@ -148,9 +136,9 @@ export function loadActiveMode(): string {
       if (saved && getAgent(saved)) return saved;
     }
     const publics = getPublicAgents();
-    return publics.length > 0 ? publics[0] : "worker";
+    return publics.length > 0 ? publics[0] : "coordinator";
   } catch {
-    return "worker";
+    return "coordinator";
   }
 }
 
@@ -174,9 +162,10 @@ function getActiveMode(): string {
   return loadActiveMode();
 }
 
-function applyMode(pi: ExtensionAPI, name: string): boolean {
+function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = false): boolean {
   const agent = getAgent(name);
-  if (!agent || (agent.type !== "mode" && agent.type !== "both")) return false;
+  if (!agent) return false;
+  if (!allowSubagentType && agent.type !== "mode" && agent.type !== "both") return false;
 
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
@@ -193,6 +182,10 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
     saveAgent(name);
   } catch {}
   return true;
+}
+
+function applyMode(pi: ExtensionAPI, name: string): boolean {
+  return applyAgentTools(pi, name, false);
 }
 
 export function getModeInstructions(name: string): string | undefined {
@@ -283,6 +276,10 @@ function registerModeHooks(pi: ExtensionAPI): void {
     }
 
     _agentDefs = null;
+    const subagentName = process.env.OMO_AGENT_NAME;
+    if (process.env.OMO_SUB_AGENT === "1" && subagentName && applyAgentTools(pi, subagentName, true)) {
+      return;
+    }
     const mode = loadActiveMode();
     applyMode(pi, mode);
   });
@@ -318,13 +315,7 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
 
-      const currentMode = loadActiveMode();
-      const currentDef = getAgent(currentMode);
-      const allowed = currentDef?.next ?? [];
 
-      if (!allowed.includes(name)) {
-        return { content: [{ type: "text" as const, text: `当前模式不允许直接切换到目标模式。` }], isError: true, details: {} as any };
-      }
 
       applyMode(pi, name);
       return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };

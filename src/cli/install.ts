@@ -263,7 +263,6 @@ async function runInstall(config: InstallConfig): Promise<number> {
 
 export async function install(args: InstallArgs): Promise<number> {
   const config: InstallConfig = {
-    hasTmux: false,
     installSkills: args.skills === 'yes',
     installCustomSkills: args.skills === 'yes',
     dryRun: args.dryRun,

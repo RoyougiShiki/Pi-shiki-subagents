@@ -362,7 +362,6 @@ export function detectCurrentConfig(): DetectedConfig {
     hasAntigravity: false,
     hasChutes: false,
     hasOpencodeZen: false,
-    hasTmux: false,
   };
 
   const { config } = parseConfig(getExistingConfigPath());
@@ -410,10 +409,6 @@ export function detectCurrentConfig(): DetectedConfig {
       }
     }
 
-    if (configObj.tmux && typeof configObj.tmux === 'object') {
-      const tmuxConfig = configObj.tmux as { enabled?: boolean };
-      result.hasTmux = tmuxConfig.enabled === true;
-    }
   }
 
   return result;

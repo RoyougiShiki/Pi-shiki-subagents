@@ -1,0 +1,35 @@
+{
+  "id": 10,
+  "title": "验证、codemap 与清理",
+  "context": "所有架构迁移完成后，更新 codemap 并运行 typecheck/test，确保无旧 handover 或旧计划残留误导。",
+  "status": "completed",
+  "files": [
+    "docs/oh-my-opencode-slim/workflow-pool-handover.md",
+    "docs/oh-my-opencode-slim/plans/index.json",
+    "docs/oh-my-opencode-slim/plans/task-10.json",
+    "oh-my-opencode-slim.schema.json",
+    "/home/h/.pi/agent/settings.json",
+    "/home/h/.pi/agent/mcp.json",
+    "/home/h/.npm-global/bin/context-mode",
+    "src/adapters/codemap.md",
+    "docs/oh-my-opencode-slim/plans/plan.md"
+  ],
+  "dependencies": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "steps": [
+    "运行 bun run typecheck。",
+    "运行相关 bun test，必要时运行全量 bun test。",
+    "更新 codemap。",
+    "清理旧交接文件或过期说明。",
+    "排查外部运行环境/工具可用性问题（如 context-mode MCP 不可用），并完成最小修复与验证。"
+  ],
+  "validation": [
+    "context-mode doctor: server initialization PASS",
+    "mcp connect context-mode: success",
+    "context_mode_ctx_stats: success",
+    "bun test src/config/loader.test.ts src/config/utils.test.ts src/config/workflows-and-tools.test.ts src/adapters/agents-config.test.ts src/adapters/pi-hub.test.ts src/adapters/workflow-chat-binding.test.ts src/adapters/delegation-rules.test.ts src/adapters/agent-discovery.test.ts src/adapters/agent-runtime-config.test.ts src/adapters/subagent-pool.test.ts src/adapters/workflow-manager.test.ts",
+    "bun run typecheck",
+    "bun run generate-schema",
+    "bun run build:plugin",
+    "bun run verify:release"
+  ]
+}

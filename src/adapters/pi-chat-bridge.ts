@@ -15,6 +15,10 @@ import { getHub, type ChatMessage } from "./pi-hub";
 
 const OVERLAY_HEIGHT_RATIO = 0.8;
 
+// 当前用户手动打开的聊天 meetingId，用于判断是否自动弹出
+let _activeManualMeeting: string | null = null;
+let _currentOverlayMeeting: string | null = null;
+
 function cleanContent(text: string): string {
   return text
     .replace(/<\/?(?:results|result|answer|item|tool_use|thinking|status)[^>]*>/gi, "")
@@ -25,17 +29,19 @@ function cleanContent(text: string): string {
 export async function runPrivateChat(
   meetingId: string, agentName: string, ctx: ExtensionContext,
 ): Promise<void> {
-  await showChatOverlay(meetingId, agentName, "chat", ctx);
+  _activeManualMeeting = meetingId;
+  await showChatOverlay(meetingId, agentName, "chat", ctx, true);
 }
 
 export async function runGroupChat(
   meetingId: string, meetingName: string, ctx: ExtensionContext,
 ): Promise<void> {
-  await showChatOverlay(meetingId, meetingName, "group", ctx);
+  _activeManualMeeting = meetingId;
+  await showChatOverlay(meetingId, meetingName, "group", ctx, true);
 }
 
 async function showChatOverlay(
-  meetingId: string, displayName: string, mode: "chat" | "group", ctx: ExtensionContext,
+  meetingId: string, displayName: string, mode: "chat" | "group", ctx: ExtensionContext, manual: boolean,
 ): Promise<void> {
   const hub = getHub();
 
@@ -82,6 +88,8 @@ async function showChatOverlay(
         if (disposed) return;
         disposed = true;
         unsubscribe();
+        if (manual) _activeManualMeeting = null;
+        _currentOverlayMeeting = null;
         done(undefined);
       }
 
@@ -182,4 +190,19 @@ async function showChatOverlay(
       },
     },
   );
+}
+
+/**
+ * 自动打开 Chat overlay 显示子代理消息。
+ * 只在用户没有手动使用 Chat 时才自动弹出。
+ */
+export function autoOpenChat(
+  meetingId: string,
+  displayName: string,
+  ctx: ExtensionContext,
+): void {
+  if (_activeManualMeeting && _activeManualMeeting !== meetingId) return;
+  if (_currentOverlayMeeting === meetingId) return;
+  _currentOverlayMeeting = meetingId;
+  showChatOverlay(meetingId, displayName, "chat", ctx, false).catch(() => {});
 }

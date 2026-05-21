@@ -96,12 +96,6 @@ export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 export const PHASE_REMINDER_TEXT = `!IMPORTANT! Understand → choose path → execute → verify.
 If delegating, do it in the same turn. !END!`;
 
-// Tmux pane spawn delay (ms) — gives TmuxSessionManager time to create pane
-export const TMUX_SPAWN_DELAY_MS = 500;
-
-// Stagger delay (ms) between parallel councillor launches to avoid tmux collisions
-export const COUNCILLOR_STAGGER_MS = 250;
-
 // Polling stability
 export const STABLE_POLLS_THRESHOLD = 3;
 

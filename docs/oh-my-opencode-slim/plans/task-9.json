@@ -1,0 +1,24 @@
+{
+  "id": 9,
+  "title": "扩展默认 workflows",
+  "context": "单一 default workflow 对所有任务过重。需要 quick-fix、standard-dev、batch-dev、review-only、research-only 等流程，并由 workflow stage task/description 定义具体职责。",
+  "status": "completed",
+  "files": [
+    "src/config/schema.ts",
+    "src/core/workflow-types.ts",
+    "src/config/workflows-and-tools.test.ts",
+    "src/adapters/agents/coordinator.md"
+  ],
+  "dependencies": [7, 8],
+  "steps": [
+    "更新 DEFAULT_WORKFLOWS。",
+    "为每个 stage 添加 task/description/outputSchema。",
+    "default 指向 standard-dev 或保留兼容别名。",
+    "更新 coordinator prompt 对 workflow 选择的说明。",
+    "增加 schema/default workflow 测试。"
+  ],
+  "validation": [
+    "bun test src/config/workflows-and-tools.test.ts",
+    "bun run typecheck"
+  ]
+}

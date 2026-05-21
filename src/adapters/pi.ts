@@ -58,7 +58,12 @@ import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "./subagent-pool";
 import { getHub } from "./pi-hub";
-import { runPrivateChat, runGroupChat } from "./pi-chat-bridge";
+import { runPrivateChat, runGroupChat, autoOpenChat } from "./pi-chat-bridge";
+import { WorkflowManager } from "./workflow-manager";
+import { bindWorkflowChatBridge } from "./workflow-chat-binding";
+import { registerWorkflowCommands } from "./workflow-commands";
+import { WorkflowsConfig } from "../core/workflow-types";
+import { DEFAULT_WORKFLOWS } from "../config/schema";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -244,6 +249,7 @@ export interface OmniMoConfig {
     enabled?: boolean;
     modes?: string[];
   };
+  workflows?: WorkflowsConfig;
 }
 
 interface PiDelegationCapabilities {
@@ -861,15 +867,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Mapping file path (user-local, not in repo) ──────────────────────
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
-    // Reset mode injection tracker for new session
-    _lastInjectedMode = "";
-
+    // Capture ctx for WorkflowManager chat overlay
+    _sessionCtx = ctx;
 
     ensureAgentFiles();
 
-    // Update status with current mode
+    // Update status with current mode (default: coordinator)
     try {
-      const m = loadActiveMode();
+      const m = loadActiveMode() || "coordinator";
       ctx.ui.setStatus("mode", `Mode: ${m}`);
     } catch {}
 
@@ -911,24 +916,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     // Trim verbose tool descriptions in system prompt
     const trimmedPrompt = trimToolDescriptions(event.systemPrompt, (config as any)?.tool_descriptions ?? {});
-
-    // Inject mode instructions
-    let modeSuffix = "";
-    try {
-      const modeName = loadActiveMode();
-      const instructions = getModeInstructions(modeName);
-      if (instructions) {
-        modeSuffix = `\n\n---\n\n${instructions}`;
-      }
-    } catch {}
+    const activeMode = loadActiveMode() || "coordinator";
+    const modeInstructions = getModeInstructions(activeMode) ?? "";
+    const modePrompt = modeInstructions
+      ? `<MODE name="${activeMode}">\n${modeInstructions}\n</MODE>`
+      : "";
 
     return {
-      systemPrompt: `${omniPrompt}${modeSuffix}\n\n---\n\n${trimmedPrompt}`,
+      systemPrompt: [omniPrompt, modePrompt, trimmedPrompt].filter(Boolean).join("\n\n---\n\n"),
     };
   });
-
-  // ── Track last injected mode for first-after-switch detection ──
-  let _lastInjectedMode = "";
 
       // ── Trim tool descriptions in provider API payload ────────────────
   pi.on("before_provider_request", (event, _ctx) => {
@@ -940,54 +937,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
   });
 
-  // ── Inject mode identity before user message (skip sub-agents) ────
-  pi.on("before_provider_request", (event, _ctx) => {
-    if (process.env.OMO_SUB_AGENT === "1") return;
-    try {
-      const cfgPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-      if (!fs.existsSync(cfgPath)) return;
-      const mode: string = loadActiveMode();
-      const payload = event.payload as Record<string, any>;
-      if (!Array.isArray(payload?.messages)) return;
 
-      // Detect mode switch: first message after switch gets full prompt
-      const isSwitch = mode !== _lastInjectedMode;
-      _lastInjectedMode = mode;
-
-      let content: string;
-      if (isSwitch) {
-        // Load full .md content for the new mode
-        const modeFilePath = path.join(homedir(), ".pi", "agents", "${mode}.md");
-        let fullPrompt = "";
-        try {
-          if (fs.existsSync(modeFilePath)) {
-            const raw = fs.readFileSync(modeFilePath, "utf-8");
-            const bodyMatch = raw.match(/---\n[\s\S]*?\n---\n([\s\S]*)/);
-            fullPrompt = bodyMatch ? bodyMatch[1].trim() : raw.trim();
-          }
-        } catch {}
-        content = `<systemReminder>\n\n### [Current Mode: ${mode}]\n\n` +
-          (fullPrompt
-            ? `─────────────────────────────────────────────\n${fullPrompt}\n─────────────────────────────────────────────\n\nYou just switched to this mode. Read the rules above carefully before responding.`
-            : `You just switched to this mode. Review your role and follow it.`) +
-          `\n\n</systemReminder>`;
-      } else {
-        content = `<systemReminder>\n\n### Mode Compliance\n\n**Current mode:** ${mode}\n\nYour full mode prompt is at the top of system prompt \u2014 re-read it now. It defines your role, allowed tools, behavioral rules, and hard boundaries (e.g. which agents you may delegate to, what actions are forbidden).\n\nVerify before responding: Is your next action permitted in this mode? If not, stop and correct.\n\n</systemReminder>`;
-      }
-
-      // Insert before the last user message
-      let insertAt = payload.messages.length - 1;
-      for (let i = payload.messages.length - 1; i >= 0; i--) {
-        if (payload.messages[i]?.role === "user") {
-          insertAt = i;
-          break;
-        }
-      }
-      payload.messages.splice(insertAt, 0, { role: "system", content });
-    } catch {
-      // ignore read errors
-    }
-  });
 
   // ── Register custom tools ───────────────────────────────────────────
   const tools = createToolImplementations(config);
@@ -997,6 +947,25 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
   registerSubagentTool(pi);
+
+  // ── Initialize WorkflowManager ────────────────────────────────────
+  const wf = config?.workflows;
+  const workflowsConfig: WorkflowsConfig = {
+    default: typeof wf?.default === "string" ? wf.default : "standard-dev",
+    list: Array.isArray(wf?.list) && wf.list.length > 0 ? wf.list : DEFAULT_WORKFLOWS,
+  };
+  const workflowManager = new WorkflowManager({ cwd: process.cwd() });
+  registerWorkflowCommands(pi, workflowsConfig, workflowManager);
+
+  // 绑定 Chat overlay auto-open (ctx captured from session_start)
+  let _sessionCtx: ExtensionContext | null = null;
+  bindWorkflowChatBridge({
+    manager: workflowManager,
+    hub: getHub(),
+    getPoolProcess,
+    autoOpenChat,
+    getSessionCtx: () => _sessionCtx,
+  });
 
   // ── Tool activation & description tools (always available) ─────────
   pi.registerTool({

@@ -18,18 +18,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { discoverAgents, type AgentConfig } from "./agent-discovery";
+import { getRuntimeBlockedAgents } from "./agent-runtime-config";
+import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "./delegation-rules";
 // Note: typebox is resolved by pi.ts from its own path, not from here.
 // We define inline JSON Schema instead.
 
 // ─── Types ────────────────────────────────────────────────────────────────
-
-export interface AgentConfig {
-  name: string;
-  description: string;
-  tools?: string[];
-  model?: string;
-  systemPrompt: string;
-}
 
 export interface SingleResult {
   agent: string;
@@ -56,6 +51,23 @@ export interface PoolAgentInfo {
 
 // ─── One-shot runner (pi --mode json) ─────────────────────────────────────
 
+export function buildSubagentEnv(opts: {
+  baseEnv?: NodeJS.ProcessEnv | Record<string, string | undefined>;
+  agentName: string;
+  depth?: number;
+  parentAgent?: string;
+  allowedSubagents?: readonly string[];
+}): NodeJS.ProcessEnv {
+  return {
+    ...(opts.baseEnv ?? process.env),
+    OMO_SUB_AGENT: "1",
+    OMO_AGENT_NAME: opts.agentName,
+    OMO_SUBAGENT_DEPTH: String(opts.depth ?? 1),
+    ...(opts.parentAgent ? { OMO_PARENT_AGENT_NAME: opts.parentAgent } : {}),
+    ...(opts.allowedSubagents ? { OMO_ALLOWED_SUBAGENTS: opts.allowedSubagents.join(",") } : {}),
+  } as NodeJS.ProcessEnv;
+}
+
 function writeTempPrompt(content: string): { dir: string; path: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omo-subagent-"));
   const fp = path.join(dir, "prompt.md");
@@ -81,6 +93,9 @@ export async function runIsolatedTask(
     signal?: AbortSignal;
     timeoutMs?: number;
     onMessage?: (msg: any) => void;
+    parentAgent?: string;
+    depth?: number;
+    allowedSubagents?: readonly string[];
   },
 ): Promise<SingleResult> {
   const startTime = Date.now();
@@ -95,6 +110,12 @@ export async function runIsolatedTask(
     cwd: opts.cwd,
     stdio: ["ignore", "pipe", "pipe"],
     signal: opts.signal,
+    env: buildSubagentEnv({
+      agentName: opts.agent.name,
+      depth: opts.depth,
+      parentAgent: opts.parentAgent,
+      allowedSubagents: opts.allowedSubagents,
+    }),
   });
 
   let buffer = "";
@@ -207,11 +228,27 @@ interface PoolEntry {
   buffer: string;
   lastResponse: string;
   pendingResolve: ((result: { response: string; error?: string }) => void) | null;
+  pendingTimer: ReturnType<typeof setTimeout> | null;
 }
 
-class AgentPool {
+export interface AgentPoolOptions {
+  timeoutMs?: number;
+  sessionDir?: string;
+  spawnProcess?: typeof spawn;
+}
+
+export class AgentPool {
   private agents = new Map<string, PoolEntry>();
   private decoder = new TextDecoder();
+  private readonly timeoutMs: number;
+  private readonly sessionDir: string;
+  private readonly spawnProcess: typeof spawn;
+
+  constructor(options: AgentPoolOptions = {}) {
+    this.timeoutMs = options.timeoutMs ?? 300_000;
+    this.sessionDir = options.sessionDir ?? path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
+    this.spawnProcess = options.spawnProcess ?? spawn;
+  }
 
   /** Spawn a new persistent agent via pi --mode rpc. */
   async spawn(opts: {
@@ -221,20 +258,27 @@ class AgentPool {
     task: string;
     model?: string;
     cwd?: string;
+    parentAgent?: string;
+    depth?: number;
+    allowedSubagents?: readonly string[];
   }): Promise<{ response: string; error?: string }> {
     if (this.agents.has(opts.id)) {
       return { response: "", error: `Agent "${opts.id}" already exists in pool` };
     }
 
-    const sessionDir = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
-    fs.mkdirSync(sessionDir, { recursive: true });
-    const args = ["--mode", "rpc", "--session-dir", sessionDir];
+    fs.mkdirSync(this.sessionDir, { recursive: true });
+    const args = ["--mode", "rpc", "--session-dir", this.sessionDir];
     if (opts.model) args.push("--model", opts.model);
 
-    const proc = spawn("pi", args, {
+    const proc = this.spawnProcess("pi", args, {
       cwd: opts.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, OMO_SUB_AGENT: "1" },
+      env: buildSubagentEnv({
+        agentName: opts.agent.name,
+        depth: opts.depth,
+        parentAgent: opts.parentAgent,
+        allowedSubagents: opts.allowedSubagents,
+      }),
     });
 
     const entry: PoolEntry = {
@@ -249,6 +293,7 @@ class AgentPool {
       buffer: "",
       lastResponse: "",
       pendingResolve: null,
+      pendingTimer: null,
     };
 
     this.agents.set(opts.id, entry);
@@ -259,6 +304,10 @@ class AgentPool {
 
     proc.on("close", () => {
       entry.status = "dead";
+      if (entry.pendingTimer) {
+        clearTimeout(entry.pendingTimer);
+        entry.pendingTimer = null;
+      }
       if (entry.pendingResolve) {
         entry.pendingResolve({ response: entry.lastResponse, error: "Process died" });
         entry.pendingResolve = null;
@@ -311,6 +360,10 @@ class AgentPool {
           }
 
           if (entry.pendingResolve) {
+            if (entry.pendingTimer) {
+              clearTimeout(entry.pendingTimer);
+              entry.pendingTimer = null;
+            }
             entry.pendingResolve({ response: entry.lastResponse });
             entry.pendingResolve = null;
           }
@@ -334,8 +387,21 @@ class AgentPool {
       return Promise.resolve({ response: "", error: `Agent "${id}" is dead` });
     }
 
+    if (entry.pendingResolve) {
+      return Promise.resolve({ response: "", error: `Agent "${id}" is busy` });
+    }
+
     return new Promise((resolve) => {
       entry.pendingResolve = resolve;
+      entry.pendingTimer = setTimeout(() => {
+        if (entry.pendingResolve) {
+          const resolvePending = entry.pendingResolve;
+          entry.pendingResolve = null;
+          entry.pendingTimer = null;
+          resolvePending({ response: entry.lastResponse, error: `Agent "${id}" timed out` });
+          this.kill(id);
+        }
+      }, this.timeoutMs);
       const cmd = JSON.stringify({ type: "prompt", message }) + "\n";
       entry.proc.stdin!.write(cmd);
     });
@@ -368,6 +434,14 @@ class AgentPool {
   kill(id: string): boolean {
     const entry = this.agents.get(id);
     if (!entry) return false;
+    if (entry.pendingTimer) {
+      clearTimeout(entry.pendingTimer);
+      entry.pendingTimer = null;
+    }
+    if (entry.pendingResolve) {
+      entry.pendingResolve({ response: entry.lastResponse, error: "Killed" });
+      entry.pendingResolve = null;
+    }
     try { entry.proc.kill(); } catch {}
     this.agents.delete(id);
     return true;
@@ -390,72 +464,6 @@ export function getPool(): AgentPool {
 /** 获取某个池子进程的 ChildProcess */
 export function getPoolProcess(id: string): ChildProcess | undefined {
   return getPool().getProcess(id);
-}
-
-// ─── Agent discovery (reads .md files) ────────────────────────────────────
-
-function findNearestDir(start: string, target: string): string | null {
-  let current = start;
-  while (true) {
-    const candidate = path.join(current, target);
-    try { if (fs.statSync(candidate).isDirectory()) return candidate; } catch {}
-    const parent = path.dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
-function discoverAgents(cwd: string): AgentConfig[] {
-  const homeDir = os.homedir();
-  const dirs: string[] = [
-    path.join(homeDir, ".pi", "agents"),
-  ];
-  const projectDir = findNearestDir(cwd, ".pi/agents");
-  if (projectDir) dirs.push(projectDir);
-
-  let agents: AgentConfig[] = [];
-  const seen = new Set<string>();
-
-  for (const dir of dirs) {
-    try {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (!entry.name.endsWith(".md")) continue;
-        if (entry.name.endsWith(".chain.md")) continue;
-        const filePath = path.join(dir, entry.name);
-        const content = fs.readFileSync(filePath, "utf-8");
-        const nameMatch = content.match(/^name:\s*(.+)$/m);
-        const descMatch = content.match(/^description:\s*(.+)$/m);
-        if (!nameMatch || !descMatch) continue;
-        const name = nameMatch[1].trim();
-        if (seen.has(name)) continue;
-        seen.add(name);
-
-        const toolsMatch = content.match(/^tools:\s*(.+)$/m);
-        const modelMatch = content.match(/^model:\s*(.+)$/m);
-        const bodyMatch = content.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-
-        agents.push({
-          name,
-          description: descMatch[1].trim(),
-          tools: toolsMatch ? toolsMatch[1].split(",").map((s: string) => s.trim()).filter(Boolean) : undefined,
-          model: modelMatch ? modelMatch[1].trim() : undefined,
-          systemPrompt: bodyMatch ? bodyMatch[1].trim() : content,
-        });
-      }
-    } catch {}
-  }
-
-  // Filter out mode-only agents (subagents only)
-  try {
-    const configPath = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-    const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    const agentTypes = cfg.agents || {};
-    agents = agents.filter(a => {
-      const info = agentTypes[a.name];
-      return !info || info.type !== "mode"; // exclude mode-only agents
-    });
-  } catch {}
-  return agents;
 }
 
 // ─── Tool registration ────────────────────────────────────────────────────
@@ -504,28 +512,27 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 
       // ── Mode-based agent restriction check ────────────────────────────
       const checkAgentAllowed = (agentName: string): string | null => {
+        let currentMode = "fallback";
         try {
-          const configPath = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-          const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-          let currentMode = "fallback";
-          try {
-            const sessionModePath = path.join(os.homedir(), ".pi", "agent", ".session-modes.json");
-            const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-            if (sessionFile && fs.existsSync(sessionModePath)) {
-              const map = JSON.parse(fs.readFileSync(sessionModePath, "utf-8"));
-              currentMode = map[sessionFile] || "fallback";
-            }
-          } catch {}
-          // Read blocked list from agent config (replaces old mode_agent_restrictions)
-          const currentAgent = cfg.agents?.[currentMode];
-          const blocked: string[] = currentAgent?.blocked || [];
-          if (blocked.includes(agentName)) {
-            const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
-            return allowed.length > 0 ? allowed.join(", ") : "(无可用子代理)";
+          const sessionModePath = path.join(os.homedir(), ".pi", "agent", ".session-modes.json");
+          const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+          if (sessionFile && fs.existsSync(sessionModePath)) {
+            const map = JSON.parse(fs.readFileSync(sessionModePath, "utf-8"));
+            currentMode = map[sessionFile] || "fallback";
           }
         } catch {}
+
+        const blocked = getRuntimeBlockedAgents(currentMode, cwd);
+        if (blocked.includes(agentName)) {
+          const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
+          return allowed.length > 0 ? allowed.join(", ") : "(无可用子代理)";
+        }
         return null;
       };
+
+      const callerAgent = process.env.OMO_AGENT_NAME;
+      const callerDepth = Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0;
+      const allowedSubagents = parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS);
 
       if (params.agent) {
         const blocked = checkAgentAllowed(params.agent);
@@ -533,6 +540,21 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           return {
             content: [{ type: "text", text: `当前模式下可用子代理：${blocked}。` }],
             details: {}, isError: true,
+          };
+        }
+        const delegation = checkDelegationAllowed({
+          caller: callerAgent,
+          target: params.agent,
+          depth: callerDepth,
+          cwd,
+          allowedSubagents,
+        });
+        if (!delegation.allowed) {
+          const allowed = delegation.allowedAgents?.length ? delegation.allowedAgents.join(", ") : "(none)";
+          return {
+            content: [{ type: "text", text: `${delegation.reason}. Allowed agents: ${allowed}` }],
+            details: { caller: callerAgent, target: params.agent, depth: callerDepth, allowedAgents: delegation.allowedAgents },
+            isError: true,
           };
         }
       }
@@ -556,6 +578,9 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             task: params.task,
             model: params.model || agentCfg.model || defaultModel,
             cwd,
+            parentAgent: callerAgent,
+            depth: callerDepth + 1,
+            allowedSubagents,
           }).catch((err) => {
             console.error(`[omo-subagent] Spawn ${params.id} failed:`, err);
           });
@@ -604,6 +629,9 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           task: params.task,
           model: params.model || agentCfg.model || defaultModel,
           cwd,
+          parentAgent: callerAgent,
+          depth: callerDepth + 1,
+          allowedSubagents,
         });
         return {
           content: [{ type: "text", text: result.response }],

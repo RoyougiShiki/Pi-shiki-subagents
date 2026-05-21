@@ -1,0 +1,23 @@
+{
+  "id": 8,
+  "title": "收紧工具权限并同步默认配置",
+  "context": "工具权限应按实际 prompt 职责最小化：worker/implementer/batch 是调度者，fixer 是写代码叶子，oracle 是审查/调查叶子，coordinator 是 workflow 状态机。",
+  "status": "completed",
+  "files": [
+    "src/adapters/agents-default.json",
+    "src/adapters/agents/*.md",
+    "src/config/workflows-and-tools.test.ts"
+  ],
+  "dependencies": [6, 7],
+  "steps": [
+    "更新 agents-default.json 工具矩阵。",
+    "同步 agent md frontmatter tools。",
+    "coordinator 收窄为 workflow 控制工具。",
+    "确保 oracle/fixer 等叶子无 omo_subagent。",
+    "增加 tools 一致性测试。"
+  ],
+  "validation": [
+    "bun test src/config/workflows-and-tools.test.ts src/adapters/agents-config.test.ts",
+    "bun run typecheck"
+  ]
+}

@@ -11,7 +11,6 @@ import {
   type AgentOverrideConfig,
   deepMerge,
   loadPluginConfig,
-  type MultiplexerConfig,
 } from '../config';
 import { parseList } from '../config/agent-mcps';
 import { AGENT_ALIASES } from '../config/constants';
@@ -43,11 +42,7 @@ import {
 import { processImageAttachments } from '../hooks/image-hook';
 import { createInterviewManager } from '../interview';
 import { createBuiltinMcps } from '../mcp';
-import {
-  getMultiplexer,
-  MultiplexerSessionManager,
-  startAvailabilityCheck,
-} from '../multiplexer';
+
 import {
   ast_grep_replace,
   ast_grep_search,
@@ -127,10 +122,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let mcps: ReturnType<typeof createBuiltinMcps>;
   let modelArrayMap: Record<string, Array<{ id: string; variant?: string }>>;
   let runtimeChains: Record<string, string[]>;
-  let multiplexerConfig: MultiplexerConfig;
-  let multiplexerEnabled: boolean;
   let depthTracker: SubagentDepthTracker;
-  let multiplexerSessionManager: MultiplexerSessionManager;
   let autoUpdateChecker: ReturnType<typeof createAutoUpdateCheckerHook>;
   let phaseReminderHook: ReturnType<typeof createPhaseReminderHook>;
   let approvalGateHook: ReturnType<typeof createApprovalGateHook>;
@@ -232,30 +224,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       }
     }
 
-    // Parse multiplexer config with defaults
-    multiplexerConfig = {
-      type: config.multiplexer?.type ?? 'none',
-      layout: config.multiplexer?.layout ?? 'main-vertical',
-      main_pane_size: config.multiplexer?.main_pane_size ?? 60,
-    };
 
-    // Get multiplexer instance for capability checks
-    const multiplexer = getMultiplexer(multiplexerConfig);
-    multiplexerEnabled =
-      multiplexerConfig.type !== 'none' &&
-      multiplexer !== null &&
-      multiplexer.isInsideSession();
-
-    log('[plugin] initialized with multiplexer config', {
-      multiplexerConfig,
-      enabled: multiplexerEnabled,
-      directory: ctx.directory,
-    });
-
-    // Start background availability check if enabled
-    if (multiplexerEnabled) {
-      startAvailabilityCheck(multiplexerConfig);
-    }
 
     depthTracker = new SubagentDepthTracker();
 
@@ -263,7 +232,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     councilTools = config.council
       ? createCouncilTool(
           ctx,
-          new CouncilManager(ctx, config, depthTracker, multiplexerEnabled),
+          new CouncilManager(ctx, config, depthTracker),
         )
       : {};
 
@@ -271,12 +240,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     webfetch = createWebfetchTool(ctx);
     visionAnalyzeTools = createVisionAnalyzeTool(ctx, config.visionModel);
 
-    // Initialize MultiplexerSessionManager to handle OpenCode's built-in
-    // Task tool sessions
-    multiplexerSessionManager = new MultiplexerSessionManager(
-      ctx,
-      multiplexerConfig,
-    );
+
 
     // Initialize auto-update checker hook
     autoUpdateChecker = createAutoUpdateCheckerHook(ctx, {
@@ -831,14 +795,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       // Handle auto-update checking
       await autoUpdateChecker.event(input);
 
-      // Handle multiplexer pane spawning for OpenCode's Task tool sessions
-      await multiplexerSessionManager.onSessionCreated(event);
 
-      // Handle session.status events for pane cleanup
-      await multiplexerSessionManager.onSessionStatus(event);
-
-      // Handle session.deleted events for pane cleanup
-      await multiplexerSessionManager.onSessionDeleted(event);
 
       await interviewManager.handleEvent(
         input as {
@@ -1193,11 +1150,6 @@ export type {
   AgentName,
   AgentOverrideConfig,
   McpName,
-  MultiplexerConfig,
-  MultiplexerLayout,
-  MultiplexerType,
   PluginConfig,
-  TmuxConfig,
-  TmuxLayout,
 } from '../config';
 export type { RemoteMcpConfig } from '../mcp';

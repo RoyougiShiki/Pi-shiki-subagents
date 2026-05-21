@@ -1,0 +1,25 @@
+{
+  "planPath": "docs/oh-my-opencode-slim/plans/plan.md",
+  "goal": "修正 workflow stage 真实 agent/pool 持久化、StageOutput 校验、delegation matrix、工具权限和 prompt 职责隔离",
+  "tasks": [
+    { "id": 1, "title": "重构 agent discovery 并修正 agent frontmatter", "status": "completed", "dependencies": [] },
+    { "id": 2, "title": "WorkflowManager 改为真实 pool stage", "status": "completed", "dependencies": [1] },
+    { "id": 3, "title": "强化 StageOutput schema 与失败处理", "status": "completed", "dependencies": [2] },
+    { "id": 4, "title": "接通 workflow stage 与 Chat overlay/hub", "status": "completed", "dependencies": [2] },
+    { "id": 5, "title": "增加 workflow 控制工具", "status": "completed", "dependencies": [3, 4] },
+    { "id": 6, "title": "实施 delegation matrix 与最大两层深度", "status": "completed", "dependencies": [1, 2] },
+    { "id": 7, "title": "简化 agent prompts，移除 workflow 重复职责", "status": "completed", "dependencies": [3, 6] },
+    { "id": 8, "title": "收紧工具权限并同步默认配置", "status": "completed", "dependencies": [6, 7] },
+    { "id": 9, "title": "扩展默认 workflows", "status": "completed", "dependencies": [7, 8] },
+    { "id": 10, "title": "验证、codemap 与清理", "status": "completed", "dependencies": [1, 2, 3, 4, 5, 6, 7, 8, 9] }
+  ],
+  "waves": [
+    [1],
+    [2],
+    [3, 4, 6],
+    [5, 7],
+    [8],
+    [9],
+    [10]
+  ]
+}

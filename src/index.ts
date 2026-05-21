@@ -4,11 +4,7 @@ export type {
   AgentName,
   AgentOverrideConfig,
   McpName,
-  MultiplexerConfig,
-  MultiplexerLayout,
-  MultiplexerType,
   PluginConfig,
-  TmuxConfig,
-  TmuxLayout,
+  WorkflowsConfig,
 } from './config';
 export type { RemoteMcpConfig } from './mcp';

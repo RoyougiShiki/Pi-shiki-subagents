@@ -11,10 +11,7 @@ import {
   formatCouncillorResults,
 } from '../agents/council';
 import type { PluginConfig } from '../config';
-import {
-  COUNCILLOR_STAGGER_MS,
-  TMUX_SPAWN_DELAY_MS,
-} from '../config/constants';
+
 import type { CouncillorConfig, CouncilResult } from '../config/council-schema';
 import { log } from '../utils/logger';
 import {
@@ -37,7 +34,6 @@ export class CouncilManager {
   private directory: string;
   private config?: PluginConfig;
   private depthTracker?: SubagentDepthTracker;
-  private tmuxEnabled: boolean;
   private deprecatedFields?: string[];
   private legacyMasterModel?: string;
 
@@ -45,7 +41,6 @@ export class CouncilManager {
     ctx: PluginInput,
     config?: PluginConfig,
     depthTracker?: SubagentDepthTracker,
-    tmuxEnabled = false,
   ) {
     this.client = ctx.client;
     this.directory = ctx.directory;
@@ -53,7 +48,6 @@ export class CouncilManager {
     this.deprecatedFields = config?.council?._deprecated;
     this.legacyMasterModel = config?.council?._legacyMasterModel;
     this.depthTracker = depthTracker;
-    this.tmuxEnabled = tmuxEnabled;
   }
 
   /** Return deprecated config fields detected during parsing (for tool warnings). */
@@ -264,10 +258,6 @@ export class CouncilManager {
         }
       }
 
-      if (this.tmuxEnabled) {
-        await new Promise((r) => setTimeout(r, TMUX_SPAWN_DELAY_MS));
-      }
-
       const body: PromptBody = {
         agent: options.agent,
         model: modelRef,
@@ -350,14 +340,6 @@ export class CouncilManager {
       // Parallel execution (default): run all councillors concurrently
       const promises = entries.map(([name, config], index) =>
         (async () => {
-          // Stagger launches only when multiplexer panes can be created.
-          // Outside tmux/zellij this delay only adds latency with no benefit.
-          if (this.tmuxEnabled && index > 0) {
-            await new Promise((r) =>
-              setTimeout(r, index * COUNCILLOR_STAGGER_MS),
-            );
-          }
-
           return this.runCouncillorWithRetry(
             name,
             config,

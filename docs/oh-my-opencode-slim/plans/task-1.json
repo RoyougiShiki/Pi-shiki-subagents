@@ -1,0 +1,31 @@
+{
+  "id": 1,
+  "title": "重构 agent discovery 并修正 agent frontmatter",
+  "context": "公共 agent discovery 是 workflow stage 使用真实 agent prompt/tools 的前置条件。当前 discoverAgents 在 subagent-pool 内部且多个 workflow agent md 缺少 name/description/tools frontmatter，需要先统一。",
+  "status": "completed",
+  "files": [
+    "src/adapters/agent-discovery.ts",
+    "src/adapters/agent-discovery.test.ts",
+    "src/adapters/agent-runtime-config.ts",
+    "src/adapters/agent-runtime-config.test.ts",
+    "src/adapters/subagent-pool.ts",
+    "src/adapters/delegation-rules.ts",
+    "src/adapters/delegation-rules.test.ts",
+    "src/config/schema.ts",
+    "src/adapters/agents/*.md"
+  ],
+  "dependencies": [],
+  "steps": [
+    "新增 src/adapters/agent-discovery.ts，导出 discoverAgents 和 resolveAgent。",
+    "让 subagent-pool.ts 复用公共 discovery。",
+    "补齐 src/adapters/agents/*.md frontmatter。",
+    "增加 discovery/frontmatter 一致性测试。",
+    "运行相关测试与 typecheck。"
+  ],
+  "validation": [
+    "bun test src/adapters/agent-runtime-config.test.ts src/adapters/agent-discovery.test.ts src/adapters/delegation-rules.test.ts",
+    "bun test src/config/loader.test.ts src/config/utils.test.ts src/adapters/pi-hub.test.ts src/adapters/delegation-rules.test.ts src/adapters/agent-discovery.test.ts src/adapters/agent-runtime-config.test.ts",
+    "bun run typecheck",
+    "oracle pool review: 第一轮 P0 可以视为已解决"
+  ]
+}
