@@ -1184,10 +1184,18 @@ CONTINUED: handover 文档措辞纠正
 3. oracle 模型已按用户要求在 OMO slim JSON 中配置为 `dmxapi/gpt-5.5`，并同步到 OpenCode config 与 Pi native config。
 4. full `bun test` 与 `bun run typecheck` 已通过。reload 漂移修复后最新结果：`bun test` 1068 pass / 0 fail；`bun run typecheck` 通过。
 
-当前剩余收尾：
-1. 用户需要再 reload 一次，以加载 latest extension code 并触发 session_start agent md 迁移；随后执行真实 workflow / chat overlay / hub 的 E2E 验收；
-2. gate 优化放到 reload/E2E 之后再做；
-3. 可选小债：`buildPiOrchestratorPrompt` 旧/死代码、agent md 备份策略、日志级别、`OmniMoConfig` 类型收敛。
+当前剩余收尾（下一轮新对话继续）：
+1. **workflow E2E 验收**：`start_workflow` → stage pool → `workflow_status` → `send_stage_message` → chat overlay / hub 路由 → `abort_workflow` / `retry_stage`。
+2. **gate 优化**：放到 E2E 验收确认 workflow 链路完整后再做。
+3. **可选小债**：`buildPiOrchestratorPrompt` 旧/死代码、agent md 备份策略、`console.error` 日志级别、`OmniMoConfig` 类型收敛。
+
+## 已确认的本地状态（下一轮可直接 E2E）
+- `/home/h/.pi/agent/oh-my-opencode-slim.json`：公开 mode 仅 `coordinator` / `fallback`；`oracle.model = dmxapi/gpt-5.5`，其他子代理 `opencode-go/deepseek-v4-flash`。
+- `~/.pi/agents/*.md`：已 managed，无 model/thinking/tools frontmatter。
+- 模型链路 JSON → agent-discovery → subagent-pool `pi --model` 已验证非 oracle 子代理不会跟随主 agent。
+
+## 新对话启动建议
+先读取本 handover，直接执行 workflow E2E 验收；gate 优化和小债放在 E2E 确认通过后。
 
 注意：
 - tools/delegates/model 以 OMO slim JSON 为权威；
