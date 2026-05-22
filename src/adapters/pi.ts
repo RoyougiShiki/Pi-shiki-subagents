@@ -39,7 +39,7 @@ import {
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
 } from "../core/workflow-templates";
 
-import { AGENT_PROMPTS } from "./pi-agents";
+import { AGENT_PROMPTS, reloadAgentPrompts } from "./pi-agents";
 import {
   formatPiCouncilResults,
   resolvePiCouncilParticipants,
@@ -443,8 +443,36 @@ function normalizeAgentContentForComparison(content: string): string {
     .trim();
 }
 
-function isLegacyOmoAgentContent(existing: string, sourceContent: string): boolean {
-  return normalizeAgentContentForComparison(existing) === normalizeAgentContentForComparison(sourceContent);
+const LEGACY_GENERATED_AGENT_BODY_MARKERS: Record<string, readonly RegExp[]> = {
+  "oracle.md": [/You are Oracle - a strategic technical advisor and code reviewer\./],
+  "fixer.md": [/You are Fixer\b/, /Fast implementation specialist/],
+  "designer.md": [/You are Designer\b/, /UI\/UX design, review, and implementation/],
+  "explorer.md": [/You are Explorer\b/],
+  "librarian.md": [/You are Librarian\b/],
+  "observer.md": [/You are Observer\b/],
+};
+
+function getAgentNameFromFileLabel(label: string): string {
+  return label.replace(/\.md$/, "");
+}
+
+function getAgentBody(content: string): string {
+  if (!content.startsWith("---\n")) return content;
+  const end = content.indexOf("\n---", 4);
+  return end === -1 ? content : content.slice(end + 4).trim();
+}
+
+function isLegacyGeneratedAgentContent(existing: string, label: string): boolean {
+  const frontmatter = parseAgentFrontmatter(existing);
+  if (frontmatter.name !== getAgentNameFromFileLabel(label)) return false;
+  const body = getAgentBody(existing);
+  const markers = LEGACY_GENERATED_AGENT_BODY_MARKERS[label] ?? [];
+  return markers.some((marker) => marker.test(body));
+}
+
+function isLegacyOmoAgentContent(existing: string, sourceContent: string, label: string): boolean {
+  return normalizeAgentContentForComparison(existing) === normalizeAgentContentForComparison(sourceContent) ||
+    isLegacyGeneratedAgentContent(existing, label);
 }
 
 function writeManagedAgentFile(target: string, managedContent: string, label: string): "updated" {
@@ -465,7 +493,7 @@ function syncAgentFile(target: string, sourceContent: string, label: string): "c
 
   const existing = fs.readFileSync(target, "utf-8");
   if (!isManagedAgentContent(existing)) {
-    if (!isLegacyOmoAgentContent(existing, sourceContent)) {
+    if (!isLegacyOmoAgentContent(existing, sourceContent, label)) {
       return "skipped";
     }
     return writeManagedAgentFile(target, managedContent, label);
@@ -536,6 +564,7 @@ export function ensureAgentFiles(): void {
       const content = fs.readFileSync(path.join(defaultAgentsDir, file), "utf-8");
       syncAgentFile(target, content, file);
     }
+    reloadAgentPrompts();
   } catch {}
 }
 

@@ -1180,12 +1180,12 @@ CONTINUED: handover 文档措辞纠正
 当前主线代码迁移已基本完成，不要再从最初 P0 重做。
 本轮又完成了以下收尾：
 1. Pi adapter 配置读取统一到 shared `loadPluginConfig(cwd)`，同时保留 Pi native config 作为 fallback；优先级为 project `.opencode` > OpenCode user / `OPENCODE_CONFIG_DIR` > Pi native。
-2. 旧用户 `~/.pi/agents/*.md` 同步问题已处理：使用 Pi SDK `getAgentDir()` 推导 agents 目录；OMO managed md 自动更新并备份；unmanaged/custom md 不覆盖；legacy OMO md 可迁移；md frontmatter 不写 tools/model/thinking。
+2. 旧用户 `~/.pi/agents/*.md` 同步问题已处理：使用 Pi SDK `getAgentDir()` 推导 agents 目录；OMO managed md 自动更新并备份；unmanaged/custom md 不覆盖；legacy OMO md 可迁移；旧英文 OMO-generated prompt 也会迁移；迁移后会刷新 in-memory `AGENT_PROMPTS`；md frontmatter 不写 tools/model/thinking。
 3. oracle 模型已按用户要求在 OMO slim JSON 中配置为 `dmxapi/gpt-5.5`，并同步到 OpenCode config 与 Pi native config。
-4. full `bun test` 与 `bun run typecheck` 已通过。
+4. full `bun test` 与 `bun run typecheck` 已通过。reload 漂移修复后最新结果：`bun test` 1068 pass / 0 fail；`bun run typecheck` 通过。
 
 当前剩余收尾：
-1. 用户 reload 后执行真实 workflow / chat overlay / hub 的 E2E 验收；
+1. 用户需要再 reload 一次，以加载 latest extension code 并触发 session_start agent md 迁移；随后执行真实 workflow / chat overlay / hub 的 E2E 验收；
 2. gate 优化放到 reload/E2E 之后再做；
 3. 可选小债：`buildPiOrchestratorPrompt` 旧/死代码、agent md 备份策略、日志级别、`OmniMoConfig` 类型收敛。
 
@@ -1207,9 +1207,10 @@ CONTINUED: handover 文档措辞纠正
 ### 已完成：任务 A/B 的代码侧收尾
 
 - Pi config loading 已统一到 shared loader + Pi native fallback，避免硬编码与配置不同步。
-- 旧 `agent.md` 同步已实现 managed metadata / legacy migration / custom protection。
+- 本机 Pi native config 已同步：公开 mode 只剩 coordinator/fallback，workflow stage agents 为 subagent。
+- 旧 `agent.md` 同步已实现 managed metadata / legacy migration / old English prompt migration / custom protection / in-memory prompt refresh。
 - oracle 模型 JSON 配置链路已确认有效，当前配置为 `dmxapi/gpt-5.5`。
-- 验证：`bun test` 1065 pass / 0 fail；`bun run typecheck` 通过。
+- 验证：reload 漂移修复后 `bun test` 1068 pass / 0 fail；`bun run typecheck` 通过；oracle 复审 no blockers。
 
 ### 下一步：任务 C：补真实 E2E 验收
 

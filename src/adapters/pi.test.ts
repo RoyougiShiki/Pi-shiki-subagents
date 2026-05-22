@@ -162,6 +162,80 @@ describe('Pi adapter agent prompt sync', () => {
     expect(migrated).not.toContain('thinking:');
     expect(backup).toBe(legacyContent);
   });
+
+  test('does not migrate custom prompt that keeps the default description', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const agentsDir = getPiAgentsDirForSync();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const oraclePath = path.join(agentsDir, 'oracle.md');
+    const customContent = [
+      '---',
+      'name: oracle',
+      'description: Strategic technical advisor and code reviewer',
+      '---',
+      '',
+      '# My custom Oracle prompt',
+      'This keeps the stock description but changes the body.',
+    ].join('\n');
+    fs.writeFileSync(oraclePath, customContent, 'utf-8');
+
+    ensureAgentFiles();
+
+    expect(fs.readFileSync(oraclePath, 'utf-8')).toBe(customContent);
+    expect(fs.existsSync(`${oraclePath}.bak`)).toBe(false);
+  });
+
+  test('migrates old English OMO-generated oracle markdown after reload', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const agentsDir = getPiAgentsDirForSync();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const oraclePath = path.join(agentsDir, 'oracle.md');
+    const legacyContent = [
+      '---',
+      'name: oracle',
+      'description: Strategic technical advisor and code reviewer',
+      'thinking: low',
+      '---',
+      '',
+      'You are Oracle - a strategic technical advisor and code reviewer.',
+      '',
+      '**Role**: High-IQ debugging, architecture decisions, code review, simplification, and engineering guidance.',
+    ].join('\n');
+    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
+
+    ensureAgentFiles();
+
+    const migrated = fs.readFileSync(oraclePath, 'utf-8');
+    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
+    expect(migrated).toContain('omo-managed: true');
+    expect(migrated).toContain('# 角色');
+    expect(migrated).not.toContain('You are Oracle -');
+    expect(migrated).not.toContain('thinking:');
+    expect(backup).toBe(legacyContent);
+  });
+
+  test('reloads in-memory AGENT_PROMPTS after migrating files', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { AGENT_PROMPTS } = await import('./pi-agents');
+    const agentsDir = getPiAgentsDirForSync();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const oraclePath = path.join(agentsDir, 'oracle.md');
+    const legacyContent = [
+      '---',
+      'name: oracle',
+      'description: Strategic technical advisor and code reviewer',
+      'thinking: low',
+      '---',
+      '',
+      'You are Oracle - a strategic technical advisor and code reviewer.',
+    ].join('\n');
+    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
+
+    ensureAgentFiles();
+
+    expect(AGENT_PROMPTS.oracle?.prompt).toContain('# 角色');
+    expect(AGENT_PROMPTS.oracle?.prompt).not.toContain('You are Oracle -');
+  });
 });
 
 describe('Pi adapter config helpers', () => {

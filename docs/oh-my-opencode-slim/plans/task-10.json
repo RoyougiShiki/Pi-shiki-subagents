@@ -22,7 +22,7 @@
     "清理旧交接文件或过期说明。",
     "排查外部运行环境/工具可用性问题（如 context-mode MCP 不可用），并完成最小修复与验证。",
     "统一 Pi adapter config loading：shared OpenCode/project config 覆盖 Pi native fallback。",
-    "实现旧 ~/.pi/agents/*.md managed 同步、legacy migration 与 custom prompt 保护。",
+    "实现旧 ~/.pi/agents/*.md managed 同步、legacy migration、old English generated prompt migration、custom prompt 保护与 AGENT_PROMPTS refresh。",
     "确认模型配置 JSON 权威，并将 oracle 配置为 dmxapi/gpt-5.5。"
   ],
   "validation": [
@@ -34,7 +34,7 @@
     "bun run generate-schema",
     "bun run build:plugin",
     "bun run verify:release",
-    "bun test: 1065 pass / 0 fail",
-    "oracle review: agent prompt sync no blockers after high-severity fixes"
+    "bun test: 1068 pass / 0 fail after reload drift fixes",
+    "oracle review: agent prompt sync and reload drift fixes no blockers after high-severity fixes"
   ]
 }

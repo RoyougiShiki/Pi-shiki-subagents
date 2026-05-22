@@ -46,12 +46,12 @@ requirementDoc: null
 已完成的最新收尾：
 
 1. Pi adapter runtime config 已统一复用 shared config loader，并保留 Pi native config 作为 fallback。
-2. 旧 `~/.pi/agents/*.md` 同步机制已实现：managed metadata、stale 更新、legacy OMO md 迁移、自定义 md 保护。
+2. 旧 `~/.pi/agents/*.md` 同步机制已实现：managed metadata、stale 更新、legacy OMO md 迁移、旧英文 OMO-generated prompt 迁移、自定义 md 保护、迁移后刷新 in-memory `AGENT_PROMPTS`。
 3. agent markdown frontmatter 保持 `name` / `description` / OMO managed metadata，不写 tools/model/thinking。
 4. `oracle` 模型已在 OMO slim JSON 配置中设为 `dmxapi/gpt-5.5`，模型链路由 JSON → agent discovery → subagent pool `pi --model` 生效。
-5. 全量验证已通过：`bun test` 1065 pass / 0 fail；`bun run typecheck` 通过。
+5. 全量验证已通过：reload 漂移修复后 `bun test` 1068 pass / 0 fail；`bun run typecheck` 通过；oracle 复审 no blockers。
 
-仍待用户 reload 后做真实 E2E：
+仍待用户再次 reload 后做真实 E2E：
 
 1. `start_workflow` / `workflow_status` / `send_stage_message`
 2. workflow stage pool spawn 与 StageOutput 传递

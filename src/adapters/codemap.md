@@ -38,5 +38,5 @@
 - Keep `src/adapters/opencode.ts` isolated from Pi runtime migration work.
 - Do not reintroduce workflow flow logic into agent prompts.
 - Do not move runtime tool/model authority back into markdown frontmatter.
-- OMO-managed Pi agent markdown uses `omo-managed` / `omo-source-hash`; stale managed files may update with `.bak`, but unmanaged/custom files must not be overwritten.
+- OMO-managed Pi agent markdown uses `omo-managed` / `omo-source-hash`; stale managed files may update with `.bak`, old generated OMO prompts may migrate, in-memory `AGENT_PROMPTS` refreshes after sync, but unmanaged/custom files must not be overwritten.
 - Treat completed plan state as living in `docs/oh-my-opencode-slim/plans/*.json`; this codemap is an architecture summary, not a task tracker.
