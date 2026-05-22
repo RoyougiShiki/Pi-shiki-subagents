@@ -1,7 +1,7 @@
 {
   "id": 10,
   "title": "验证、codemap 与清理",
-  "context": "所有架构迁移完成后，更新 codemap 并运行 typecheck/test，确保无旧 handover 或旧计划残留误导。",
+  "context": "所有架构迁移完成后，更新 codemap 并运行 typecheck/test，确保无旧 handover 或旧计划残留误导。本轮额外完成 Pi config 同步、旧 agent md managed 同步/迁移、oracle 模型配置与全量测试。",
   "status": "completed",
   "files": [
     "docs/oh-my-opencode-slim/workflow-pool-handover.md",
@@ -20,7 +20,10 @@
     "运行相关 bun test，必要时运行全量 bun test。",
     "更新 codemap。",
     "清理旧交接文件或过期说明。",
-    "排查外部运行环境/工具可用性问题（如 context-mode MCP 不可用），并完成最小修复与验证。"
+    "排查外部运行环境/工具可用性问题（如 context-mode MCP 不可用），并完成最小修复与验证。",
+    "统一 Pi adapter config loading：shared OpenCode/project config 覆盖 Pi native fallback。",
+    "实现旧 ~/.pi/agents/*.md managed 同步、legacy migration 与 custom prompt 保护。",
+    "确认模型配置 JSON 权威，并将 oracle 配置为 dmxapi/gpt-5.5。"
   ],
   "validation": [
     "context-mode doctor: server initialization PASS",
@@ -30,6 +33,8 @@
     "bun run typecheck",
     "bun run generate-schema",
     "bun run build:plugin",
-    "bun run verify:release"
+    "bun run verify:release",
+    "bun test: 1065 pass / 0 fail",
+    "oracle review: agent prompt sync no blockers after high-severity fixes"
   ]
 }

@@ -6,6 +6,7 @@
 
 - define orchestrator and specialist agents,
 - load layered plugin configuration and per-agent permissions,
+- provide the Pi adapter path with shared config loading plus managed Pi agent prompt synchronization,
 - expose additional tools and MCP integrations,
 - manage delegated/resumable session orchestration and terminal multiplexer visualization,
 - inject workflow-enforcement hooks plus runtime command handlers,
@@ -44,7 +45,7 @@ This codemap intentionally covers the plugin repository itself and excludes the 
 | `src/hooks/task-session-manager/` | Resumable `task` session tracking, short alias resolution, prompt injection, and stale-session cleanup. | [View Map](src/hooks/task-session-manager/codemap.md) |
 | `src/hooks/todo-continuation/` | Auto-continue behavior for outstanding todo execution. | [View Map](src/hooks/todo-continuation/codemap.md) |
 | `src/interview/` | `/interview` feature: per-session and dashboard prompt/state orchestration, persistence, local UI, and cross-process coordination. | [View Map](src/interview/codemap.md) |
-| `src/mcp/` | Built-in MCP registry and per-provider MCP definitions. | [View Map](src/mcp/codemap.md) |
+| `src/mcp/` | Built-in MCP registry and per-provider MCP definitions for context7 and grep.app. | [View Map](src/mcp/codemap.md) |
 | `src/multiplexer/` | Terminal multiplexer abstraction layer with backend selection, session mirroring, polling fallback, and shutdown lifecycle orchestration. | [View Map](src/multiplexer/codemap.md) |
 | `src/multiplexer/tmux/` | tmux backend implementation for pane lifecycle and layout management. | [View Map](src/multiplexer/tmux/codemap.md) |
 | `src/multiplexer/zellij/` | zellij backend implementation for tab/pane lifecycle. | [View Map](src/multiplexer/zellij/codemap.md) |

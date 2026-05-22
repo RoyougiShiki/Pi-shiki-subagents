@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-- Define and expose the built-in MCP endpoints (context7, grep.app) alongside the shared type aliases so the application can treat remote and local MCPs uniformly (`src/mcp/index.ts`, `src/mcp/types.ts`).
+- Define and expose the built-in MCP endpoints (context7, grep.app) alongside the shared type aliases so the application can treat remote and local MCPs uniformly (`src/mcp/index.ts`, `src/mcp/types.ts`). The old `websearch` built-in is no longer part of this registry.
 - Provide a single entry point (`createBuiltinMcps`) for instantiating the default connectors while honoring feature flags/disabled lists.
 
 ## Design

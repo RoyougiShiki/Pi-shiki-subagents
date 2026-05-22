@@ -27,6 +27,7 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
@@ -64,6 +65,7 @@ import { bindWorkflowChatBridge } from "./workflow-chat-binding";
 import { registerWorkflowCommands } from "./workflow-commands";
 import { WorkflowsConfig } from "../core/workflow-types";
 import { DEFAULT_WORKFLOWS } from "../config/schema";
+import { deepMerge, loadPluginConfig } from "../config/loader";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -328,28 +330,29 @@ export function stripJsonCommentsSafely(raw: string): string {
   return out;
 }
 
-function loadOmniMoConfig(): OmniMoConfig | null {
-  // Priority: env var → Pi native path → OpenCode path (legacy)
-  const envDir = process.env.OPENCODE_CONFIG_DIR?.trim();
-  if (envDir) {
-    const envPath = path.join(envDir, "oh-my-opencode-slim.json");
-    try { return JSON.parse(fs.readFileSync(envPath, "utf-8")); } catch {}
-  }
+export function getPiAgentDirForConfig(): string {
+  return getAgentDir();
+}
 
-  const piPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-  try { return JSON.parse(fs.readFileSync(piPath, "utf-8")); } catch {}
-
-  const legacyDir = process.env.XDG_CONFIG_HOME
-    ? path.join(process.env.XDG_CONFIG_HOME, "opencode")
-    : path.join(homedir(), ".config", "opencode");
-  for (const p of [path.join(legacyDir, "oh-my-opencode-slim.jsonc"), path.join(legacyDir, "oh-my-opencode-slim.json")]) {
+function readPiNativeConfig(): OmniMoConfig | null {
+  const configBase = path.join(getPiAgentDirForConfig(), "oh-my-opencode-slim");
+  for (const configPath of [`${configBase}.jsonc`, `${configBase}.json`]) {
     try {
-      const raw = fs.readFileSync(p, "utf-8");
-      return JSON.parse(stripJsonCommentsSafely(raw));
+      const raw = fs.readFileSync(configPath, "utf-8");
+      return JSON.parse(stripJsonCommentsSafely(raw)) as OmniMoConfig;
     } catch {}
   }
-
   return null;
+}
+
+export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
+  const piNativeConfig = readPiNativeConfig();
+  const sharedConfig = loadPluginConfig(cwd) as OmniMoConfig;
+  const config = deepMerge(
+    (piNativeConfig as Record<string, unknown>) ?? undefined,
+    Object.keys(sharedConfig).length > 0 ? sharedConfig as Record<string, unknown> : undefined,
+  ) as OmniMoConfig | undefined;
+  return config && Object.keys(config).length > 0 ? config : null;
 }
 
 function getDefaultModel(
@@ -382,17 +385,106 @@ const DEFAULT_MODELS: Record<string, string> = {
 
 // ─── Agent file generation ─────────────────────────────────────────────────
 
+function getManagedAgentSourceHash(content: string): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+function withManagedAgentMetadata(content: string): string {
+  const sourceHash = getManagedAgentSourceHash(content);
+  if (!content.startsWith("---\n")) {
+    return content;
+  }
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) {
+    return content;
+  }
+  const block = content.slice(4, end);
+  const body = content.slice(end);
+  const metadata = [
+    "omo-managed: true",
+    `omo-source-hash: ${sourceHash}`,
+  ];
+  const nextBlock = [
+    ...block.split("\n").filter((line) => !/^omo-(managed|source-hash):/.test(line.trim())),
+    ...metadata,
+  ].join("\n");
+  return `---\n${nextBlock}${body}`;
+}
+
+function parseAgentFrontmatter(content: string): Record<string, string> {
+  if (!content.startsWith("---\n")) return {};
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) return {};
+  const frontmatter: Record<string, string> = {};
+  for (const line of content.slice(4, end).split("\n")) {
+    const match = line.match(/^([\w-]+):\s*(.*)$/);
+    if (!match) continue;
+    frontmatter[match[1]] = match[2].trim();
+  }
+  return frontmatter;
+}
+
+function isManagedAgentContent(content: string): boolean {
+  return parseAgentFrontmatter(content)["omo-managed"] === "true";
+}
+
+function stripManagedMetadata(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => !/^omo-(managed|source-hash):/.test(line.trim()))
+    .join("\n");
+}
+
+function normalizeAgentContentForComparison(content: string): string {
+  return stripManagedMetadata(content)
+    .split("\n")
+    .filter((line) => !/^(model|thinking|tools):/.test(line.trim()))
+    .join("\n")
+    .trim();
+}
+
+function isLegacyOmoAgentContent(existing: string, sourceContent: string): boolean {
+  return normalizeAgentContentForComparison(existing) === normalizeAgentContentForComparison(sourceContent);
+}
+
+function writeManagedAgentFile(target: string, managedContent: string, label: string): "updated" {
+  const existing = fs.readFileSync(target, "utf-8");
+  fs.writeFileSync(`${target}.bak`, existing, "utf-8");
+  fs.writeFileSync(target, managedContent, "utf-8");
+  console.error(`[oh-my-opencode-slim] Updated managed agent file: ${label}`);
+  return "updated";
+}
+
+function syncAgentFile(target: string, sourceContent: string, label: string): "created" | "updated" | "skipped" {
+  const managedContent = withManagedAgentMetadata(sourceContent);
+  if (!fs.existsSync(target)) {
+    fs.writeFileSync(target, managedContent, "utf-8");
+    console.error(`[oh-my-opencode-slim] Generated agent file: ${label}`);
+    return "created";
+  }
+
+  const existing = fs.readFileSync(target, "utf-8");
+  if (!isManagedAgentContent(existing)) {
+    if (!isLegacyOmoAgentContent(existing, sourceContent)) {
+      return "skipped";
+    }
+    return writeManagedAgentFile(target, managedContent, label);
+  }
+  if (existing === managedContent) {
+    return "skipped";
+  }
+
+  return writeManagedAgentFile(target, managedContent, label);
+}
+
 function generateAgentMd(
   name: string,
   prompt: string,
   description: string,
-  model: string,
 ): string {
   return `---
 name: ${name}
 description: ${description}
-model: ${model}
-thinking: low
 ---
 
 ${prompt}
@@ -427,8 +519,12 @@ prompt = """${escapeTomlMultilineString(prompt)}
 `;
 }
 
-function ensureAgentFiles(): void {
-  const agentsDir = path.join(homedir(), ".pi", "agents");
+export function getPiAgentsDirForSync(): string {
+  return path.join(path.dirname(getAgentDir()), "agents");
+}
+
+export function ensureAgentFiles(): void {
+  const agentsDir = getPiAgentsDirForSync();
   const defaultAgentsDir = path.join(__dirname, "agents");
   fs.mkdirSync(agentsDir, { recursive: true });
   try {
@@ -437,17 +533,14 @@ function ensureAgentFiles(): void {
     for (const file of files) {
       if (!file.endsWith(".md")) continue;
       const target = path.join(agentsDir, file);
-      if (!fs.existsSync(target)) {
-        const content = fs.readFileSync(path.join(defaultAgentsDir, file), "utf-8");
-        fs.writeFileSync(target, content, "utf-8");
-        console.error(`[oh-my-opencode-slim] Generated agent file: ${file}`);
-      }
+      const content = fs.readFileSync(path.join(defaultAgentsDir, file), "utf-8");
+      syncAgentFile(target, content, file);
     }
   } catch {}
 }
 
 function updateAgentModels(config: OmniMoConfig | null, presetName: string): void {
-  const agentsDir = path.join(path.dirname(getAgentDir()), "agents");
+  const agentsDir = getPiAgentsDirForSync();
   const preset = config?.presets?.[presetName];
   if (!preset) return;
 
@@ -457,8 +550,8 @@ function updateAgentModels(config: OmniMoConfig | null, presetName: string): voi
 
     const mdPath = path.join(agentsDir, `${name}.md`);
     if (fs.existsSync(mdPath)) {
-      const content = generateAgentMd(name, info.prompt, info.description, model);
-      fs.writeFileSync(mdPath, content, "utf-8");
+      const content = generateAgentMd(name, info.prompt, info.description);
+      syncAgentFile(mdPath, content, `${name}.md`);
     }
 
     const tomlPath = path.join(agentsDir, `${name}.toml`);

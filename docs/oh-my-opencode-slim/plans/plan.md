@@ -43,15 +43,23 @@ requirementDoc: null
 
 ## 当前收尾重点（Task 10）
 
-1. 持续运行真实验证：
-   - `bun test` 相关集合
-   - `bun run typecheck`
-   - `bun run generate-schema`
-   - `bun run build:plugin`
-   - `bun run verify:release`
-2. 清理确认无用的 Pi workflow 侧旧说明/小死代码
-3. 避免保留会误导后续交接的过期计划表述
-4. 视需要更新 codemap，使其反映当前 architecture
+已完成的最新收尾：
+
+1. Pi adapter runtime config 已统一复用 shared config loader，并保留 Pi native config 作为 fallback。
+2. 旧 `~/.pi/agents/*.md` 同步机制已实现：managed metadata、stale 更新、legacy OMO md 迁移、自定义 md 保护。
+3. agent markdown frontmatter 保持 `name` / `description` / OMO managed metadata，不写 tools/model/thinking。
+4. `oracle` 模型已在 OMO slim JSON 配置中设为 `dmxapi/gpt-5.5`，模型链路由 JSON → agent discovery → subagent pool `pi --model` 生效。
+5. 全量验证已通过：`bun test` 1065 pass / 0 fail；`bun run typecheck` 通过。
+
+仍待用户 reload 后做真实 E2E：
+
+1. `start_workflow` / `workflow_status` / `send_stage_message`
+2. workflow stage pool spawn 与 StageOutput 传递
+3. chat overlay / hub 注册和输入路由
+4. `abort_workflow` / `retry_stage`
+5. 确认真实 oracle 子代理使用 `dmxapi/gpt-5.5`
+
+后续非阻塞小债：gate 优化、`buildPiOrchestratorPrompt` 旧/死代码、agent md 备份策略、日志级别、`OmniMoConfig` 类型收敛。
 
 ## 注意
 

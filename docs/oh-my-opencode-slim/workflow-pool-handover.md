@@ -1178,16 +1178,20 @@ CONTINUED: handover 文档措辞纠正
 ```text
 请先完整读取 /home/h/projects/aiprojects/oh-my-opencode-slim/docs/oh-my-opencode-slim/workflow-pool-handover.md。
 当前主线代码迁移已基本完成，不要再从最初 P0 重做。
-请继续做剩余收尾：
-1. 检查已安装 Pi 环境与 oh-my-opencode-slim 仓库实现是否同步；
-2. 处理旧用户 ~/.pi/agents/*.md 不自动更新的问题；
-3. 设计并执行一轮真实 workflow / chat overlay / hub 的 E2E 验收；
-4. 继续检查 Pi 侧重复/分散配置读取逻辑、小死代码、过期说明；
-5. 基于 handover 第 9 节 gate 的客观总结，给出优化意见并视情况实现。
+本轮又完成了以下收尾：
+1. Pi adapter 配置读取统一到 shared `loadPluginConfig(cwd)`，同时保留 Pi native config 作为 fallback；优先级为 project `.opencode` > OpenCode user / `OPENCODE_CONFIG_DIR` > Pi native。
+2. 旧用户 `~/.pi/agents/*.md` 同步问题已处理：使用 Pi SDK `getAgentDir()` 推导 agents 目录；OMO managed md 自动更新并备份；unmanaged/custom md 不覆盖；legacy OMO md 可迁移；md frontmatter 不写 tools/model/thinking。
+3. oracle 模型已按用户要求在 OMO slim JSON 中配置为 `dmxapi/gpt-5.5`，并同步到 OpenCode config 与 Pi native config。
+4. full `bun test` 与 `bun run typecheck` 已通过。
+
+当前剩余收尾：
+1. 用户 reload 后执行真实 workflow / chat overlay / hub 的 E2E 验收；
+2. gate 优化放到 reload/E2E 之后再做；
+3. 可选小债：`buildPiOrchestratorPrompt` 旧/死代码、agent md 备份策略、日志级别、`OmniMoConfig` 类型收敛。
 
 注意：
 - tools/delegates/model 以 OMO slim JSON 为权威；
-- md 不写 tools/thinking；
+- md 不写 tools/model/thinking；
 - 不要用不存在的 --agent；
 - context-mode 的目标只是“工具可用”，不要把它扩展成 MCP 提示词注入任务；
 - 每个任务完成后跑真实测试并更新 plan/task files；
@@ -1198,31 +1202,16 @@ CONTINUED: handover 文档措辞纠正
 
 ## 12. 最重要的下一步
 
-建议下一轮**第一件事只做一个现实尾项**，不要把所有收尾混在一起。
+建议下一轮**等待用户 reload 后先做真实 E2E**，不要再回到已完成的旧 P0。
 
-优先顺序建议：
+### 已完成：任务 A/B 的代码侧收尾
 
-### 任务 A：检查“已安装 Pi”与仓库实现同步
+- Pi config loading 已统一到 shared loader + Pi native fallback，避免硬编码与配置不同步。
+- 旧 `agent.md` 同步已实现 managed metadata / legacy migration / custom protection。
+- oracle 模型 JSON 配置链路已确认有效，当前配置为 `dmxapi/gpt-5.5`。
+- 验证：`bun test` 1065 pass / 0 fail；`bun run typecheck` 通过。
 
-重点确认：
-
-1. `~/.pi/agent/settings.json` 中 packages/extensions 是否与当前仓库一致
-2. `~/.pi/agent/mcp.json` / context-mode 可用性是否稳定，不依赖偶然 PATH
-3. 本机 Pi 已安装 agent/prompt/runtime 配置是否仍有旧副本
-
-### 任务 B：解决旧用户 `agent.md` 同步问题
-
-重点确认：
-
-1. `ensureAgentFiles()` 当前只复制不存在文件
-2. 已有 `~/.pi/agents/*.md` 时，是否继续跑旧 prompt
-3. 决定实现方式：
-   - 覆盖同步
-   - 版本戳同步
-   - 专门 sync 命令
-   - 或明确检测并提示用户刷新
-
-### 任务 C：补真实 E2E 验收
+### 下一步：任务 C：补真实 E2E 验收
 
 至少验收：
 

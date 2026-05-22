@@ -1,61 +1,49 @@
 import { describe, expect, test } from 'bun:test';
 import { createBuiltinMcps } from './index';
 
+const BUILTIN_MCP_NAMES = ['context7', 'grep_app'];
+
 describe('createBuiltinMcps', () => {
   test('returns all MCPs when no disabled list provided', () => {
     const mcps = createBuiltinMcps();
     const names = Object.keys(mcps);
 
-    expect(names).toContain('websearch');
-    expect(names).toContain('context7');
-    expect(names).toContain('grep_app');
+    expect(names).toEqual(BUILTIN_MCP_NAMES);
   });
 
   test('returns all MCPs with empty disabled list', () => {
     const mcps = createBuiltinMcps([]);
     const names = Object.keys(mcps);
 
-    expect(names.length).toBe(3);
-    expect(names).toContain('websearch');
-    expect(names).toContain('context7');
-    expect(names).toContain('grep_app');
+    expect(names).toEqual(BUILTIN_MCP_NAMES);
   });
 
   test('excludes single disabled MCP', () => {
-    const mcps = createBuiltinMcps(['websearch']);
+    const mcps = createBuiltinMcps(['context7']);
     const names = Object.keys(mcps);
 
-    expect(names).not.toContain('websearch');
-    expect(names).toContain('context7');
-    expect(names).toContain('grep_app');
+    expect(names).toEqual(['grep_app']);
   });
 
   test('excludes multiple disabled MCPs', () => {
-    const mcps = createBuiltinMcps(['websearch', 'grep_app']);
+    const mcps = createBuiltinMcps(['context7', 'grep_app']);
     const names = Object.keys(mcps);
 
-    expect(names).not.toContain('websearch');
-    expect(names).not.toContain('grep_app');
-    expect(names).toContain('context7');
-    expect(names.length).toBe(1);
+    expect(names).toEqual([]);
   });
 
   test('excludes all MCPs when all disabled', () => {
-    const mcps = createBuiltinMcps(['websearch', 'context7', 'grep_app']);
+    const mcps = createBuiltinMcps(BUILTIN_MCP_NAMES);
     const names = Object.keys(mcps);
 
-    expect(names.length).toBe(0);
+    expect(names).toEqual([]);
   });
 
   test('ignores unknown MCP names in disabled list', () => {
     const mcps = createBuiltinMcps(['unknown_mcp', 'nonexistent']);
     const names = Object.keys(mcps);
 
-    // All valid MCPs should still be present
-    expect(names.length).toBe(3);
-    expect(names).toContain('websearch');
-    expect(names).toContain('context7');
-    expect(names).toContain('grep_app');
+    expect(names).toEqual(BUILTIN_MCP_NAMES);
   });
 
   test('MCP configs have required properties', () => {
@@ -68,14 +56,6 @@ describe('createBuiltinMcps', () => {
       const hasCommand = 'command' in config;
       expect(hasUrl || hasCommand).toBe(true);
     }
-  });
-
-  test('websearch MCP has correct structure', () => {
-    const mcps = createBuiltinMcps();
-    const websearch = mcps.websearch;
-
-    expect(websearch).toBeDefined();
-    expect('url' in websearch).toBe(true);
   });
 
   test('context7 MCP has correct structure', () => {

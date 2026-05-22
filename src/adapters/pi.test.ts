@@ -1,4 +1,7 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 
 mock.module('typebox', () => ({
@@ -16,6 +19,8 @@ mock.module('typebox', () => ({
   },
 }));
 
+let testPiAgentDir = '/tmp/omo-pi-test/agent';
+
 mock.module('@earendil-works/pi-coding-agent', () => ({
   createAgentSession: mock(async () => ({
     session: {
@@ -27,7 +32,7 @@ mock.module('@earendil-works/pi-coding-agent', () => ({
       isStreaming: false,
     },
   })),
-  getAgentDir: () => '/tmp/omo-pi-test/agent',
+  getAgentDir: () => testPiAgentDir,
   DynamicBorder: class { constructor(_c?: any) {} invalidate() {} render(_w: number) { return ['']; } },
   SessionManager: {
     inMemory: () => ({ getBranch: () => [], getEntries: () => [], getLeafId: () => undefined, getSessionFile: () => undefined }),
@@ -73,7 +78,125 @@ mock.module("@earendil-works/pi-tui", () => {
 });
 
 
+describe('Pi adapter agent prompt sync', () => {
+  let tempDir: string;
+  let originalEnv: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-agent-sync-'));
+    originalEnv = { ...process.env };
+    process.env.HOME = path.join(tempDir, 'home');
+    testPiAgentDir = path.join(tempDir, 'pi', 'agent');
+    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
+  });
+
+  test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+
+    ensureAgentFiles();
+
+    const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
+    const content = fs.readFileSync(oraclePath, 'utf-8');
+    expect(content).toContain('name: oracle');
+    expect(content).toContain('description: Strategic technical advisor and code reviewer');
+    expect(content).toContain('omo-managed: true');
+    expect(content).toContain('omo-source-hash:');
+    expect(content).not.toContain('model:');
+    expect(content).not.toContain('thinking:');
+    expect(content).not.toContain('tools:');
+  });
+
+  test('updates stale managed agent markdown and writes a backup', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+
+    ensureAgentFiles();
+    const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
+    const original = fs.readFileSync(oraclePath, 'utf-8');
+    fs.writeFileSync(oraclePath, original.replace('# 角色', '# stale role'), 'utf-8');
+
+    ensureAgentFiles();
+
+    const updated = fs.readFileSync(oraclePath, 'utf-8');
+    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
+    expect(updated).toContain('# 角色');
+    expect(updated).not.toContain('# stale role');
+    expect(backup).toContain('# stale role');
+  });
+
+  test('does not overwrite unmanaged legacy or custom agent markdown', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const agentsDir = getPiAgentsDirForSync();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const oraclePath = path.join(agentsDir, 'oracle.md');
+    const customContent = ['---', 'name: oracle', 'description: Custom Oracle', '---', '', '# custom prompt'].join('\n');
+    fs.writeFileSync(oraclePath, customContent, 'utf-8');
+
+    ensureAgentFiles();
+
+    expect(fs.readFileSync(oraclePath, 'utf-8')).toBe(customContent);
+    expect(fs.existsSync(`${oraclePath}.bak`)).toBe(false);
+  });
+
+  test('migrates old OMO-generated markdown with obsolete model frontmatter', async () => {
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const agentsDir = getPiAgentsDirForSync();
+    fs.mkdirSync(agentsDir, { recursive: true });
+    const sourcePath = path.join(import.meta.dir, 'agents', 'oracle.md');
+    const oraclePath = path.join(agentsDir, 'oracle.md');
+    const legacyContent = fs.readFileSync(sourcePath, 'utf-8').replace('description: Strategic technical advisor and code reviewer', 'description: Strategic technical advisor and code reviewer\nmodel: openai/gpt-4.1\nthinking: low');
+    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
+
+    ensureAgentFiles();
+
+    const migrated = fs.readFileSync(oraclePath, 'utf-8');
+    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
+    expect(migrated).toContain('omo-managed: true');
+    expect(migrated).toContain('omo-source-hash:');
+    expect(migrated).not.toContain('model:');
+    expect(migrated).not.toContain('thinking:');
+    expect(backup).toBe(legacyContent);
+  });
+});
+
 describe('Pi adapter config helpers', () => {
+  let tempDir: string;
+  let projectDir: string;
+  let originalEnv: NodeJS.ProcessEnv;
+  let originalCwd: string;
+
+  function writeJson(filePath: string, value: unknown): void {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+  }
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-adapter-config-'));
+    projectDir = path.join(tempDir, 'project');
+    fs.mkdirSync(projectDir, { recursive: true });
+    originalEnv = { ...process.env };
+    originalCwd = process.cwd();
+    process.env.HOME = path.join(tempDir, 'home');
+    process.env.XDG_CONFIG_HOME = path.join(tempDir, 'xdg');
+    delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.OH_MY_OPENCODE_SLIM_PRESET;
+    testPiAgentDir = path.join(tempDir, 'pi', 'agent');
+    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
+    process.chdir(projectDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    process.env = originalEnv;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
+  });
+
   test('strips JSON comments without breaking URLs inside strings', async () => {
     const { stripJsonCommentsSafely } = await import('./pi');
 
@@ -92,6 +215,125 @@ describe('Pi adapter config helpers', () => {
     expect(parsed.council.meeting_backend).toBe('collaborating');
     expect(cleaned).not.toContain('trailing comment');
     expect(cleaned).not.toContain('block comment');
+  });
+
+  test('loads Pi adapter config through shared OpenCode search paths', async () => {
+    const opencodeDir = path.join(tempDir, 'custom-opencode');
+    process.env.OPENCODE_CONFIG_DIR = opencodeDir;
+    writeJson(path.join(opencodeDir, 'oh-my-opencode-slim.json'), {
+      agents: { oracle: { model: 'runtime/review-oracle' } },
+      council: {
+        presets: { default: { alpha: { model: 'openai/gpt-4o' } } },
+        meeting_backend: 'collaborating',
+      },
+      workflows: {
+        default: 'review-only',
+        list: [{ name: 'review-only', description: 'Review', stages: [{ agent: 'oracle' }] }],
+      },
+    });
+
+    const { getConfigSearchDirs } = await import('../cli/paths');
+    const { loadPluginConfig } = await import('../config/loader');
+    const { loadOmniMoConfig } = await import('./pi');
+    const searchDirs = getConfigSearchDirs();
+    const sharedConfig = loadPluginConfig(projectDir);
+    const config = loadOmniMoConfig(projectDir);
+
+    expect(searchDirs).toContain(opencodeDir);
+    expect(sharedConfig.agents?.oracle?.model).toBe('runtime/review-oracle');
+    expect(config?.agents?.oracle?.model).toBe('runtime/review-oracle');
+    expect(config?.council?.meeting_backend).toBe('collaborating');
+    expect(config?.workflows?.default).toBe('review-only');
+  });
+
+  test('merges Pi native config as fallback and project config as override', async () => {
+    const piAgentDir = testPiAgentDir;
+    writeJson(path.join(piAgentDir, 'oh-my-opencode-slim.json'), {
+      agents: {
+        oracle: {
+          model: 'pi-native/oracle-model',
+          options: { textVerbosity: 'low', reasoningEffort: 'medium' },
+        },
+      },
+      disabled_agents: ['observer'],
+    });
+    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
+      agents: {
+        oracle: {
+          model: 'project/oracle-model',
+          options: { textVerbosity: 'high' },
+        },
+      },
+    });
+
+    const piModule = await import('./pi');
+    expect(piModule.getPiAgentDirForConfig()).toBe(piAgentDir);
+    expect(fs.existsSync(path.join(piAgentDir, 'oh-my-opencode-slim.json'))).toBe(true);
+    const config = piModule.loadOmniMoConfig(projectDir);
+
+    expect(config?.agents?.oracle?.model).toBe('project/oracle-model');
+    expect(config?.agents?.oracle?.options).toEqual({
+      textVerbosity: 'high',
+      reasoningEffort: 'medium',
+    });
+    expect(config?.disabled_agents).toEqual(['observer']);
+  });
+
+  test('merges Pi native, OpenCode user, and project config in precedence order', async () => {
+    const piAgentDir = testPiAgentDir;
+    const opencodeDir = path.join(tempDir, 'custom-opencode');
+    process.env.OPENCODE_CONFIG_DIR = opencodeDir;
+
+    writeJson(path.join(piAgentDir, 'oh-my-opencode-slim.json'), {
+      agents: {
+        oracle: {
+          model: 'pi-native/oracle-model',
+          options: {
+            reasoningEffort: 'low',
+            textVerbosity: 'low',
+            piOnly: true,
+          },
+        },
+        explorer: { model: 'pi-native/explorer-model' },
+      },
+      disabled_agents: ['observer'],
+    });
+    writeJson(path.join(opencodeDir, 'oh-my-opencode-slim.json'), {
+      agents: {
+        oracle: {
+          model: 'opencode/oracle-model',
+          options: {
+            reasoningEffort: 'medium',
+            userOnly: true,
+          },
+        },
+        fixer: { model: 'opencode/fixer-model' },
+      },
+    });
+    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
+      agents: {
+        oracle: {
+          model: 'project/oracle-model',
+          options: {
+            textVerbosity: 'high',
+          },
+        },
+      },
+    });
+
+    const { loadOmniMoConfig } = await import('./pi');
+    const config = loadOmniMoConfig(projectDir);
+
+    expect(config?.agents?.oracle?.model).toBe('project/oracle-model');
+    expect(config?.agents?.oracle?.options).toEqual({
+      reasoningEffort: 'medium',
+      textVerbosity: 'high',
+      piOnly: true,
+      userOnly: true,
+    });
+    expect(config?.agents?.explorer?.model).toBe('pi-native/explorer-model');
+    expect(config?.agents?.fixer?.model).toBe('opencode/fixer-model');
+    expect(config?.disabled_agents).toEqual(['observer']);
   });
 });
 
