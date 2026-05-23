@@ -1,0 +1,30 @@
+{
+  "id": 2,
+  "title": "移除 queuedStageResult() 的 response JSON fallback",
+  "context": "`queuedStageResult()` 在 workflow-manager.test.ts 的 `FakePool` 中，当前在没有显式 `stageResult` 或 `skipStageResult` 时尝试 `JSON.parse(next.response)` 并把普通 response JSON 当作 stage result。这是旧协议的测试夹具残留。本轮要删除这种兼容，使所有需要成功/提问/clarification 的测试必须通过显式 `stageResult` 写 IPC。",
+  "status": "completed",
+  "files": [
+    "src/adapters/workflow-manager.test.ts"
+  ],
+  "dependencies": [
+    1
+  ],
+  "steps": [
+    "在 `queuedStageResult()` 中，移除 `try { const parsed = JSON.parse(next.response); ... } catch {}` 块",
+    "函数简化后只保留 `if (next.skipStageResult) return undefined; if (next.stageResult) return next.stageResult; return undefined;`",
+    "检查所有使用 `FakePool.spawnResponses.push({ response: '...' })` 的测试，确认 `stageResult` 字段已提供",
+    "特别检查：'reminds same stage once...' 使用了 `skipStageResult: true`，应保留",
+    "检查：'fails workflow when stage tool IPC is missing after reminder' 使用了 `{ response: 'not json' }`（无 stageResult），移除 fallback 后该测试不受影响（`queuedStageResult` 返回 undefined，不会写文件）",
+    "检查：'clears lastError when a new workflow starts' 使用了 `{ response: 'not json' }`，同上"
+  ],
+  "validation": [
+    "grep 确认 `queuedStageResult` 中不再有 `JSON.parse`",
+    "所有使用 `FakePool` 的测试通过 `stageResult` 或 `skipStageResult` 显式控制 IPC 行为",
+    "bun test src/adapters/workflow-manager.test.ts 通过"
+  ],
+  "implementationResult": {
+    "status": "completed_noop",
+    "changedFiles": [],
+    "notes": "最终 HEAD 中未发现 queuedStageResult，也未发现 JSON.parse(next.response) fallback；oracle 判定旧测试 fallback 残留不存在，任务按结果要求天然满足。"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "chat-observability-ux",
+  "title": "P2 /chat agent status observability",
+  "status": "implemented_pending_manual_tui_check",
+  "scope": "Add grouped /chat list rows and a bottom short status line. Do not add a workflow-centric panel or new primary status command.",
+  "confirmedDecisions": [
+    "/chat object is the agent/pool chat, not workflow itself",
+    "Group chat entries by scope: Workflow, Pool, Standalone",
+    "List row format: <name> · <state> · <elapsed>",
+    "Bottom status format: <name> · <state> · <scope>",
+    "Agent state applies to both workflow stage agents and normal pool agents",
+    "Do not expand workflow/stage path in default row; use secondary detail only",
+    "No full panel for P2 MVP",
+    "No separate status command as primary UX",
+    "Fallback is recommended on failed/dead/timeout but not automatic",
+    "Status derivation and formatting must be TUI-decoupled for future Tauri reuse"
+  ],
+  "tasks": [
+    { "id": 1, "file": "task-1.json", "title": "Define agent status line model", "status": "completed" },
+    { "id": 2, "file": "task-2.json", "title": "Wire /chat status line rendering", "status": "completed" },
+    { "id": 3, "file": "task-3.json", "title": "Track workflow ownership context for stage chats", "status": "completed" },
+    { "id": 4, "file": "task-4.json", "title": "Validate chat status UX", "status": "completed" },
+    { "id": 5, "file": "task-5.json", "title": "Research Pi main chat TUI reuse", "status": "deferred_low_priority" },
+    { "id": 6, "file": "task-6.json", "title": "Remove Pi declaration hard gates", "status": "completed" }
+  ]
+}

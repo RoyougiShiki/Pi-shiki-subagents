@@ -1,0 +1,27 @@
+{
+  "id": 5,
+  "title": "修正 pi.ts 顶部 declaration gates 注释",
+  "context": "`pi.ts` 顶部注释写 'Declaration gates (Intent/Clarify/Approval/Orchestration) are enforced'，但 codemap 已说明 'Pi workflow no longer uses declaration hard gates'。本轮只修正注释定位以反映现状，不移除 `compliance_check` 配置或 turn_end 逻辑（那些保留为旧可选质量检查）。",
+  "status": "completed",
+  "files": [
+    "src/adapters/pi.ts"
+  ],
+  "dependencies": [],
+  "steps": [
+    "读取 pi.ts 顶部注释块，找到包含 'Declaration gates' 的行",
+    "将其替换为反映当前状态的表述，例如：'Pi workflow no longer uses declaration hard gates (Intent/READY/APPROVED/ORCHESTRATION) in the adapter hot path; compliance_check configuration is retained as optional quality gate.'",
+    "不修改任何运行时代码 — 本轮只改注释"
+  ],
+  "validation": [
+    "grep 确认 pi.ts 顶部不再出现 'Declaration gates.*enforced' 表述",
+    "bun test src/adapters/pi.test.ts 通过（纯注释变更不应影响）"
+  ],
+  "implementationResult": {
+    "status": "completed",
+    "changedFiles": [
+      "src/adapters/pi.ts"
+    ],
+    "notes": "仅修改顶部 Architecture 注释：改为 Constitution/orchestrator prompt 通过 before_agent_start 注入，并说明 legacy declaration gate checks (tool_call blocking) 与 compliance_check 仍作为 adapter quality gates 保留；未修改运行时代码。",
+    "validationResult": "bun test src/adapters/pi.test.ts：26 pass；bun run typecheck：PASS；oracle 最终审查 PASS。"
+  }
+}

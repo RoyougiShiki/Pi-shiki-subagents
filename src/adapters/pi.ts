@@ -5,9 +5,8 @@
  *
  * Architecture:
  *   - Agent markdown files are generated in ~/.pi/agents/ on first load
- *   - OMO's orchestrator prompt is injected via before_agent_start
- *   - Declaration gates (Intent/Clarify/Approval/Orchestration) are enforced
- *     via system prompt instructions and context event reminders
+ *   - Constitution/orchestrator prompt is injected via before_agent_start
+ *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
  *   - OMO's custom tools (delegate, council, ast-grep) are registered
  *     as pi tools (webfetch omitted — pi-web-access provides better ones)
  *   - /preset command switches model presets at runtime
@@ -32,13 +31,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions } from "./pi-modes";
-import {
-  INTENT_GATE_BLOCK_MESSAGE,
-  CLARIFY_GATE_BLOCK_MESSAGE as READINESS_GATE_BLOCK_MESSAGE,
-  APPROVAL_GATE_BLOCK_MESSAGE,
-  ORCHESTRATION_GATE_BLOCK_MESSAGE,
-} from "../core/workflow-templates";
-
 import { AGENT_PROMPTS, reloadAgentPrompts } from "./pi-agents";
 import {
   formatPiCouncilResults,
@@ -59,6 +51,7 @@ import type { ToolInfo, ToolChange } from "../core/tool-detector";
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "./subagent-pool";
 import { getHub } from "./pi-hub";
+import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "./chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "./pi-chat-bridge";
 import { WorkflowManager } from "./workflow-manager";
 import { bindWorkflowChatBridge } from "./workflow-chat-binding";
@@ -1003,21 +996,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // omo_subagent replaces the old subagent tool — registered in registerSubagentTool
   });
 
-  // ── Lifecycle-based gate state ─────────────────────────────────────
-  // Gates track declarations per agent cycle (before_agent_start → agent_end).
-  // Each gate only blocks once per cycle — after declared, subsequent
-  // tools in the same cycle pass without re-declaration.
-  let gateState: { cycle: number; intent: boolean; ready: boolean; approved: boolean } = {
-    cycle: 0, intent: false, ready: false, approved: false,
-  };
-
-  // ── Context-aware gate state
-  let userTurn = 0;
-  let lastApprovedTurn: number | null = null;
-  let lastReadyTurn: number | null = null;
-  let lastIntentTurn: number | null = null;
-  const DECLARATION_EXPIRY_USER_MSGS = 5;
-
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
@@ -1026,8 +1004,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       return { systemPrompt: event.systemPrompt };
     }
     
-    // Reset gate state for new agent cycle
-    gateState = { cycle: gateState.cycle + 1, intent: false, ready: false, approved: false };
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -1144,126 +1120,21 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Declaration gates via tool_call blocking ───────────────────────
-  // Pi synchronizes ctx.sessionManager through the current assistant
-  // tool-calling message before tool_call handlers run. Use that current
-  // message first, then fall back to previous assistant text. These gates are
-  // intentionally instructional: blocking is a reminder to stop and reason
-  // about intent/readiness/approval, not just a permission denial.
-  function getAssistantText(msg: any): string {
-    const content = msg?.content;
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content
-      .filter((p: any) => p?.type === "text" && typeof p.text === "string")
-      .map((p: any) => p.text)
-      .join("\n");
-  }
-
-  function assistantHasToolCall(msg: any, toolCallId: string): boolean {
-    const content = msg?.content;
-    return Array.isArray(content) && content.some((p: any) => p?.type === "toolCall" && p.id === toolCallId);
-  }
-
-  function getRelevantAssistantText(ctx: ExtensionContext, toolCallId: string): string {
-    try {
-      const branch = ctx.sessionManager.getBranch();
-      let fallback = "";
-      for (let i = branch.length - 1; i >= 0; i--) {
-        const entry = branch[i];
-        if (entry.type !== "message") continue;
-        const msg = (entry as any).message;
-        if (msg?.role !== "assistant") continue;
-        const text = getAssistantText(msg);
-        if (!text) continue;
-        if (assistantHasToolCall(msg, toolCallId)) return text;
-        if (!fallback) fallback = text;
-      }
-      return fallback;
-    } catch {
-      return "";
-    }
-  }
-
-  function hasDeclaration(text: string, label: string): boolean {
-    // Prefer declarations at line starts, but allow compact same-line forms:
-    // "Intent: ... READY: ... APPROVED: ...". The gate is instructional;
-    // overblocking valid compact declarations makes weaker models loop.
-    return new RegExp(`(^|\\s)${label}:`, "im").test(text);
-  }
-
-  pi.on("tool_call", async (event, ctx) => {
-    try {
-      const assistantText = getRelevantAssistantText(ctx, event.toolCallId);
-
-      // First turn or provider emitted tool call without any visible text:
-      // remind through context/prompt next time, but do not hard-block purely
-      // empty text because some providers can generate tool-only first calls.
-      if (!assistantText) return;
-
-      // Detect declarations in the current assistant message
-      const hasIntent = hasDeclaration(assistantText, "Intent");
-      const hasReady = hasDeclaration(assistantText, "READY") || hasDeclaration(assistantText, "AWAITING_APPROVAL");
-      const hasApproved = hasDeclaration(assistantText, "APPROVED");
-      const hasOrchestration = hasDeclaration(assistantText, "ORCHESTRATION");
-
-      // Intent Gate: block once per cycle if not yet declared.
-      // Once declared in any turn of this cycle, skip Intent check for
-      // subsequent tools (LLM is continuing the same intent).
-      if (!hasIntent && !gateState.intent) {
-        return { block: true, reason: INTENT_GATE_BLOCK_MESSAGE };
-      }
-      if (hasIntent) gateState.intent = true;
-
-      // Orchestration Gate: block each time for delegation tools.
-      // Each delegate call is an independent orchestration decision.
-      if (["agent", "workflow", "subagent"].includes(event.toolName)) {
-        if (!hasOrchestration) {
-          return { block: true, reason: ORCHESTRATION_GATE_BLOCK_MESSAGE };
-        }
-      }
-
-      // Readiness + Approval Gates: block once per cycle. Supports cross-cycle continuation.
-      if (event.toolName === "edit" || event.toolName === "write") {
-        const hasContinued = hasDeclaration(assistantText, "CONTINUED");
-        if (hasContinued) { gateState.ready = true; gateState.approved = true; lastApprovedTurn = userTurn; }
-
-        if (!hasReady && !hasContinued && !hasApproved && !gateState.ready) {
-          if (lastApprovedTurn !== null && (userTurn - lastApprovedTurn) <= DECLARATION_EXPIRY_USER_MSGS && !gateState.approved) {
-            return { block: true, reason: `[ApprovalGate] ⚡ 检测到近期的批准记录（第 ${lastApprovedTurn} 轮）。延续任务？回复开头写 "CONTINUED: <任务名>"，否则写 READY+APPROVED` };
-          }
-          return { block: true, reason: READINESS_GATE_BLOCK_MESSAGE };
-        }
-        if (hasReady || hasContinued) gateState.ready = true;
-
-        if (!hasApproved && !hasContinued && !gateState.approved) {
-          return { block: true, reason: APPROVAL_GATE_BLOCK_MESSAGE };
-        }
-        if (hasApproved || hasContinued) {
-          gateState.ready = true; gateState.approved = true;
-          lastApprovedTurn = userTurn; lastReadyTurn = userTurn;
-        }
-      }
-    } catch (err) {
-      console.error("[oh-my-opencode-slim] Gate error:", err);
-    }
-  });
-
-  // ── Gate reminders in context ──────────────────────────────────────
+  // ── Non-blocking behavior reminders in context ────────────────────
   pi.on("context", async (event, _ctx) => {
     const reminder = {
       role: "system" as const,
-      content: [{ type: "text" as const, text: `[Gate Rules]
-Declare these before calling tools:
+      content: [{ type: "text" as const, text: `[Behavior Reminders]
+Before acting, briefly state:
 
-• Intent: <type> — required before any tool call. Shows you've understood what to do.
-• ORCHESTRATION: self | delegate to <agent> — required before delegation tools.
-   Why declare it? It forces you to consciously choose the right approach for each task.
-   Not declaring = gate will block your delegation. You'll waste a turn.
-• READY: <context> + APPROVED: <plan> — only needed if write/edit tools are available in your current mode.` }],
+• Intent: <type> — what you understand the user wants.
+• READY: <context> — when you have enough context for edits.
+• APPROVED: <plan> — when the user has approved a concrete change.
+
+These are non-blocking reminders. Do not stop solely to satisfy this format when the user has already approved continuing.` }],
     };
     const hasReminder = event.messages.some(
-      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Gate Rules]")),
+      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Behavior Reminders]")),
     );
     if (!hasReminder) {
       return { messages: [...event.messages, reminder] };
@@ -1393,33 +1264,64 @@ ${agentOutput.slice(0, 3000)}`;
         type: "chat" | "group";
         meetingId: string;
         name: string;
+        selectable: boolean;
       }
       const options: ChatOption[] = [];
+      const statusViews: Array<{ view: ChatStatusView; option: ChatOption }> = [];
 
       const agents = pool.list();
       for (const a of agents) {
         if (a.status === "dead") continue;
         if (hub.getMeeting(a.id)) continue;
         const displayName = a.name || a.agentName;
-        const label = `${displayName} (${a.agentName}) — ${a.messageCount}条消息`;
-        options.push({ label, type: "chat", meetingId: a.id, name: displayName });
+        const state = a.status === "streaming" || a.status === "starting" ? "working" : "idle";
+        const view = createChatStatusView({
+          name: displayName,
+          state,
+          scope: "pool",
+          startedAt: a.startedAt,
+        });
+        statusViews.push({
+          view,
+          option: { label: view.listRow, type: "chat", meetingId: a.id, name: displayName, selectable: true },
+        });
       }
 
       // 活跃的群聊（只显示 type=group 的）
       const meetings = hub.getActiveMeetings();
       for (const m of meetings) {
         if (m.type === "group") {
-        const names = m.participants.map(p => p.name).join(", ");
-        const label = `群聊: ${m.name} (${names}) — ${m.messages.length}条消息`;
-        options.push({ label, type: "group", meetingId: m.id, name: m.name });
+          const names = m.participants.map(p => p.name).join(", ");
+          options.push({
+            label: `Group\n  ${m.name} · ${names}`,
+            type: "group",
+            meetingId: m.id,
+            name: m.name,
+            selectable: true,
+          });
         }
       }
 
       // 已有的私聊（可继续）
       for (const m of meetings) {
         if (m.type !== "chat") continue;
-        const label = `继续私聊: ${m.name} — ${m.messages.length}条消息`;
-        options.push({ label, type: "chat", meetingId: m.id, name: m.name });
+        const view = createChatStatusView({
+          name: m.name,
+          state: m.chatStatus?.state ?? "idle",
+          scope: m.chatStatus?.scope ?? "standalone",
+          startedAt: m.chatStatus?.startedAt ?? m.startedAt,
+          fallbackRecommended: m.chatStatus?.fallbackRecommended,
+        });
+        statusViews.push({
+          view,
+          option: { label: view.listRow, type: "chat", meetingId: m.id, name: m.name, selectable: true },
+        });
+      }
+
+      for (const group of groupChatStatusViews(statusViews.map((item) => item.view))) {
+        for (const item of statusViews.filter((candidate) => candidate.view.scope === group.scope)) {
+          options.push({ ...item.option, label: `${group.title}  ${item.view.listRow}` });
+        }
       }
 
       if (options.length === 0) {
@@ -1430,7 +1332,7 @@ ${agentOutput.slice(0, 3000)}`;
       const selected = await ctx.ui.select("选择要进入的会话:", options.map(o => o.label));
       if (!selected) return;
       const picked = options.find(o => o.label === selected);
-      if (!picked) return;
+      if (!picked || !picked.selectable) return;
 
       if (picked.type === "chat") {
         const existing = hub.getMeeting(picked.meetingId);
@@ -1445,6 +1347,10 @@ ${agentOutput.slice(0, 3000)}`;
             name: picked.name,
             agentType: agentInfo?.agentName ?? "agent",
             proc,
+          }, undefined, {
+            scope: "pool",
+            state: agentInfo?.status === "streaming" || agentInfo?.status === "starting" ? "working" : "idle",
+            startedAt: agentInfo?.startedAt,
           });
         }
         await runPrivateChat(picked.meetingId, picked.name, ctx);

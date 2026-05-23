@@ -12,7 +12,9 @@ export function bindWorkflowChatBridge(args: {
       name: string,
       participant: { name: string; agentType: string; proc: ChildProcess },
       onUserMessage?: (message: string) => Promise<{ response?: string; error?: string } | void>,
+      chatStatus?: { scope?: 'workflow' | 'pool' | 'standalone'; state?: 'working' | 'waiting' | 'idle' | 'failed' | 'dead' | 'done'; startedAt?: number; fallbackRecommended?: boolean },
     ): unknown;
+    updateChatStatus(id: string, patch: { state?: 'working' | 'waiting' | 'idle' | 'failed' | 'dead' | 'done'; fallbackRecommended?: boolean }): void;
   };
   getPoolProcess: (id: string) => ChildProcess | undefined;
   autoOpenChat: (meetingId: string, displayName: string, ctx: ExtensionContext) => void;
@@ -27,14 +29,31 @@ export function bindWorkflowChatBridge(args: {
             name: event.agent,
             agentType: event.agent,
             proc,
-          }, (message) => args.manager.sendUserMessage(message));
+          }, (message) => args.manager.sendUserMessage(message), {
+            scope: 'workflow',
+            state: 'working',
+            startedAt: Date.now(),
+          });
         }
       }
     }
 
     if (event.type === 'message') {
+      args.hub.updateChatStatus(event.poolId, { state: 'idle' });
       const sessionCtx = args.getSessionCtx();
       if (sessionCtx) args.autoOpenChat(event.poolId, event.agent, sessionCtx);
+    }
+
+    if (event.type === 'waiting_user') {
+      args.hub.updateChatStatus(event.poolId, { state: 'waiting' });
+    }
+
+    if (event.type === 'complete') {
+      args.hub.updateChatStatus(event.poolId, { state: 'done' });
+    }
+
+    if (event.type === 'error' && event.poolId) {
+      args.hub.updateChatStatus(event.poolId, { state: 'failed', fallbackRecommended: true });
     }
   });
 }

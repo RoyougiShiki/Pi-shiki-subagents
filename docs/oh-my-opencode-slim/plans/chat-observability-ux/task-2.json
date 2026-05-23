@@ -1,0 +1,20 @@
+{
+  "id": 2,
+  "title": "Wire /chat status line rendering",
+  "status": "completed",
+  "goal": "Append the lightweight status line after existing /chat text without adding a new primary workflow status command or full panel.",
+  "requirements": [
+    "Do not replace existing /chat output.",
+    "Append exactly one concise bottom status line when chat status metadata is available.",
+    "Do not dump raw JSON, pool logs, stdout, stderr, or full lastResponse.",
+    "Keep business status logic out of Pi TUI render code."
+  ],
+  "changedFiles": [
+    "src/adapters/pi-chat-bridge.ts",
+    "src/adapters/pi.ts",
+    "src/adapters/chat-status-view.ts"
+  ],
+  "validation": [
+    "bun test src/adapters/pi.test.ts src/adapters/chat-status-view.test.ts src/adapters/workflow-chat-binding.test.ts src/adapters/pi-hub.test.ts src/adapters/subagent-pool.test.ts: PASS"
+  ]
+}

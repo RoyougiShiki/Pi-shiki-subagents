@@ -1,0 +1,23 @@
+{
+  "id": 1,
+  "title": "移除 readStageOutput() 的 clarify alias",
+  "context": "`readStageOutput()` 在 workflow-manager.ts 中当前接受 `type === 'clarify'` 作为 `needs_clarification` 的别名。codemap 要求不把 JSON 输出协议重新引入 agent prompt，而 `clarify` 是旧协议中的一种 type。本轮至少收窄，去掉这个 alias，调用者必须显式使用 `needs_clarification`。",
+  "status": "completed",
+  "files": [
+    "src/adapters/workflow-manager.ts"
+  ],
+  "dependencies": [],
+  "steps": [
+    "在 `readStageOutput()` 中，将 `if (type === 'clarify' || type === 'needs_clarification')` 改为 `if (type === 'needs_clarification')`",
+    "删除条件中的 `'clarify'` 分支"
+  ],
+  "validation": [
+    "确认 `readStageOutput` 遇到 `type: 'clarify'` 时抛 `unsupported stage result type` 而非返回 `needs_clarification`",
+    "随后 task-3 会将所有测试中 `type: 'clarify'` 改为 `type: 'needs_clarification'` 以保持测试通过"
+  ],
+  "implementationResult": {
+    "status": "completed_noop",
+    "changedFiles": [],
+    "notes": "最终 HEAD 中未发现 readStageOutput，也未发现 type === 'clarify' alias；oracle 判定旧 alias 残留不存在，任务按结果要求天然满足。"
+  }
+}

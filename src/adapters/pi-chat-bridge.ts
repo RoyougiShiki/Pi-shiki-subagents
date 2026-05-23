@@ -11,6 +11,7 @@
 import { Input, Key, matchesKey, Spacer, Text } from "@earendil-works/pi-tui";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createChatStatusView } from "./chat-status-view";
 import { getHub, type ChatMessage } from "./pi-hub";
 
 const OVERLAY_HEIGHT_RATIO = 0.8;
@@ -148,8 +149,15 @@ async function showChatOverlay(
           const scrollInfo = msgLines.length > msgBudget
             ? `[${scrollOffset}/${msgExcess}] ↑↓ 滚动 · `
             : ``;
+          const status = createChatStatusView({
+            name: meeting.name,
+            state: meeting.chatStatus?.state ?? "idle",
+            scope: meeting.chatStatus?.scope ?? "standalone",
+            startedAt: meeting.chatStatus?.startedAt ?? meeting.startedAt,
+            fallbackRecommended: meeting.chatStatus?.fallbackRecommended,
+          });
           helpText.setText(theme.fg("dim",
-            `${scrollInfo}Enter 发送 · Esc 退出`,
+            `${scrollInfo}${status.bottomLine} · Enter 发送 · Esc 退出`,
           ));
 
           const result = [...headerLines, ...visibleMsgs, ...footerLines];

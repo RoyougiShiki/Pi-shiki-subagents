@@ -23,6 +23,13 @@ export interface MeetingParticipant {
   proc: ChildProcess;
 }
 
+export interface ChatStatusMetadata {
+  scope?: "workflow" | "pool" | "standalone";
+  state?: "working" | "waiting" | "idle" | "failed" | "dead" | "done";
+  startedAt?: number;
+  fallbackRecommended?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   meetingId: string;
@@ -40,6 +47,7 @@ export interface ActiveMeeting {
   startedAt: number;
   status: "active" | "ended";
   report?: string;
+  chatStatus?: ChatStatusMetadata;
   onUserMessage?: (message: string) => Promise<{ response?: string; error?: string } | void>;
 }
 
@@ -73,13 +81,20 @@ class Hub {
     return meeting;
   }
 
-  registerChat(id: string, name: string, participant: MeetingParticipant, onUserMessage?: ActiveMeeting["onUserMessage"]): ActiveMeeting {
+  registerChat(
+    id: string,
+    name: string,
+    participant: MeetingParticipant,
+    onUserMessage?: ActiveMeeting["onUserMessage"],
+    chatStatus?: ChatStatusMetadata,
+  ): ActiveMeeting {
     if (this.meetings.has(id)) {
       throw new Error(`Meeting "${id}" already exists`);
     }
     const meeting: ActiveMeeting = {
       id, name, type: "chat", participants: [participant], messages: [],
       startedAt: Date.now(), status: "active", onUserMessage,
+      chatStatus: chatStatus ?? { scope: "standalone", state: "idle", startedAt: Date.now() },
     };
     this.meetings.set(id, meeting);
     this.watchParticipant(meeting, participant);
@@ -126,6 +141,9 @@ class Hub {
 
     p.proc.on("close", () => {
       console.error(`[pi-hub] Participant ${p.name} 进程关闭`);
+      if (meeting.status === "active") {
+        meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "dead", fallbackRecommended: meeting.chatStatus?.scope === "workflow" };
+      }
     });
   }
 
@@ -183,6 +201,13 @@ class Hub {
     if (!meeting) return;
     meeting.status = "ended";
     meeting.report = report;
+    meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "done" };
+  }
+
+  updateChatStatus(meetingId: string, patch: ChatStatusMetadata): void {
+    const meeting = this.meetings.get(meetingId);
+    if (!meeting) return;
+    meeting.chatStatus = { ...(meeting.chatStatus ?? {}), ...patch };
   }
 
   onMessage(meetingId: string, cb: MessageCallback): () => void {

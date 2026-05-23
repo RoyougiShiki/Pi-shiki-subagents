@@ -1,0 +1,33 @@
+{
+  "id": 4,
+  "title": "清理 subagent-pool.ts 未消费的 stageResult 字段与解析",
+  "context": "`PoolEntry` 保留 `stageResult` 字段，`agent_end` 分支扫描 assistant `toolUse` 生成 `entry.stageResult`。但 `list()` 不返回该字段，`WorkflowManager` 也不消费它。本轮清理这个未使用字段及其解析逻辑。`toolCalls`、`lastResponse`、timeout 后 late `agent_end` 处理、`tool_execution_end` 释放 pending 应保持不动。",
+  "status": "completed",
+  "files": [
+    "src/adapters/subagent-pool.ts",
+    "src/adapters/subagent-pool.test.ts"
+  ],
+  "dependencies": [],
+  "steps": [
+    "在 `subagent-pool.ts` 中，从 `PoolEntry` interface 定义移除 `stageResult` 字段",
+    "在 `PoolEntry` 初始化处（new PoolEntry 或创建 entry 的字面量）移除 `stageResult: null`",
+    "在 `agent_end` 分支中，移除设置 `entry.stageResult = null` 和以下的 `stageResult` 解析块（扫描 `toolUse` 中 `stage_complete`/`stage_ask_user` 并生成 stageResult 对象的代码）",
+    "⚠ 注意：`agent_end` 分支的 `toolCalls` 提取、`lastResponse` 更新、`pendingResolve` 和 `pendingTimer` 处理必须完全保留",
+    "⚠ 注意：agent_end 中 `for (const msg of ev.messages ?? [])` 循环当前既提取 toolCalls 又提取 stageResult。删除只针对 stageResult 的部分（`if (c.name === 'stage_complete') {...} else if (c.name === 'stage_ask_user') {...}`）",
+    "⚠ 注意：`entry.stageResult = null` 的初始化赋值和 loop 结束后的 stageResult 相关代码都要清理",
+    "检查 `PoolAgentInfo` interface（用于 list() 返回值）是否包含 `stageResult` — 若包含也移除",
+    "在 `subagent-pool.test.ts` 中，检查是否有对 `stageResult` 的引用 — 如果有，同步清理",
+    "确认 `list()` 返回的对象中不含 `stageResult`"
+  ],
+  "validation": [
+    "grep 确认 subagent-pool.ts 中不再出现 `stageResult`（除可能注释外）",
+    "grep 确认 PoolAgentInfo interface 不含 stageResult",
+    "bun test src/adapters/subagent-pool.test.ts 通过",
+    "bun test src/adapters/workflow-manager.test.ts 通过"
+  ],
+  "implementationResult": {
+    "status": "completed_noop",
+    "changedFiles": [],
+    "notes": "最终 HEAD 中 src/adapters 未发现 stageResult 残留；oracle 判定 PoolEntry/PoolAgentInfo/agent_end 旧 stageResult 解析不存在，任务按结果要求天然满足。"
+  }
+}

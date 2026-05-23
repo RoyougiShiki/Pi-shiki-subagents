@@ -1,0 +1,22 @@
+{
+  "id": 4,
+  "title": "Validate chat status UX",
+  "status": "completed",
+  "goal": "Verify the P2 /chat status line behavior with targeted tests and build checks.",
+  "validationCommands": [
+    "bun test src/adapters/chat-status-view.test.ts src/adapters/workflow-chat-binding.test.ts src/adapters/pi-hub.test.ts src/adapters/subagent-pool.test.ts: PASS (25 pass, 0 fail)",
+    "bun test src/adapters/pi.test.ts src/adapters/chat-status-view.test.ts src/adapters/workflow-chat-binding.test.ts src/adapters/pi-hub.test.ts src/adapters/subagent-pool.test.ts: PASS (51 pass, 0 fail)",
+    "bun run typecheck: PASS",
+    "bun run build:plugin: PASS (Bundled 177 modules)"
+  ],
+  "manualChecks": [
+    "Manual /chat TUI check not run in this fallback implementation session.",
+    "Implementation keeps Pi overlay lightweight and status logic TUI-decoupled."
+  ],
+  "nonGoals": [
+    "No full TUI panel",
+    "No new primary status command",
+    "No P3 nested subagent E2E semantics",
+    "No P4 QualityGate/TransitionGuard"
+  ]
+}
