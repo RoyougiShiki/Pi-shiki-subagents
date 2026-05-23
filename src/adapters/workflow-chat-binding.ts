@@ -19,6 +19,9 @@ export function bindWorkflowChatBridge(args: {
   getPoolProcess: (id: string) => ChildProcess | undefined;
   autoOpenChat: (meetingId: string, displayName: string, ctx: ExtensionContext) => void;
   getSessionCtx: () => ExtensionContext | null;
+  notify?: (message: string, level?: 'info' | 'warning' | 'error' | 'success') => void;
+  setStatus?: (key: string, value: string) => void;
+  clearStatus?: (key: string) => void;
 }): () => void {
   return args.manager.onEvent((event: StageEvent) => {
     if (event.type === 'running') {
@@ -40,20 +43,33 @@ export function bindWorkflowChatBridge(args: {
 
     if (event.type === 'message') {
       args.hub.updateChatStatus(event.poolId, { state: 'idle' });
-      const sessionCtx = args.getSessionCtx();
-      if (sessionCtx) args.autoOpenChat(event.poolId, event.agent, sessionCtx);
     }
 
     if (event.type === 'waiting_user') {
       args.hub.updateChatStatus(event.poolId, { state: 'waiting' });
+      args.setStatus?.('workflow-stage', `Workflow waiting: ${event.agent}`);
+      args.notify?.(`Workflow stage waiting for user input: ${event.agent}`, 'info');
+    }
+
+    if (event.type === 'transition_approval') {
+      args.hub.updateChatStatus(event.poolId, { state: 'done' });
+      args.setStatus?.('workflow-stage', `Approval required: ${event.agent}`);
+      args.notify?.(`Workflow stage completed: ${event.agent}; approval required before ${event.nextStage ?? 'next stage'}`, 'info');
     }
 
     if (event.type === 'complete') {
       args.hub.updateChatStatus(event.poolId, { state: 'done' });
     }
 
+    if (event.type === 'workflow_complete') {
+      args.clearStatus?.('workflow-stage');
+      args.notify?.(`Workflow completed: ${event.workflow}`, 'success');
+    }
+
     if (event.type === 'error' && event.poolId) {
       args.hub.updateChatStatus(event.poolId, { state: 'failed', fallbackRecommended: true });
+      args.setStatus?.('workflow-stage', `Workflow failed: ${event.agent}`);
+      args.notify?.(`Workflow failed: ${event.error}`, 'error');
     }
   });
 }

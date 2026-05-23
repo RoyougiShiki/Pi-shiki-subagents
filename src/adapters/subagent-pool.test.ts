@@ -53,6 +53,7 @@ describe('subagent pool env', () => {
       depth: 1,
       parentAgent: 'coordinator',
       allowedSubagents: ['oracle'],
+      stageResultPath: '/tmp/stage-result.json',
     });
 
     expect(env.KEEP).toBe('yes');
@@ -61,6 +62,7 @@ describe('subagent pool env', () => {
     expect(env.OMO_SUBAGENT_DEPTH).toBe('1');
     expect(env.OMO_PARENT_AGENT_NAME).toBe('coordinator');
     expect(env.OMO_ALLOWED_SUBAGENTS).toBe('oracle');
+    expect(env.OMO_STAGE_RESULT_PATH).toBe('/tmp/stage-result.json');
   });
 
   test('omits optional env values when absent', () => {

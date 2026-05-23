@@ -23,9 +23,12 @@ describe('bindWorkflowChatBridge', () => {
     const proc = { pid: 1234 } as any;
     const getPoolProcess = mock(() => proc);
     const autoOpenChat = mock(() => {});
+    const notify = mock(() => {});
+    const setStatus = mock(() => {});
+    const clearStatus = mock(() => {});
     let sessionCtx: ExtensionContext | null = null;
 
-    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => sessionCtx });
+    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => sessionCtx, notify, setStatus, clearStatus });
 
     handlers[0]!({ type: 'running', agent: 'worker', stageId: 's1', poolId: 'p1' });
 
@@ -39,7 +42,17 @@ describe('bindWorkflowChatBridge', () => {
     sessionCtx = {} as ExtensionContext;
     handlers[0]!({ type: 'message', agent: 'worker', stageId: 's1', poolId: 'p1', text: 'assistant says hi' });
     expect(hub.updateChatStatus).toHaveBeenCalledWith('p1', { state: 'idle' });
-    expect(autoOpenChat).toHaveBeenCalledWith('p1', 'worker', sessionCtx);
+    expect(autoOpenChat).not.toHaveBeenCalled();
+
+    handlers[0]!({ type: 'waiting_user', agent: 'worker', stageId: 's1', poolId: 'p1', output: { status: 'needs_user', summary: 'need input', context: '' } });
+    expect(setStatus).toHaveBeenCalledWith('workflow-stage', 'Workflow waiting: worker');
+    expect(notify).toHaveBeenCalledWith('Workflow stage waiting for user input: worker', 'info');
+
+    handlers[0]!({ type: 'transition_approval', agent: 'worker', stageId: 's1', poolId: 'p1', output: { status: 'complete', summary: 'done', context: 'ctx' }, nextStage: 'oracle' });
+    expect(notify).toHaveBeenCalledWith('Workflow stage completed: worker; approval required before oracle', 'info');
+
+    handlers[0]!({ type: 'workflow_complete', workflow: 'wf' });
+    expect(clearStatus).toHaveBeenCalledWith('workflow-stage');
   });
 
   test('does not register duplicate chat or auto-open without session context', () => {
@@ -58,8 +71,11 @@ describe('bindWorkflowChatBridge', () => {
     };
     const getPoolProcess = mock(() => ({ pid: 1234 }));
     const autoOpenChat = mock(() => {});
+    const notify = mock(() => {});
+    const setStatus = mock(() => {});
+    const clearStatus = mock(() => {});
 
-    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => null });
+    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => null, notify, setStatus, clearStatus });
 
     handlers[0]!({ type: 'running', agent: 'worker', stageId: 's1', poolId: 'p1' });
     handlers[0]!({ type: 'message', agent: 'worker', stageId: 's1', poolId: 'p1', text: 'assistant says hi' });

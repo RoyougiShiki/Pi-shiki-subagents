@@ -304,7 +304,19 @@ Agent "wf-standard-dev-1-clarify-1779536415927" timed out after 300000ms with no
 - JSON repair / fallback 大范围重构；
 - 完整 TUI 新面板设计。
 
-## 11. Chat overlay 维护边界
+## 11. 与恢复工作的关系（后续修改也必须记录）
+
+P2 已完成的 pool 场景可观测性不能视为封闭不变；如果后续为了恢复 workflow 正确语义而修改：
+
+- `workflow` scope 状态来源；
+- workflow stage completed / dead 显示；
+- workflow stage 是否进入 `/chat` 列表；
+- 底部状态文案；
+- workflow stage raw JSON / tool noise 抑制；
+
+都必须继续记录在本目录，而不是只写到恢复文档中。避免出现“P2 已完成，但后续恢复把 P2 改动改坏却没有记录”的情况。
+
+## 12. Chat overlay 维护边界
 
 当前代码里 `/chat` 使用自维护 overlay（`pi-chat-bridge.ts`）实现：消息渲染、滚动、输入框、自动打开都由插件维护。为了降低长期维护成本，P2 不应继续把它扩展成复杂 chat UI。
 
@@ -332,7 +344,7 @@ Agent "wf-standard-dev-1-clarify-1779536415927" timed out after 300000ms with no
 - 若存在，评估能否只复用显示层，不把 subagent 消息写入主会话上下文；
 - 若无法保证上下文隔离，则继续保留当前轻量 overlay。
 
-## 12. 实施任务拆分（待确认后再进入实现）
+## 13. 实施任务拆分（待确认后再进入实现）
 
 1. **状态聚合设计落地**
    - 新增/扩展 manager 状态视图方法，例如 `statusView()`。
@@ -359,7 +371,7 @@ Agent "wf-standard-dev-1-clarify-1779536415927" timed out after 300000ms with no
    - timeout/error 状态卡给出 retry/abort/fallback 建议。
    - 不自动切 fallback，只建议用户确认。
 
-## 12. 验证方式
+## 14. 验证方式
 
 ### 单测
 
@@ -389,7 +401,7 @@ bun run build:plugin
 
 若涉及真实 E2E，需额外记录人工步骤与实际结果，不用 typecheck 冒充 E2E。
 
-## 13. 推荐确认项
+## 15. 推荐确认项
 
 请确认以下 UX 决策：
 

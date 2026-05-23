@@ -69,10 +69,27 @@ export interface WorkflowsConfig {
   list: WorkflowDefinition[];
 }
 
+export interface StageResultComplete {
+  type: "complete";
+  summary: string;
+  context: string;
+}
+
+export interface StageResultAskUser {
+  type: "ask_user";
+  summary: string;
+  question: string;
+  options?: string[];
+}
+
+export type WorkflowStageToolResult = StageResultComplete | StageResultAskUser;
+
 export type StageEvent =
   | { type: "running"; agent: string; stageId: string; poolId: string }
   | { type: "message"; agent: string; stageId: string; poolId: string; text: string }
   | { type: "choice"; prompt: string; branches: Array<{ label: string; description: string }> }
   | { type: "waiting_user"; agent: string; stageId: string; poolId: string; output: StageOutput }
+  | { type: "transition_approval"; agent: string; stageId: string; poolId: string; output: StageOutput; nextStage?: string }
   | { type: "complete"; agent: string; stageId: string; poolId: string; output: StageOutput }
+  | { type: "workflow_complete"; workflow: string }
   | { type: "error"; agent: string; stageId?: string; poolId?: string; error: string };

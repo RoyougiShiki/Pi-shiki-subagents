@@ -86,9 +86,34 @@ export function registerWorkflowCommands(
     parameters: Type.Object({}),
     async execute() {
       const status = manager.status();
+      const pending = status.pendingEvents[0];
+      const text = pending?.type === 'transition_approval'
+        ? `Workflow stage completed. User approval is required before continuing.\n\nCompleted stage: ${pending.agent}\nSuggested next stage: ${pending.nextStage ?? '(unknown)'}`
+        : pending?.type === 'waiting_user'
+          ? `Workflow stage is waiting for user input.\n\nStage: ${pending.agent}`
+          : JSON.stringify(status, null, 2);
       return {
-        content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+        content: [{ type: "text", text }],
         details: status,
+      };
+    },
+  });
+
+  // ── continue_workflow ──
+  pi.registerTool({
+    name: "continue_workflow",
+    label: "Continue Workflow",
+    description: "在用户同意后继续当前 workflow 到下一阶段",
+    parameters: Type.Object({}),
+    async execute() {
+      const ok = manager.continueWorkflow();
+      if (!ok) return {
+        content: [{ type: "text", text: "当前没有等待继续的 workflow" }],
+        isError: true, details: {},
+      };
+      return {
+        content: [{ type: "text", text: "Workflow continuing asynchronously. Use workflow_status to observe the next pending event." }],
+        details: { continued: true },
       };
     },
   });
@@ -143,7 +168,7 @@ export function registerWorkflowCommands(
 
   // ── /workflow 命令 ──
   pi.registerCommand("workflow", {
-    description: "管理 workflow。用法: /workflow list | /workflow start <name>",
+    description: "管理 workflow。用法: /workflow list | /workflow start <name> | /workflow continue",
     handler: async (args, ctx) => {
       const [cmd, ...rest] = args.trim().split(/\s+/);
       if (cmd === "list") {
@@ -160,8 +185,11 @@ export function registerWorkflowCommands(
         manager.runWorkflow(wf, "").catch((err) => {
           console.error(`[workflow] ${wf.name} failed:`, err);
         });
+      } else if (cmd === "continue") {
+        const ok = manager.continueWorkflow();
+        ctx.ui.notify(ok ? "Workflow continuing asynchronously" : "当前没有等待继续的 workflow", ok ? "info" : "error");
       } else {
-        ctx.ui.notify("用法: /workflow list | /workflow start <name>", "info");
+        ctx.ui.notify("用法: /workflow list | /workflow start <name> | /workflow continue", "info");
       }
     },
   });

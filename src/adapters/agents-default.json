@@ -6,6 +6,7 @@
       "list_workflows",
       "select_branch",
       "workflow_status",
+      "continue_workflow",
       "send_stage_message",
       "abort_workflow",
       "retry_stage",
@@ -17,7 +18,8 @@
   "thinker-clarify": {
     "type": "subagent",
     "tools": [
-      "ask_user_question",
+      "stage_complete",
+      "stage_ask_user",
       "read",
       "grep",
       "find",
@@ -30,6 +32,8 @@
   "thinker-analysis": {
     "type": "subagent",
     "tools": [
+      "stage_complete",
+      "stage_ask_user",
       "read",
       "grep",
       "find",
@@ -48,6 +52,8 @@
   "designer": {
     "type": "subagent",
     "tools": [
+      "stage_complete",
+      "stage_ask_user",
       "read",
       "write",
       "edit",
@@ -63,6 +69,8 @@
   "worker": {
     "type": "subagent",
     "tools": [
+      "stage_complete",
+      "stage_ask_user",
       "todo",
       "omo_subagent",
       "read",
@@ -76,6 +84,8 @@
   "implementer": {
     "type": "subagent",
     "tools": [
+      "stage_complete",
+      "stage_ask_user",
       "read",
       "write",
       "edit",
@@ -88,6 +98,8 @@
   "batch": {
     "type": "subagent",
     "tools": [
+      "stage_complete",
+      "stage_ask_user",
       "read",
       "write",
       "edit",

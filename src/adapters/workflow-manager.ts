@@ -5,7 +5,11 @@ import {
   type StageOutput,
   type StageEvent,
   type WorkflowDefinition,
+  type WorkflowStageToolResult,
 } from "../core/workflow-types";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { getPool } from "./subagent-pool";
 import { resolveAgent, type AgentConfig } from "./agent-discovery";
 
@@ -20,6 +24,7 @@ interface CurrentStage {
   agent: string;
   input: string;
   node: StageNode;
+  stageResultPath: string;
 }
 
 export interface WorkflowPool {
@@ -33,6 +38,7 @@ export interface WorkflowPool {
     parentAgent?: string;
     depth?: number;
     allowedSubagents?: readonly string[];
+    stageResultPath?: string;
   }): Promise<{ response: string; error?: string }>;
   sendPrompt(id: string, message: string): Promise<{ response: string; error?: string }>;
   kill(id: string): boolean;
@@ -45,7 +51,7 @@ export interface WorkflowManagerOptions {
   resolveAgent?: (cwd: string, name: string) => AgentConfig | undefined;
 }
 
-function parseStageOutput(text: string): { output?: StageOutput; error?: string } {
+function parseWorkflowStageToolResult(text: string): { result?: WorkflowStageToolResult; error?: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -54,32 +60,53 @@ function parseStageOutput(text: string): { output?: StageOutput; error?: string 
   }
 
   if (!parsed || typeof parsed !== "object") {
-    return { error: "StageOutput must be a JSON object" };
-  }
-  const candidate = parsed as Partial<StageOutput>;
-  if (candidate.status && !["complete", "needs_user", "failed"].includes(candidate.status)) {
-    return { error: "StageOutput.status must be complete, needs_user, or failed" };
-  }
-  if (typeof candidate.summary !== "string" || !candidate.summary.trim()) {
-    return { error: "StageOutput.summary must be a non-empty string" };
-  }
-  if (typeof candidate.context !== "string") {
-    return { error: "StageOutput.context must be a string" };
+    return { error: "Workflow stage result must be a JSON object" };
   }
 
-  return { output: { ...candidate, status: candidate.status ?? "complete" } as StageOutput };
+  const candidate = parsed as Partial<WorkflowStageToolResult> & Record<string, unknown>;
+  if (candidate.type === "complete") {
+    if (typeof candidate.summary !== "string" || !candidate.summary.trim()) {
+      return { error: "stage_complete.summary must be a non-empty string" };
+    }
+    if (typeof candidate.context !== "string") {
+      return { error: "stage_complete.context must be a string" };
+    }
+    return { result: { type: "complete", summary: candidate.summary, context: candidate.context } };
+  }
+
+  if (candidate.type === "ask_user") {
+    if (typeof candidate.summary !== "string" || !candidate.summary.trim()) {
+      return { error: "stage_ask_user.summary must be a non-empty string" };
+    }
+    if (typeof candidate.question !== "string" || !candidate.question.trim()) {
+      return { error: "stage_ask_user.question must be a non-empty string" };
+    }
+    if (candidate.options !== undefined && !Array.isArray(candidate.options)) {
+      return { error: "stage_ask_user.options must be a string array" };
+    }
+    return {
+      result: {
+        type: "ask_user",
+        summary: candidate.summary,
+        question: candidate.question,
+        options: Array.isArray(candidate.options) ? candidate.options.filter((v): v is string => typeof v === "string") : undefined,
+      },
+    };
+  }
+
+  return { error: "Unsupported workflow stage result type" };
 }
 
-function buildStageOutputRepairPrompt(error: string, original: string): string {
-  return [
-    "Your previous response did not match the required StageOutput JSON contract.",
-    `Validation error: ${error}`,
-    "Return ONLY a valid JSON object with at least:",
-    '{"status":"complete","summary":"...","context":"..."}',
-    "Do not include markdown fences or explanatory text.",
-    "Previous response:",
-    original.slice(0, 4000),
-  ].join("\n\n");
+function stageResultToStageOutput(result: WorkflowStageToolResult): StageOutput {
+  if (result.type === "complete") {
+    return { status: "complete", summary: result.summary, context: result.context };
+  }
+  return {
+    status: "needs_user",
+    summary: result.summary,
+    context: "",
+    openQuestions: [{ question: result.question, options: result.options }],
+  };
 }
 
 /**
@@ -94,6 +121,9 @@ export class WorkflowManager {
   private choiceRejecter: ((error: Error) => void) | null = null;
   private choicePending: { prompt: string; branches: Array<{ label: string; description: string }> } | null = null;
   private stageWaitResolver: ((output: StageOutput) => void) | null = null;
+  private transitionResolver: (() => void) | null = null;
+  private transitionPending: { output: StageOutput; nextStage?: string; stage: CurrentStage; approved?: boolean } | null = null;
+  private pendingEvents: StageEvent[] = [];
   private currentStage: CurrentStage | null = null;
   private stageCounter = 0;
   private lastError: string | null = null;
@@ -134,6 +164,7 @@ export class WorkflowManager {
       if (!this.lastError) this.lastError = err instanceof Error ? err.message : String(err);
       throw err;
     } finally {
+      const stageResultPath = this.currentStage?.stageResultPath;
       this.running = false;
       this.workflowName = null;
       this.currentStage = null;
@@ -141,18 +172,27 @@ export class WorkflowManager {
       this.choiceResolver = null;
       this.choiceRejecter = null;
       this.stageWaitResolver = null;
+      this.transitionResolver = null;
+      this.transitionPending = null;
+      this.pendingEvents = [];
+      if (stageResultPath) {
+        try { fs.rmSync(stageResultPath, { force: true }); } catch {}
+      }
     }
   }
 
   private async runStages(workflowName: string, stages: WorkflowNode[], input: string): Promise<string> {
     let currentInput = input;
-    for (const node of stages) {
+    for (let index = 0; index < stages.length; index += 1) {
+      const node = stages[index]!;
       if (!this.running) return currentInput;
       if (isChoiceNode(node)) {
         const chosen = await this.awaitChoice(node);
         currentInput = await this.runStages(workflowName, chosen.stages, currentInput);
       } else {
-        currentInput = await this.runSingleStage(workflowName, node, currentInput);
+        const nextNode = stages[index + 1];
+        const nextStage = nextNode ? (isChoiceNode(nextNode) ? "(choice)" : nextNode.agent) : undefined;
+        currentInput = await this.runSingleStage(workflowName, node, currentInput, nextStage);
       }
     }
     return currentInput;
@@ -162,8 +202,8 @@ export class WorkflowManager {
     const parts = [
       "You are running as one stage in a workflow.",
       "Workflow definitions control the process. Your agent prompt controls your role boundary.",
-      "Return ONLY the final stage result as valid StageOutput JSON.",
-      "Required fields: status, summary, context. status is complete, needs_user, or failed.",
+      "Do not output workflow result JSON in normal text.",
+      "When you finish this stage, call stage_complete(summary, context). If you need to ask a question first, call stage_ask_user(summary, question, options?).",
     ];
     if (node.description) parts.push(`Stage description:\n${node.description}`);
     if (node.task) parts.push(`Stage task:\n${node.task}`);
@@ -178,27 +218,24 @@ export class WorkflowManager {
     return `${workflowName}-${explicit}`.replace(/[^a-zA-Z0-9_.-]+/g, "-");
   }
 
-  private async parseOrRepairStageOutput(poolId: string, response: string): Promise<StageOutput> {
-    const first = parseStageOutput(response);
-    if (first.output) return first.output;
+  private createStageResultPath(poolId: string): string {
+    return path.join(os.tmpdir(), `${poolId}.stage-result.json`);
+  }
 
-    const repair = await this.pool.sendPrompt(
-      poolId,
-      buildStageOutputRepairPrompt(first.error ?? "Invalid StageOutput", response),
-    );
-    if (repair.error) {
-      return { status: "failed", summary: repair.error, context: "", artifacts: { risks: [repair.error] } };
+  private clearStageResult(stageResultPath: string): void {
+    try { fs.rmSync(stageResultPath, { force: true }); } catch {}
+  }
+
+  private readStageResult(stageResultPath: string): { result?: WorkflowStageToolResult; error?: string } {
+    if (!fs.existsSync(stageResultPath)) {
+      return { error: "Stage did not call stage_complete or stage_ask_user" };
     }
-
-    const second = parseStageOutput(repair.response);
-    if (second.output) return second.output;
-
-    return {
-      status: "failed",
-      summary: "Stage failed to return valid StageOutput JSON",
-      context: "",
-      artifacts: { risks: [second.error ?? "Invalid StageOutput"] },
-    };
+    try {
+      const text = fs.readFileSync(stageResultPath, "utf-8");
+      return parseWorkflowStageToolResult(text);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to read stage result file" };
+    }
   }
 
   private waitForUserCompletion(): Promise<StageOutput> {
@@ -207,7 +244,17 @@ export class WorkflowManager {
     });
   }
 
-  private async runSingleStage(workflowName: string, node: StageNode, input: string): Promise<string> {
+  private waitForTransitionApproval(stage: CurrentStage, output: StageOutput, nextStage?: string): Promise<void> {
+    this.transitionPending = { output, nextStage, stage, approved: false };
+    const event: StageEvent = { type: "transition_approval", agent: stage.agent, stageId: stage.stageId, poolId: stage.poolId, output, nextStage };
+    this.pendingEvents.push(event);
+    this.emit(event);
+    return new Promise((resolve) => {
+      this.transitionResolver = resolve;
+    });
+  }
+
+  private async runSingleStage(workflowName: string, node: StageNode, input: string, nextStage?: string): Promise<string> {
     const agentConfig = this.resolveAgentFn(this.cwd, node.agent);
     const stageId = this.makeStageId(workflowName, node);
     const poolId = `wf-${stageId}-${Date.now()}`;
@@ -218,7 +265,9 @@ export class WorkflowManager {
       throw new Error(error);
     }
 
-    this.currentStage = { workflowName, stageId, poolId, agent: node.agent, input, node };
+    const stageResultPath = this.createStageResultPath(poolId);
+    try { fs.rmSync(stageResultPath, { force: true }); } catch {}
+    this.currentStage = { workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath };
 
     const resultPromise = this.pool.spawn({
       id: poolId,
@@ -230,6 +279,7 @@ export class WorkflowManager {
       parentAgent: "coordinator",
       depth: 1,
       allowedSubagents: node.allowedSubagents,
+      stageResultPath,
     });
     this.emit({ type: "running", agent: node.agent, stageId, poolId });
 
@@ -241,10 +291,18 @@ export class WorkflowManager {
       throw new Error(result.error);
     }
 
-    this.emit({ type: "message", agent: node.agent, stageId, poolId, text: result.response });
+    const stageResult = this.readStageResult(stageResultPath);
+    this.clearStageResult(stageResultPath);
+    if (!stageResult.result) {
+      const error = stageResult.error ?? "Stage did not call stage_complete or stage_ask_user";
+      this.emit({ type: "error", agent: node.agent, stageId, poolId, error });
+      if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+      throw new Error(error);
+    }
 
-    let output = await this.parseOrRepairStageOutput(poolId, result.response);
+    let output = stageResultToStageOutput(stageResult.result);
     if (output.status === "needs_user") {
+      this.pendingEvents.push({ type: "waiting_user", agent: node.agent, stageId, poolId, output });
       this.emit({ type: "waiting_user", agent: node.agent, stageId, poolId, output });
       output = await this.waitForUserCompletion();
     }
@@ -255,6 +313,11 @@ export class WorkflowManager {
     }
 
     this.emit({ type: "complete", agent: node.agent, stageId, poolId, output });
+    if (nextStage) {
+      await this.waitForTransitionApproval({ workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath }, output, nextStage);
+    } else {
+      this.emit({ type: "workflow_complete", workflow: workflowName });
+    }
     if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
     if (this.currentStage?.poolId === poolId) this.currentStage = null;
     return output.context;
@@ -288,17 +351,40 @@ export class WorkflowManager {
     return true;
   }
 
+  continueWorkflow(): boolean {
+    if (!this.transitionResolver || !this.transitionPending) return false;
+    const stage = this.transitionPending.stage;
+    if (this.currentStage?.poolId === stage.poolId) this.currentStage = null;
+    this.transitionPending.approved = true;
+    this.pendingEvents = this.pendingEvents.filter(
+      (e) => !(e.type === 'transition_approval' && e.poolId === stage.poolId && e.stageId === stage.stageId),
+    );
+    const resolve = this.transitionResolver;
+    this.transitionResolver = null;
+    this.transitionPending = null;
+    resolve();
+    return true;
+  }
+
   async sendUserMessage(text: string): Promise<{ response: string; error?: string }> {
     const stage = this.currentStage;
     if (!stage) return { response: "", error: "No active workflow stage" };
     if (!this.stageWaitResolver) {
       return { response: "", error: "Current workflow stage is not waiting for user input" };
     }
+    this.clearStageResult(stage.stageResultPath);
     const result = await this.pool.sendPrompt(stage.poolId, text);
     if (result.error) return result;
 
-    const output = await this.parseOrRepairStageOutput(stage.poolId, result.response);
+    const stageResult = this.readStageResult(stage.stageResultPath);
+    this.clearStageResult(stage.stageResultPath);
+    if (!stageResult.result) {
+      return { response: result.response, error: stageResult.error ?? "Stage did not call stage_complete or stage_ask_user" };
+    }
+
+    const output = stageResultToStageOutput(stageResult.result);
     if (output.status === "needs_user") {
+      this.pendingEvents.push({ type: "waiting_user", agent: stage.agent, stageId: stage.stageId, poolId: stage.poolId, output });
       this.emit({ type: "waiting_user", agent: stage.agent, stageId: stage.stageId, poolId: stage.poolId, output });
       return result;
     }
@@ -315,7 +401,7 @@ export class WorkflowManager {
     if (!stage) return { ok: false, error: "No active workflow stage" };
 
     if (this.stageWaitResolver) {
-      const message = input ?? "Retry the current stage using the original input. Return a complete StageOutput JSON.";
+      const message = input ?? "Retry the current stage using the original input. Use stage_complete or stage_ask_user as appropriate.";
       const result = await this.sendUserMessage(message);
       if (result.error) return { ok: false, error: result.error };
       return { ok: true };
@@ -329,6 +415,8 @@ export class WorkflowManager {
     workflow: string | null;
     stage: CurrentStage | null;
     choice: { prompt: string; branches: Array<{ label: string; description: string }> } | null;
+    transition: { nextStage?: string; output: StageOutput; stageId: string; poolId: string } | null;
+    pendingEvents: StageEvent[];
     lastError: string | null;
     lastEvent: StageEvent | null;
   } {
@@ -337,6 +425,13 @@ export class WorkflowManager {
       workflow: this.workflowName,
       stage: this.currentStage,
       choice: this.choicePending,
+      transition: this.transitionPending ? {
+        nextStage: this.transitionPending.nextStage,
+        output: this.transitionPending.output,
+        stageId: this.transitionPending.stage.stageId,
+        poolId: this.transitionPending.stage.poolId,
+      } : null,
+      pendingEvents: [...this.pendingEvents],
       lastError: this.lastError,
       lastEvent: this.lastEvent,
     };
@@ -357,10 +452,17 @@ export class WorkflowManager {
       this.stageWaitResolver = null;
       resolve({ status: "failed", summary: "Workflow aborted", context: "" });
     }
+    if (this.transitionResolver) {
+      const resolve = this.transitionResolver;
+      this.transitionResolver = null;
+      this.transitionPending = null;
+      resolve();
+    }
     this.running = false;
     this.workflowName = null;
     this.currentStage = null;
     this.choicePending = null;
     this.choiceResolver = null;
+    this.pendingEvents = [];
   }
 }

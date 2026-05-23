@@ -31,6 +31,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions } from "./pi-modes";
+import type { WorkflowStageToolResult } from "../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "./pi-agents";
 import {
   formatPiCouncilResults,
@@ -544,6 +545,17 @@ export function getPiAgentsDirForSync(): string {
   return path.join(path.dirname(getAgentDir()), "agents");
 }
 
+export function writeWorkflowStageResult(result: WorkflowStageToolResult, resultPath?: string): boolean {
+  if (!resultPath?.trim()) return false;
+  try {
+    fs.mkdirSync(path.dirname(resultPath), { recursive: true });
+    fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), "utf-8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function ensureAgentFiles(): void {
   const agentsDir = getPiAgentsDirForSync();
   const defaultAgentsDir = path.join(__dirname, "agents");
@@ -1046,6 +1058,40 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
   registerSubagentTool(pi);
 
+  // ── Workflow stage tools ──────────────────────────────────────────
+  pi.registerTool({
+    name: "stage_complete",
+    label: "Stage Complete",
+    description: "workflow stage 子代理完成阶段时调用，写入结构化阶段结果。",
+    parameters: Type.Object({
+      summary: Type.String({ description: "简短阶段总结" }),
+      context: Type.String({ description: "传给下一阶段的上下文" }),
+    }),
+    async execute(_toolCallId, params) {
+      const ok = writeWorkflowStageResult({ type: "complete", summary: params.summary, context: params.context }, process.env.OMO_STAGE_RESULT_PATH);
+      return ok
+        ? { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } }
+        : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
+    },
+  });
+
+  pi.registerTool({
+    name: "stage_ask_user",
+    label: "Stage Ask User",
+    description: "workflow stage 子代理需要用户输入时调用，写入结构化提问结果。",
+    parameters: Type.Object({
+      summary: Type.String({ description: "当前阶段简短状态" }),
+      question: Type.String({ description: "要问用户的问题" }),
+      options: Type.Optional(Type.Array(Type.String({ description: "可选项" }))),
+    }),
+    async execute(_toolCallId, params) {
+      const ok = writeWorkflowStageResult({ type: "ask_user", summary: params.summary, question: params.question, options: params.options }, process.env.OMO_STAGE_RESULT_PATH);
+      return ok
+        ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
+        : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
+    },
+  });
+
   // ── Initialize WorkflowManager ────────────────────────────────────
   const wf = config?.workflows;
   const workflowsConfig: WorkflowsConfig = {
@@ -1063,6 +1109,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     getPoolProcess,
     autoOpenChat,
     getSessionCtx: () => _sessionCtx,
+    notify: (message, level = 'info') => _sessionCtx?.ui.notify(message, level),
+    setStatus: (key, value) => _sessionCtx?.ui.setStatus(key, value),
+    clearStatus: (key) => _sessionCtx?.ui.setStatus(key, ''),
   });
 
   // ── Tool activation & description tools (always available) ─────────
@@ -1120,28 +1169,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Non-blocking behavior reminders in context ────────────────────
-  pi.on("context", async (event, _ctx) => {
-    const reminder = {
-      role: "system" as const,
-      content: [{ type: "text" as const, text: `[Behavior Reminders]
-Before acting, briefly state:
-
-• Intent: <type> — what you understand the user wants.
-• READY: <context> — when you have enough context for edits.
-• APPROVED: <plan> — when the user has approved a concrete change.
-
-These are non-blocking reminders. Do not stop solely to satisfy this format when the user has already approved continuing.` }],
-    };
-    const hasReminder = event.messages.some(
-      (m: any) => m.role === "system" && m.content?.some?.((p: any) => p.text?.startsWith("[Behavior Reminders]")),
-    );
-    if (!hasReminder) {
-      return { messages: [...event.messages, reminder] };
-    }
-  });
-
-  // ── Compliance check on turn end ──────────────────────────────
+  // ── Optional behavior/compliance notification on turn end ────────
   pi.on("turn_end", async (event, ctx) => {
     try {
       const config = loadOmniMoConfig();
@@ -1187,10 +1215,8 @@ ${agentOutput.slice(0, 3000)}`;
         const violationMsg = checkResult.violations
           .map((v: any) => `- [${v.severity}] ${v.type}: ${v.description}`)
           .join("\n");
-        pi.sendUserMessage(
-          `[Compliance Check] 检测到违规行为，请修正：\n\n${violationMsg}`,
-          { deliverAs: "followUp" },
-        );
+        _sessionCtx?.ui.notify(`[Behavior Reminder]\n${violationMsg}`, "warning");
+        _sessionCtx?.ui.setStatus("behavior", `Behavior reminder: ${checkResult.violations[0]?.type ?? 'issue'}`);
       }
     } catch (e) {
       console.error("[oh-my-opencode-slim] Compliance check error:", e instanceof Error ? e.message : String(e));

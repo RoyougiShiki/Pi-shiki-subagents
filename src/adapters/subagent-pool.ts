@@ -57,6 +57,7 @@ export function buildSubagentEnv(opts: {
   depth?: number;
   parentAgent?: string;
   allowedSubagents?: readonly string[];
+  stageResultPath?: string;
 }): NodeJS.ProcessEnv {
   return {
     ...(opts.baseEnv ?? process.env),
@@ -65,6 +66,7 @@ export function buildSubagentEnv(opts: {
     OMO_SUBAGENT_DEPTH: String(opts.depth ?? 1),
     ...(opts.parentAgent ? { OMO_PARENT_AGENT_NAME: opts.parentAgent } : {}),
     ...(opts.allowedSubagents ? { OMO_ALLOWED_SUBAGENTS: opts.allowedSubagents.join(",") } : {}),
+    ...(opts.stageResultPath ? { OMO_STAGE_RESULT_PATH: opts.stageResultPath } : {}),
   } as NodeJS.ProcessEnv;
 }
 
@@ -261,6 +263,7 @@ export class AgentPool {
     parentAgent?: string;
     depth?: number;
     allowedSubagents?: readonly string[];
+    stageResultPath?: string;
   }): Promise<{ response: string; error?: string }> {
     if (this.agents.has(opts.id)) {
       return { response: "", error: `Agent "${opts.id}" already exists in pool` };
@@ -278,6 +281,7 @@ export class AgentPool {
         depth: opts.depth,
         parentAgent: opts.parentAgent,
         allowedSubagents: opts.allowedSubagents,
+        stageResultPath: opts.stageResultPath,
       }),
     });
 

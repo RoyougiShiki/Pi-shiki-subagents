@@ -1,11 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
 import { WorkflowManager, type WorkflowPool } from './workflow-manager';
 import type { AgentConfig } from './agent-discovery';
-import type { StageEvent, WorkflowDefinition } from '../core/workflow-types';
-
-function json(value: unknown): string {
-  return JSON.stringify(value);
-}
+import type { StageEvent, WorkflowDefinition, WorkflowStageToolResult } from '../core/workflow-types';
 
 function createAgent(name: string): AgentConfig {
   return {
@@ -33,12 +30,18 @@ function deferred<T>(): {
 class FakePool implements WorkflowPool {
   spawnResponses: Array<{ response: string; error?: string }> = [];
   sendResponses: Array<{ response: string; error?: string }> = [];
+  spawnStageResults: Array<WorkflowStageToolResult | undefined> = [];
+  sendStageResults: Array<WorkflowStageToolResult | undefined> = [];
   spawnCalls: any[] = [];
   sendCalls: Array<{ id: string; message: string }> = [];
   killCalls: string[] = [];
 
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
+    const stageResult = this.spawnStageResults.shift();
+    if (stageResult && opts.stageResultPath) {
+      fs.writeFileSync(opts.stageResultPath, JSON.stringify(stageResult), 'utf-8');
+    }
     const next = this.spawnResponses.shift();
     if (!next) throw new Error('No fake spawn response queued');
     return next;
@@ -46,6 +49,11 @@ class FakePool implements WorkflowPool {
 
   async sendPrompt(id: string, message: string): Promise<{ response: string; error?: string }> {
     this.sendCalls.push({ id, message });
+    const stageResult = this.sendStageResults.shift();
+    const stageResultPath = this.spawnCalls.find((call) => call.id === id)?.stageResultPath;
+    if (stageResult && stageResultPath) {
+      fs.writeFileSync(stageResultPath, JSON.stringify(stageResult), 'utf-8');
+    }
     const next = this.sendResponses.shift();
     if (!next) throw new Error('No fake send response queued');
     return next;
@@ -68,12 +76,16 @@ function makeManager(pool: FakePool, events: StageEvent[] = []): WorkflowManager
 }
 
 describe('WorkflowManager', () => {
-  test('passes complete stage context to the next stage', async () => {
+  test('stage complete stops at transition approval until continueWorkflow is called', async () => {
     const pool = new FakePool();
     const events: StageEvent[] = [];
+    pool.spawnStageResults.push(
+      { type: 'complete', summary: 'one', context: 'ctx-one' },
+      { type: 'complete', summary: 'two', context: 'ctx-two' },
+    );
     pool.spawnResponses.push(
-      { response: json({ status: 'complete', summary: 'one', context: 'ctx-one' }) },
-      { response: json({ status: 'complete', summary: 'two', context: 'ctx-two' }) },
+      { response: 'stage_complete recorded' },
+      { response: 'stage_complete recorded' },
     );
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
@@ -85,18 +97,26 @@ describe('WorkflowManager', () => {
       ],
     };
 
-    await manager.runWorkflow(wf, 'initial input');
+    const run = manager.runWorkflow(wf, 'initial input');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(pool.spawnCalls).toHaveLength(1);
+    expect(manager.status().transition?.nextStage).toBe('oracle');
+    expect(events.some((event) => event.type === 'transition_approval')).toBe(true);
+    expect(pool.killCalls).toHaveLength(0);
+    expect(manager.continueWorkflow()).toBe(true);
+    await run;
 
     expect(pool.spawnCalls).toHaveLength(2);
     expect(pool.spawnCalls[1].task).toContain('ctx-one');
     expect(events.filter((event) => event.type === 'complete')).toHaveLength(2);
-    expect(pool.killCalls).toHaveLength(2);
+    expect(events.some((event) => event.type === 'workflow_complete')).toBe(true);
+    expect(pool.killCalls.length).toBeGreaterThanOrEqual(1);
   });
 
-  test('repairs invalid StageOutput JSON through the same pool', async () => {
+  test('fails workflow when stage does not call stage tools', async () => {
     const pool = new FakePool();
-    pool.spawnResponses.push({ response: 'not json' });
-    pool.sendResponses.push({ response: json({ status: 'complete', summary: 'repaired', context: 'ctx' }) });
+    pool.spawnResponses.push({ response: 'plain text only' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -104,18 +124,15 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await manager.runWorkflow(wf, 'input');
-
-    expect(pool.sendCalls).toHaveLength(1);
-    expect(pool.sendCalls[0].message).toContain('did not match the required StageOutput JSON contract');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
     expect(pool.killCalls).toHaveLength(1);
   });
 
-  test('fails workflow when invalid StageOutput repair also fails', async () => {
+  test('fails workflow when stage result file has unsupported shape', async () => {
     const pool = new FakePool();
     const events: StageEvent[] = [];
-    pool.spawnResponses.push({ response: 'not json' });
-    pool.sendResponses.push({ response: 'still not json' });
+    pool.spawnStageResults.push(undefined as any);
+    pool.spawnResponses.push({ response: 'plain text only' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -123,10 +140,10 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage failed to return valid StageOutput JSON');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
 
     expect(events.some((event) => event.type === 'error')).toBe(true);
-    expect(manager.status().lastError).toBe('Stage failed to return valid StageOutput JSON');
+    expect(manager.status().lastError).toBe('Stage did not call stage_complete or stage_ask_user');
     expect(manager.status().lastEvent?.type).toBe('error');
     expect(pool.killCalls).toHaveLength(1);
   });
@@ -134,10 +151,13 @@ describe('WorkflowManager', () => {
   test('clears lastError when a new workflow starts', async () => {
     const pool = new FakePool();
     pool.spawnResponses.push(
-      { response: 'not json' },
-      { response: json({ status: 'complete', summary: 'ok', context: 'ctx' }) },
+      { response: 'plain text only' },
+      { response: 'stage_complete recorded' },
     );
-    pool.sendResponses.push({ response: 'still not json' });
+    pool.spawnStageResults.push(
+      undefined,
+      { type: 'complete', summary: 'ok', context: 'ctx' },
+    );
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -145,8 +165,8 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage failed to return valid StageOutput JSON');
-    expect(manager.status().lastError).toBe('Stage failed to return valid StageOutput JSON');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
+    expect(manager.status().lastError).toBe('Stage did not call stage_complete or stage_ask_user');
 
     await manager.runWorkflow(wf, 'input');
 
@@ -173,11 +193,16 @@ describe('WorkflowManager', () => {
   test('needs_user followed by complete user response continues workflow', async () => {
     const pool = new FakePool();
     const events: StageEvent[] = [];
-    pool.spawnResponses.push(
-      { response: json({ status: 'needs_user', summary: 'need user', context: 'partial' }) },
-      { response: json({ status: 'complete', summary: 'second', context: 'second ctx' }) },
+    pool.spawnStageResults.push(
+      { type: 'ask_user', summary: 'need user', question: 'question?' },
+      { type: 'complete', summary: 'second', context: 'second ctx' },
     );
-    pool.sendResponses.push({ response: json({ status: 'complete', summary: 'user complete', context: 'user ctx' }) });
+    pool.spawnResponses.push(
+      { response: 'stage_ask_user recorded' },
+      { response: 'stage_complete recorded' },
+    );
+    pool.sendStageResults.push({ type: 'complete', summary: 'user complete', context: 'user ctx' });
+    pool.sendResponses.push({ response: 'stage_complete recorded' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -196,9 +221,12 @@ describe('WorkflowManager', () => {
     const run = manager.runWorkflow(wf, 'input');
     await waiting.promise;
     const userResult = await manager.sendUserMessage('additional info');
-    await run;
 
     expect(userResult.error).toBeUndefined();
+    expect(manager.status().transition?.nextStage).toBe('oracle');
+    expect(manager.continueWorkflow()).toBe(true);
+    await run;
+
     expect(pool.spawnCalls).toHaveLength(2);
     expect(pool.spawnCalls[1].task).toContain('user ctx');
     expect(events.filter((event) => event.type === 'complete')).toHaveLength(2);
@@ -207,8 +235,10 @@ describe('WorkflowManager', () => {
   test('needs_user followed by failed user response errors and does not continue', async () => {
     const pool = new FakePool();
     const events: StageEvent[] = [];
-    pool.spawnResponses.push({ response: json({ status: 'needs_user', summary: 'need user', context: 'partial' }) });
-    pool.sendResponses.push({ response: json({ status: 'failed', summary: 'user response failed', context: '' }) });
+    pool.spawnStageResults.push({ type: 'ask_user', summary: 'need user', question: 'question?' });
+    pool.spawnResponses.push({ response: 'stage_ask_user recorded' });
+    pool.sendStageResults.push(undefined);
+    pool.sendResponses.push({ response: 'no stage tool used' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -228,17 +258,20 @@ describe('WorkflowManager', () => {
     await waiting.promise;
     const userResult = await manager.sendUserMessage('additional info');
 
-    expect(userResult.error).toBeUndefined();
-    await expect(run).rejects.toThrow('user response failed');
+    expect(userResult.error).toBe('Stage did not call stage_complete or stage_ask_user');
     expect(pool.spawnCalls).toHaveLength(1);
-    expect(events.some((event) => event.type === 'error' && event.error === 'user response failed')).toBe(true);
-    expect(pool.killCalls).toHaveLength(1);
+    expect(pool.killCalls).toHaveLength(0);
+    expect(manager.status().stage?.poolId).toBeTruthy();
+    manager.abort();
+    await expect(run).rejects.toThrow('Workflow aborted');
   });
 
   test('retryStage while waiting uses current stage pool and does not spawn a detached stage', async () => {
     const pool = new FakePool();
-    pool.spawnResponses.push({ response: json({ status: 'needs_user', summary: 'need retry', context: 'partial' }) });
-    pool.sendResponses.push({ response: json({ status: 'complete', summary: 'retried', context: 'retry ctx' }) });
+    pool.spawnStageResults.push({ type: 'ask_user', summary: 'need retry', question: 'retry?' });
+    pool.spawnResponses.push({ response: 'stage_ask_user recorded' });
+    pool.sendStageResults.push({ type: 'complete', summary: 'retried', context: 'retry ctx' });
+    pool.sendResponses.push({ response: 'stage_complete recorded' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -279,7 +312,8 @@ describe('WorkflowManager', () => {
     const run = manager.runWorkflow(wf, 'input');
     await new Promise((resolve) => setTimeout(resolve, 0));
     const result = await manager.sendUserMessage('too early');
-    hold.resolve({ response: json({ status: 'complete', summary: 'done', context: 'ctx' }) });
+    fs.writeFileSync(pool.spawnCalls[0].stageResultPath, JSON.stringify({ type: 'complete', summary: 'done', context: 'ctx' }), 'utf-8');
+    hold.resolve({ response: 'stage_complete recorded' });
     await run;
 
     expect(result.error).toBe('Current workflow stage is not waiting for user input');
@@ -288,7 +322,8 @@ describe('WorkflowManager', () => {
 
   test('passes stage allowedSubagents to pool spawn', async () => {
     const pool = new FakePool();
-    pool.spawnResponses.push({ response: json({ status: 'complete', summary: 'done', context: 'ctx' }) });
+    pool.spawnStageResults.push({ type: 'complete', summary: 'done', context: 'ctx' });
+    pool.spawnResponses.push({ response: 'stage_complete recorded' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',

@@ -141,7 +141,7 @@ class Hub {
 
     p.proc.on("close", () => {
       console.error(`[pi-hub] Participant ${p.name} 进程关闭`);
-      if (meeting.status === "active") {
+      if (meeting.status === "active" && meeting.chatStatus?.state !== "done") {
         meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "dead", fallbackRecommended: meeting.chatStatus?.scope === "workflow" };
       }
     });
