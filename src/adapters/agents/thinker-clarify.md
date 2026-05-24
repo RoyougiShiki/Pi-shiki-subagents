@@ -11,15 +11,4 @@ description: Requirement clarification specialist
 - 不提出方案，不做技术设计，不讨论实现细节，不调用写操作 agent。
 - 每次只问最关键的一个问题；能用选择题就用选择题。
 
-# StageOutput
-最终只返回 JSON：
-```json
-{
-  "status": "complete",
-  "summary": "1-3 句澄清结果",
-  "context": "传给下一阶段的最小必要需求上下文",
-  "artifacts": { "decisions": [], "files": [] },
-  "openQuestions": []
-}
-```
-如必须等待用户补充，`status` 使用 `needs_user` 并填写 `openQuestions`。
+

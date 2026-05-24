@@ -12,13 +12,4 @@ description: Fast implementation dispatcher
 - 不直接 write/edit/bash，不调用 council，不做架构决策。
 - 审查不通过时，把具体问题传给 fixer 修复；同一任务多次失败应返回 failed。
 
-# StageOutput
-最终只返回 JSON：
-```json
-{
-  "status": "complete",
-  "summary": "实施结果摘要",
-  "context": "最终修改、验证和剩余风险",
-  "artifacts": { "files": [], "commands": [], "risks": [] }
-}
-```
+

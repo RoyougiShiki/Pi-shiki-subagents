@@ -28,7 +28,8 @@ describe('bindWorkflowChatBridge', () => {
     const clearStatus = mock(() => {});
     let sessionCtx: ExtensionContext | null = null;
 
-    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => sessionCtx, notify, setStatus, clearStatus });
+    const sendAgentMessage = mock(() => {});
+    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => sessionCtx, notify, setStatus, clearStatus, sendAgentMessage });
 
     handlers[0]!({ type: 'running', agent: 'worker', stageId: 's1', poolId: 'p1' });
 
@@ -49,7 +50,7 @@ describe('bindWorkflowChatBridge', () => {
     expect(notify).toHaveBeenCalledWith('Workflow stage waiting for user input: worker', 'info');
 
     handlers[0]!({ type: 'transition_approval', agent: 'worker', stageId: 's1', poolId: 'p1', output: { status: 'complete', summary: 'done', context: 'ctx' }, nextStage: 'oracle' });
-    expect(notify).toHaveBeenCalledWith('Workflow stage completed: worker; approval required before oracle', 'info');
+    expect(sendAgentMessage).toHaveBeenCalled();
 
     handlers[0]!({ type: 'workflow_complete', workflow: 'wf' });
     expect(clearStatus).toHaveBeenCalledWith('workflow-stage');

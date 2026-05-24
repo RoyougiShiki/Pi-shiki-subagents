@@ -35,6 +35,7 @@ class FakePool implements WorkflowPool {
   spawnCalls: any[] = [];
   sendCalls: Array<{ id: string; message: string }> = [];
   killCalls: string[] = [];
+  getProcess: any = undefined;
 
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
@@ -117,6 +118,8 @@ describe('WorkflowManager', () => {
   test('fails workflow when stage does not call stage tools', async () => {
     const pool = new FakePool();
     pool.spawnResponses.push({ response: 'plain text only' });
+    // Auto-retry: sendPrompt with reminder also fails
+    pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -133,6 +136,8 @@ describe('WorkflowManager', () => {
     const events: StageEvent[] = [];
     pool.spawnStageResults.push(undefined as any);
     pool.spawnResponses.push({ response: 'plain text only' });
+    // Auto-retry: sendPrompt with reminder also fails
+    pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -148,6 +153,7 @@ describe('WorkflowManager', () => {
     expect(pool.killCalls).toHaveLength(1);
   });
 
+
   test('clears lastError when a new workflow starts', async () => {
     const pool = new FakePool();
     pool.spawnResponses.push(
@@ -158,6 +164,8 @@ describe('WorkflowManager', () => {
       undefined,
       { type: 'complete', summary: 'ok', context: 'ctx' },
     );
+    // Auto-retry: sendPrompt with reminder (first run only)
+    pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -232,13 +240,21 @@ describe('WorkflowManager', () => {
     expect(events.filter((event) => event.type === 'complete')).toHaveLength(2);
   });
 
-  test('needs_user followed by failed user response errors and does not continue', async () => {
+  test('needs_user followed by two consecutive tool failures notifies on second attempt', async () => {
     const pool = new FakePool();
     const events: StageEvent[] = [];
     pool.spawnStageResults.push({ type: 'ask_user', summary: 'need user', question: 'question?' });
     pool.spawnResponses.push({ response: 'stage_ask_user recorded' });
+    // First send + retry: no tool called
     pool.sendStageResults.push(undefined);
     pool.sendResponses.push({ response: 'no stage tool used' });
+    pool.sendStageResults.push(undefined);
+    pool.sendResponses.push({ response: 'still no stage tool' });
+    // Second send + retry: still no tool
+    pool.sendStageResults.push(undefined);
+    pool.sendResponses.push({ response: 'second attempt text' });
+    pool.sendStageResults.push(undefined);
+    pool.sendResponses.push({ response: 'second retry text' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -254,16 +270,20 @@ describe('WorkflowManager', () => {
       if (event.type === 'waiting_user') waiting.resolve();
     });
 
-    const run = manager.runWorkflow(wf, 'input');
+    manager.runWorkflow(wf, 'input');
     await waiting.promise;
-    const userResult = await manager.sendUserMessage('additional info');
+    // First attempt: no error event (counter increments to 1)
+    const firstResult = await manager.sendUserMessage('first try');
+    expect(firstResult.error).toBe('Stage agent stopped responding with a tool call. You can retry or abort.');
+    expect(events.some(e => e.type === 'error')).toBe(false);
 
-    expect(userResult.error).toBe('Stage did not call stage_complete or stage_ask_user');
+    // Second attempt: now counter >= 2, error event fires
+    const secondResult = await manager.sendUserMessage('second try');
+    expect(secondResult.error).toBe('Stage agent stopped responding with a tool call. You can retry or abort.');
     expect(pool.spawnCalls).toHaveLength(1);
     expect(pool.killCalls).toHaveLength(0);
-    expect(manager.status().stage?.poolId).toBeTruthy();
-    manager.abort();
-    await expect(run).rejects.toThrow('Workflow aborted');
+    expect(manager.status().stage).toBeTruthy();
+    expect(events.some(e => e.type === 'error')).toBe(true);
   });
 
   test('retryStage while waiting uses current stage pool and does not spawn a detached stage', async () => {

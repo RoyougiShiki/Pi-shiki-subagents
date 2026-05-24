@@ -347,6 +347,9 @@ export class AgentPool {
           if (ev.command === "prompt" && ev.success) {
             entry.status = "streaming";
           }
+          if (ev.command === "steer" && ev.success) {
+            entry.status = "streaming";
+          }
         }
 
         if (ev.type === "agent_end") {
@@ -382,7 +385,7 @@ export class AgentPool {
   }
 
   /** Send a prompt to an existing pool agent and wait for response. */
-  sendPrompt(id: string, message: string): Promise<{ response: string; error?: string }> {
+  sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
     const entry = this.agents.get(id);
     if (!entry) {
       return Promise.resolve({ response: "", error: `Agent "${id}" not found in pool` });
@@ -406,7 +409,8 @@ export class AgentPool {
           this.kill(id);
         }
       }, this.timeoutMs);
-      const cmd = JSON.stringify({ type: "prompt", message }) + "\n";
+      const msgType = type || "prompt";
+      const cmd = JSON.stringify({ type: msgType, message }) + "\n";
       entry.proc.stdin!.write(cmd);
     });
   }

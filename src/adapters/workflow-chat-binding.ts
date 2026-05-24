@@ -1,4 +1,4 @@
-import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { ChildProcess } from 'node:child_process';
 import type { StageEvent } from '../core/workflow-types';
 import type { WorkflowManager } from './workflow-manager';
@@ -22,6 +22,7 @@ export function bindWorkflowChatBridge(args: {
   notify?: (message: string, level?: 'info' | 'warning' | 'error' | 'success') => void;
   setStatus?: (key: string, value: string) => void;
   clearStatus?: (key: string) => void;
+  sendAgentMessage?: (content: string) => void;
 }): () => void {
   return args.manager.onEvent((event: StageEvent) => {
     if (event.type === 'running') {
@@ -54,7 +55,13 @@ export function bindWorkflowChatBridge(args: {
     if (event.type === 'transition_approval') {
       args.hub.updateChatStatus(event.poolId, { state: 'done' });
       args.setStatus?.('workflow-stage', `Approval required: ${event.agent}`);
-      args.notify?.(`Workflow stage completed: ${event.agent}; approval required before ${event.nextStage ?? 'next stage'}`, 'info');
+      console.log(`[wf-test] transition_approval event: agent=${event.agent}, nextStage=${event.nextStage}`);
+      try {
+        args.sendAgentMessage?.(`Workflow stage ${event.agent} completed. Approval required before continuing to ${event.nextStage ?? 'next stage'}.`);
+        console.log(`[wf-test] sendAgentMessage called ok`);
+      } catch (e) {
+        console.error(`[wf-test] sendAgentMessage failed:`, e);
+      }
     }
 
     if (event.type === 'complete') {
@@ -63,13 +70,13 @@ export function bindWorkflowChatBridge(args: {
 
     if (event.type === 'workflow_complete') {
       args.clearStatus?.('workflow-stage');
-      args.notify?.(`Workflow completed: ${event.workflow}`, 'success');
+      args.sendAgentMessage?.(`Workflow completed: ${event.workflow}`);
     }
 
     if (event.type === 'error' && event.poolId) {
       args.hub.updateChatStatus(event.poolId, { state: 'failed', fallbackRecommended: true });
       args.setStatus?.('workflow-stage', `Workflow failed: ${event.agent}`);
-      args.notify?.(`Workflow failed: ${event.error}`, 'error');
+      args.sendAgentMessage?.(`Workflow failed: ${event.error}`);
     }
   });
 }

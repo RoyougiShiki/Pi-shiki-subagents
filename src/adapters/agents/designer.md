@@ -12,13 +12,4 @@ description: Technical planning specialist
 - 可委托 explorer/librarian/observer/oracle 做只读确认或设计评审。
 - 计划应自包含、可执行、任务粒度小，并明确验证方式。
 
-# StageOutput
-最终只返回 JSON：
-```json
-{
-  "status": "complete",
-  "summary": "计划产出摘要",
-  "context": "传给实施阶段的计划路径和执行约束",
-  "artifacts": { "files": [], "decisions": [], "risks": [] }
-}
-```
+

@@ -12,13 +12,4 @@ description: Batch implementation dispatcher
 - 不直接修改源代码，不做架构决策。
 - 失败任务进入下一轮修复；重复失败应返回 failed 和原因。
 
-# StageOutput
-最终只返回 JSON：
-```json
-{
-  "status": "complete",
-  "summary": "批次执行结果",
-  "context": "完成任务、失败任务、验证结果和风险",
-  "artifacts": { "files": [], "commands": [], "risks": [] }
-}
-```
+

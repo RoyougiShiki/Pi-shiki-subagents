@@ -13,13 +13,4 @@ description: Standard implementation dispatcher
 - 不重新设计方案，不跳过审查，不把自己的判断伪装成 oracle 审查。
 - 更新计划状态时记录真实 changed files 和验证结果。
 
-# StageOutput
-最终只返回 JSON：
-```json
-{
-  "status": "complete",
-  "summary": "实施完成情况",
-  "context": "传给后续验证/总结的最小必要上下文",
-  "artifacts": { "files": [], "commands": [], "risks": [] }
-}
-```
+

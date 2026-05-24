@@ -136,9 +136,40 @@ export function registerWorkflowCommands(
     },
   });
 
+  // ── reject_transition ──
+  pi.registerTool({
+    name: "reject_transition",
+    label: "Reject Transition",
+    description: "拒绝当前 stage 的完成申请，回到等待用户输入状态",
+    parameters: Type.Object({}),
+    async execute() {
+      const ok = manager.rejectTransition();
+      if (!ok) return {
+        content: [{ type: "text", text: "当前没有等待拒绝的完成申请" }],
+        isError: true, details: {},
+      };
+      return {
+        content: [{ type: "text", text: "Transition rejected, stage returned to waiting for user input." }],
+        details: { rejected: true },
+      };
+    },
+  });
+
   // ── abort_workflow ──
   pi.registerTool({
     name: "abort_workflow",
+    label: "Abort Workflow",
+    description: "中止当前 workflow 并停止当前 stage agent",
+    parameters: Type.Object({}),
+    async execute() {
+      manager.abort();
+      return { content: [{ type: "text", text: "Workflow aborted" }], details: {} };
+    },
+  });
+
+  // ── send_stage_message ──
+  pi.registerTool({
+    name: "send_stage_message",
     label: "Abort Workflow",
     description: "中止当前 workflow 并停止当前 stage agent",
     parameters: Type.Object({}),
