@@ -141,9 +141,11 @@ export function registerWorkflowCommands(
     name: "reject_transition",
     label: "Reject Transition",
     description: "拒绝当前 stage 的完成申请，回到等待用户输入状态",
-    parameters: Type.Object({}),
-    async execute() {
-      const ok = manager.rejectTransition();
+    parameters: Type.Object({
+      message: Type.Optional(Type.String({ description: "可选的拒绝原因或下一步指示，会发送给子代理" })),
+    }),
+    async execute(_toolCallId, params) {
+      const ok = manager.rejectTransition(params.message);
       if (!ok) return {
         content: [{ type: "text", text: "当前没有等待拒绝的完成申请" }],
         isError: true, details: {},
@@ -158,18 +160,6 @@ export function registerWorkflowCommands(
   // ── abort_workflow ──
   pi.registerTool({
     name: "abort_workflow",
-    label: "Abort Workflow",
-    description: "中止当前 workflow 并停止当前 stage agent",
-    parameters: Type.Object({}),
-    async execute() {
-      manager.abort();
-      return { content: [{ type: "text", text: "Workflow aborted" }], details: {} };
-    },
-  });
-
-  // ── send_stage_message ──
-  pi.registerTool({
-    name: "send_stage_message",
     label: "Abort Workflow",
     description: "中止当前 workflow 并停止当前 stage agent",
     parameters: Type.Object({}),

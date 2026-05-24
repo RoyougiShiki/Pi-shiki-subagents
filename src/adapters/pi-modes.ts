@@ -185,6 +185,15 @@ function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = fal
 }
 
 function applyMode(pi: ExtensionAPI, name: string): boolean {
+  if (name === "fallback") {
+    // Fallback: all tools available, deduplicated
+    try {
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      pi.setActiveTools([...new Set(all)]);
+      saveAgent(name);
+      return true;
+    } catch { return false; }
+  }
   return applyAgentTools(pi, name, false);
 }
 
@@ -307,6 +316,9 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId: string, params: { mode: string }) {
       const name = params.mode?.trim().toLowerCase();
+      if (name === "fallback") {
+        return { content: [{ type: "text" as const, text: `请使用 /mode 命令切换到 fallback。` }], isError: true, details: {} as any };
+      }
       if (!name || !getAgent(name)) {
         return { content: [{ type: "text" as const, text: `不存在该 agent。` }], isError: true, details: {} as any };
       }
@@ -315,10 +327,10 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
       // Check if current mode allows switching to target mode
-      const currentMode = getActiveMode() || "fallback";
+      const currentMode = getActiveMode() || "coordinator";
       const currentAgent = getAgent(currentMode);
-      if (currentAgent?.next && Array.isArray(currentAgent.next) && currentAgent.next.length > 0) {
-        if (!currentAgent.next.includes(name)) {
+      if (currentAgent?.next && Array.isArray(currentAgent.next)) {
+        if (currentAgent.next.length === 0 || !currentAgent.next.includes(name)) {
           return { content: [{ type: "text" as const, text: `当前模式 "${currentMode}" 不允许切换到 "${name}"。` }], isError: true, details: {} as any };
         }
       }

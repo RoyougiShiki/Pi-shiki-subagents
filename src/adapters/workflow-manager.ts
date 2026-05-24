@@ -123,7 +123,7 @@ export class WorkflowManager {
   private choicePending: { prompt: string; branches: Array<{ label: string; description: string }> } | null = null;
   private stageWaitResolver: ((output: StageOutput) => void) | null = null;
   private transitionResolver: ((approved: boolean) => void) | null = null;
-  private transitionPending: { output: StageOutput; nextStage?: string; stage: CurrentStage; approved?: boolean } | null = null;
+  private transitionPending: { output: StageOutput; nextStage?: string; stage: CurrentStage; approved?: boolean; rejectMessage?: string } | null = null;
   private pendingEvents: StageEvent[] = [];
   private currentStage: CurrentStage | null = null;
   private stageCounter = 0;
@@ -205,7 +205,7 @@ export class WorkflowManager {
     const parts = [
       "You are running as one stage in a workflow.",
       "Workflow definitions control the process. Your agent prompt controls your role boundary.",
-      "One of your available tools is for workflow stage management. Use it when you need to ask the user a question or signal that the stage is complete.",
+      "Use the available stage tools to ask the user a question or request completion.",
     ];
     if (node.description) parts.push(`Stage description:\n${node.description}`);
     if (node.task) parts.push(`Stage task:\n${node.task}`);
@@ -352,9 +352,23 @@ export class WorkflowManager {
     // Loop to allow transition rejection → back to waiting_user → re-complete
     if (nextStage) {
       while (true) {
+        // Clean up stale waiting_user from previous iteration
+        this.pendingEvents = this.pendingEvents.filter(
+          (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
+        );
         const approved = await this.waitForTransitionApproval({ workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath }, output, nextStage);
         if (approved || !this.running) break;
-        // Rejected: agent went back to waiting_user, loop back
+        // Rejected: inform agent and loop back to waiting_user
+        this.pendingEvents = this.pendingEvents.filter(
+          (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
+        );
+        try {
+          const proc = this.pool.getProcess?.(poolId);
+          if (proc?.stdin) {
+            const note = this.transitionPending?.rejectMessage || "Your completion request was rejected. Continue working.";
+            proc.stdin.write(JSON.stringify({ type: "steer", message: note }) + "\n");
+          }
+        } catch {}
         this.emit({ type: "complete", agent: node.agent, stageId, poolId, output });
         output = await this.waitForUserCompletion();
         if (output.status === "failed") break;
@@ -409,12 +423,14 @@ export class WorkflowManager {
     return true;
   }
 
-  rejectTransition(): boolean {
+  rejectTransition(message?: string): boolean {
     if (!this.transitionResolver || !this.transitionPending) return false;
     const stage = this.transitionPending.stage;
     this.pendingEvents = this.pendingEvents.filter(
       (e) => !(e.type === 'transition_approval' && e.poolId === stage.poolId && e.stageId === stage.stageId),
     );
+    // Store reject message for the while loop to send to agent
+    this.transitionPending.rejectMessage = message;
     const resolve = this.transitionResolver;
     this.transitionResolver = null;
     this.transitionPending = null;
@@ -438,7 +454,7 @@ export class WorkflowManager {
       // First miss: send system reminder via prompt with [System] prefix
       const retryMsg = "[System] You ended your turn without calling a stage tool. Continue working, or use the tool to ask a question or complete the stage.";
       this.clearStageResult(stage.stageResultPath);
-      await this.pool.sendPrompt(stage.poolId, retryMsg).catch(() => {});
+      const retryResult = await this.pool.sendPrompt(stage.poolId, retryMsg).catch(() => ({ response: "", error: "send failed" }));
       // Check if agent called a tool after reminder
       const retryStageResult = this.readStageResult(stage.stageResultPath);
       this.clearStageResult(stage.stageResultPath);
@@ -451,14 +467,14 @@ export class WorkflowManager {
           );
           this.pendingEvents.push({ type: "waiting_user", agent: stage.agent, stageId: stage.stageId, poolId: stage.poolId, output: retryOutput });
           this.emit({ type: "waiting_user", agent: stage.agent, stageId: stage.stageId, poolId: stage.poolId, output: retryOutput });
-          return result;
+          return retryResult;
         }
         if (this.stageWaitResolver) {
           const resolve = this.stageWaitResolver;
           this.stageWaitResolver = null;
           resolve(retryOutput);
         }
-        return result;
+        return retryResult;
       }
       // Reminder didn't help — second consecutive miss
       this.consecutiveToolMisses++;

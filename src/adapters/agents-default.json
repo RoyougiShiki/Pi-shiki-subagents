@@ -10,6 +10,7 @@
       "send_stage_message",
       "abort_workflow",
       "retry_stage",
+      "reject_transition",
       "ask_user_question"
     ],
     "delegates": [],
@@ -27,7 +28,11 @@
       "ls",
       "omo_subagent"
     ],
-    "delegates": ["explorer", "librarian", "observer"],
+    "delegates": [
+      "explorer",
+      "librarian",
+      "observer"
+    ],
     "label": "需求澄清"
   },
   "thinker-analysis": {
@@ -47,7 +52,12 @@
       "omo_subagent",
       "omo_council"
     ],
-    "delegates": ["explorer", "librarian", "observer", "oracle"],
+    "delegates": [
+      "explorer",
+      "librarian",
+      "observer",
+      "oracle"
+    ],
     "label": "需求分析"
   },
   "designer": {
@@ -64,7 +74,12 @@
       "omo_subagent",
       "omo_council"
     ],
-    "delegates": ["explorer", "librarian", "observer", "oracle"],
+    "delegates": [
+      "explorer",
+      "librarian",
+      "observer",
+      "oracle"
+    ],
     "label": "技术设计"
   },
   "worker": {
@@ -79,7 +94,10 @@
       "find",
       "ls"
     ],
-    "delegates": ["fixer", "oracle"],
+    "delegates": [
+      "fixer",
+      "oracle"
+    ],
     "label": "快速实施"
   },
   "implementer": {
@@ -91,7 +109,10 @@
       "todo",
       "omo_subagent"
     ],
-    "delegates": ["fixer", "oracle"],
+    "delegates": [
+      "fixer",
+      "oracle"
+    ],
     "label": "标准实施"
   },
   "batch": {
@@ -102,15 +123,11 @@
       "read",
       "omo_subagent"
     ],
-    "delegates": ["fixer", "oracle"],
+    "delegates": [
+      "fixer",
+      "oracle"
+    ],
     "label": "批次执行"
-  },
-  "fallback": {
-    "type": "mode",
-    "tools": [],
-    "delegates": [],
-    "next": [],
-    "label": "兜底模式"
   },
   "explorer": {
     "type": "subagent",
@@ -179,5 +196,11 @@
     "delegates": [],
     "next": [],
     "label": "看图"
+  },
+  "fallback": {
+    "type": "mode",
+    "tools": [],
+    "delegates": [],
+    "label": "兜底模式"
   }
 }

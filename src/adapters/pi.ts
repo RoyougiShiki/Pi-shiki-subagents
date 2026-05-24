@@ -1061,8 +1061,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Workflow stage tools ──────────────────────────────────────────
   pi.registerTool({
     name: "stage_complete",
-    label: "Stage Complete",
-    description: "workflow stage 子代理完成阶段时调用，写入结构化阶段结果。",
+    label: "Request Completion",
+    description: "workflow stage 子代理申请完成许可时调用，请求主 agent 批准。",
     parameters: Type.Object({
       summary: Type.String({ description: "简短阶段总结" }),
       context: Type.String({ description: "传给下一阶段的上下文" }),
