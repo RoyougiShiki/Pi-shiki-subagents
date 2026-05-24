@@ -314,9 +314,14 @@ export default function (pi: ExtensionAPI) {
       if (agent.type !== "mode" && agent.type !== "both") {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
-
-
-
+      // Check if current mode allows switching to target mode
+      const currentMode = getActiveMode() || "fallback";
+      const currentAgent = getAgent(currentMode);
+      if (currentAgent?.next && Array.isArray(currentAgent.next) && currentAgent.next.length > 0) {
+        if (!currentAgent.next.includes(name)) {
+          return { content: [{ type: "text" as const, text: `当前模式 "${currentMode}" 不允许切换到 "${name}"。` }], isError: true, details: {} as any };
+        }
+      }
       applyMode(pi, name);
       return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };
     },

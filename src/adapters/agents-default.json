@@ -13,6 +13,7 @@
       "ask_user_question"
     ],
     "delegates": [],
+    "next": [],
     "label": "工作流协调器"
   },
   "thinker-clarify": {
@@ -87,8 +88,6 @@
       "stage_complete",
       "stage_ask_user",
       "read",
-      "write",
-      "edit",
       "todo",
       "omo_subagent"
     ],
@@ -101,8 +100,6 @@
       "stage_complete",
       "stage_ask_user",
       "read",
-      "write",
-      "edit",
       "omo_subagent"
     ],
     "delegates": ["fixer", "oracle"],
