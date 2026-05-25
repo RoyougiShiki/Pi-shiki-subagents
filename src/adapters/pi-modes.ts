@@ -204,15 +204,9 @@ export function getModeInstructions(name: string): string | undefined {
 }
 
 function loadToolGroups(): Record<string, string[]> {
-  // Try user config first
   try {
     const configPath = getConfigPath();
     const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    if (raw._tool_groups) return raw._tool_groups;
-  } catch {}
-  // Fall back to defaults
-  try {
-    const raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
     return raw._tool_groups || {};
   } catch {
     return {};
