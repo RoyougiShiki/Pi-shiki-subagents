@@ -843,7 +843,6 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
-  try { fs.appendFileSync("/tmp/omo-ext.log", "pi.ts LOADED\n"); } catch {}
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
