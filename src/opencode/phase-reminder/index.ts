@@ -1,6 +1,6 @@
 import { PHASE_REMINDER_TEXT } from '../../config/constants';
 import { SLIM_INTERNAL_INITIATOR_MARKER } from '../../utils';
-import type { MessageWithParts } from '../shared-message-types';
+import type { MessageWithParts } from '../../hooks/shared-message-types';
 
 export const PHASE_REMINDER = `<internal_reminder>${PHASE_REMINDER_TEXT}</internal_reminder>`;
 
