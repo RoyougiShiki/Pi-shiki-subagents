@@ -843,6 +843,23 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
+  // Sub-agent tool filtering: apply after all extensions registered their tools
+  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_ACTIVE_TOOLS) {
+    const allowedTools = process.env.OMO_ACTIVE_TOOLS.split(",").filter(Boolean);
+    const apply = () => {
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      // Only apply when tools > 4 (built-in), meaning MCP tools are registered
+      if (all.length > 4 || all.length === 0) {
+        const allow = new Set(allowedTools);
+        const active = all.filter((n: string) => allow.has(n));
+        if (active.length > 0) pi.setActiveTools(active);
+      } else {
+        setImmediate(apply);
+      }
+    };
+    setImmediate(apply);
+  }
+
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
@@ -920,21 +937,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
     if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
-      // Apply tool filtering from parent-passed env var
-      const activeToolsEnv = process.env.OMO_ACTIVE_TOOLS;
-      if (activeToolsEnv) {
-        try {
-          const tools = activeToolsEnv.split(",").filter(Boolean);
-          const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-          const allow = new Set(tools);
-          const active = all.filter((n: string) => allow.has(n));
-          if (active.length > 0) pi.setActiveTools(active);
-        } catch (e) {
-          console.error("[omo] ACTIVE_TOOLS error:", e);
-        }
-      } else {
-        console.error("[omo] ACTIVE_TOOLS empty, agent=", process.env.OMO_AGENT_NAME);
-      }
       return { systemPrompt: event.systemPrompt };
     }
     
