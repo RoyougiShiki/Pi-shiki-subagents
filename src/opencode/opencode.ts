@@ -39,7 +39,7 @@ import {
 } from '../hooks';
 import { processImageAttachments } from '../hooks/image-hook';
 import { createInterviewManager } from './interview';
-import { createBuiltinMcps } from '../mcp';
+import { createBuiltinMcps } from '../opencode/mcp';
 
 import {
   createCouncilTool,
@@ -1124,4 +1124,4 @@ export type {
   McpName,
   PluginConfig,
 } from '../config';
-export type { RemoteMcpConfig } from '../mcp';
+export type { RemoteMcpConfig } from '../opencode/mcp';
