@@ -20,7 +20,7 @@
   "thinker-clarify": {
     "type": "subagent",
     "delegates": [
-      "explorer",
+      "search",
       "search",
       "observer"
     ],
@@ -34,7 +34,7 @@
   "thinker-analysis": {
     "type": "subagent",
     "delegates": [
-      "explorer",
+      "search",
       "search",
       "observer",
       "oracle"
@@ -49,7 +49,7 @@
   "designer": {
     "type": "subagent",
     "delegates": [
-      "explorer",
+      "search",
       "search",
       "observer",
       "oracle"
@@ -73,16 +73,6 @@
     "roles": [
       "流程",
       "管理"
-    ]
-  },
-  "explorer": {
-    "type": "subagent",
-    "delegates": [],
-    "next": [],
-    "label": "搜索",
-    "roles": [
-      "读",
-      "搜索"
     ]
   },
   "oracle": {
