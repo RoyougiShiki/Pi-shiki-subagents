@@ -8,7 +8,7 @@
  *   - Constitution/orchestrator prompt is injected via before_agent_start
  *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
  *   - OMO's custom tools (delegate, council) are registered
- *     as pi tools (webfetch omitted — pi-web-access provides better ones)
+ *     as pi tools (webfetch omitted - pi-web-access provides better ones)
  *   - /preset command switches model presets at runtime
  *
  * Dependencies:
@@ -647,9 +647,9 @@ function buildPiOrchestratorPrompt(
   const constPath = path.join(homedir(), ".pi", "agent", "constitution.md");
   let constText = "";
   try { if (fs.existsSync(constPath)) constText = fs.readFileSync(constPath, "utf-8").trim(); } catch {}
-  if (!constText) constText = `<CONSTITUTION>\n（未找到 constitution.md）\n</CONSTITUTION>`;
+  if (!constText) constText = `<CONSTITUTION>\n(未找到 constitution.md)\n</CONSTITUTION>`;
 
-    return constText || `<CONSTITUTION>\n（未找到 constitution.md）\n</CONSTITUTION>`;
+    return constText || `<CONSTITUTION>\n(未找到 constitution.md)\n</CONSTITUTION>`;
 }
 
 // ─── Tool implementations ──────────────────────────────────────────────────
@@ -702,7 +702,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
       ) {
         const mode = params.mode ?? "isolated";
         if (mode === "meeting") {
-          // 非阻塞会议模式：立即返回，后台运行
+          // 非阻塞会议模式:立即返回,后台运行
           const resolved = resolvePiCouncilParticipants({
             config,
             preset: params.preset,
@@ -754,7 +754,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
           if (spawnedProcs.length === 0) {
             return {
-              content: [{ type: "text" as const, text: `❌ 群聊创建失败，所有参与者都无法启动。\n${errors.join("\n")}` }],
+              content: [{ type: "text" as const, text: `❌ 群聊创建失败,所有参与者都无法启动。\n${errors.join("\n")}` }],
               details: { mode, question: params.question, errors },
               isError: true,
             };
@@ -770,13 +770,13 @@ function createToolImplementations(config: OmniMoConfig | null) {
             }));
           hub.registerMeeting(meetingId, params.question.slice(0, 60), participants);
 
-          // 无需 setTimeout——用户加入群聊后第一条消息就是讨论开始
-          // 每个 participant 已经收到了初始任务（含 topic），等待第一条消息触发回复
+          // 无需 setTimeout--用户加入群聊后第一条消息就是讨论开始
+          // 每个 participant 已经收到了初始任务(含 topic),等待第一条消息触发回复
 
           const warnText = errors.length > 0 ? `\n\n⚠️ 部分参与者启动失败:\n${errors.join("\n")}` : "";
 
           return {
-            content: [{ type: "text" as const, text: `✅ 群聊已创建: "${params.question.slice(0, 60)}"\n参与: ${participants.map(p => p.name).join(", ")}${warnText}\n\n使用 /chat 加入讨论，发言会被同步给所有人。` }],
+            content: [{ type: "text" as const, text: `✅ 群聊已创建: "${params.question.slice(0, 60)}"\n参与: ${participants.map(p => p.name).join(", ")}${warnText}\n\n使用 /chat 加入讨论,发言会被同步给所有人。` }],
             details: {
               mode,
               question: params.question,
@@ -843,26 +843,6 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
-  // Debug: log sub-agent env
-  if (process.env.OMO_SUB_AGENT === "1") {
-    try {
-      fs.appendFileSync("/tmp/omo-debug.log", 
-        `OMO_SUB_AGENT=1 OMO_AGENT_NAME=${process.env.OMO_AGENT_NAME} OMO_ACTIVE_TOOLS=${process.env.OMO_ACTIVE_TOOLS?.slice(0,200)}\n`);
-    } catch {}
-  }
-
-  // Sub-agent tool filtering: apply after all extensions registered their tools
-  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_ACTIVE_TOOLS) {
-    const allowedTools = process.env.OMO_ACTIVE_TOOLS.split(",").filter(Boolean);
-    const apply = () => {
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      const allow = new Set(allowedTools);
-      const active = all.filter((n: string) => allow.has(n));
-      if (active.length > 0) pi.setActiveTools(active);
-    };
-    setImmediate(apply);
-  }
-
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
@@ -931,18 +911,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       ctx.ui.setStatus("mode", `Mode: ${m}`);
     } catch {}
 
-    // omo_subagent replaces the old subagent tool — registered in registerSubagentTool
+    // omo_subagent replaces the old subagent tool - registered in registerSubagentTool
   });
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
-    console.error("[omo] before_agent_start FIRED sub_agent=", process.env.OMO_SUB_AGENT, "tools_env=", process.env.OMO_ACTIVE_TOOLS?.slice(0, 80));
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
     if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
       return { systemPrompt: event.systemPrompt };
     }
-    
+
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
     const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
@@ -987,7 +966,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "stage_complete",
     label: "Request Completion",
-    description: "workflow stage 子代理申请完成许可时调用，请求主 agent 批准。",
+    description: "workflow stage 子代理申请完成许可时调用,请求主 agent 批准。",
     parameters: Type.Object({
       summary: Type.String({ description: "简短阶段总结" }),
       context: Type.String({ description: "传给下一阶段的上下文" }),
@@ -1003,7 +982,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "stage_ask_user",
     label: "Stage Ask User",
-    description: "workflow stage 子代理需要用户输入时调用，写入结构化提问结果。",
+    description: "workflow stage 子代理需要用户输入时调用,写入结构化提问结果。",
     parameters: Type.Object({
       summary: Type.String({ description: "当前阶段简短状态" }),
       question: Type.String({ description: "要问用户的问题" }),
@@ -1044,7 +1023,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "activate_tools",
     label: "Activate Tool",
-    description: "激活扩展工具使其在当前会话可用。参数 toolNames：需激活的工具名称列表。",
+    description: "激活扩展工具使其在当前会话可用。参数 toolNames:需激活的工具名称列表。",
     parameters: Type.Object({
       toolNames: Type.Array(Type.String({ description: "工具名称列表" })),
     }),
@@ -1239,7 +1218,7 @@ ${agentOutput.slice(0, 3000)}`;
         });
       }
 
-      // 活跃的群聊（只显示 type=group 的）
+      // 活跃的群聊(只显示 type=group 的)
       const meetings = hub.getActiveMeetings();
       for (const m of meetings) {
         if (m.type === "group") {
@@ -1254,7 +1233,7 @@ ${agentOutput.slice(0, 3000)}`;
         }
       }
 
-      // 已有的私聊（可继续）
+      // 已有的私聊(可继续)
       for (const m of meetings) {
         if (m.type !== "chat") continue;
         const view = createChatStatusView({
