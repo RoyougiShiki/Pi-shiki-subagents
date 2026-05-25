@@ -928,7 +928,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           const allow = new Set(tools);
           const active = all.filter((n: string) => allow.has(n));
           if (active.length > 0) pi.setActiveTools(active);
-        } catch {}
+        } catch (e) {
+          console.error("[omo] ACTIVE_TOOLS error:", e);
+        }
+      } else {
+        console.error("[omo] ACTIVE_TOOLS empty, agent=", process.env.OMO_AGENT_NAME);
       }
       return { systemPrompt: event.systemPrompt };
     }

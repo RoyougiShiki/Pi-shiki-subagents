@@ -49,9 +49,15 @@ function resolveAgentTools(agentName: string): string[] {
         const group = groups[role];
         if (group) group.forEach(t => tools.add(t));
       }
-      return [...tools];
+      const result = [...tools];
+      if (result.length === 0) {
+        console.error("[omo] resolveAgentTools empty for", agentName);
+      }
+      return result;
     }
-  } catch {}
+  } catch (e) {
+    console.error("[omo] resolveAgentTools error for", agentName, e);
+  }
   return [];
 }
 
