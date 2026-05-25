@@ -138,10 +138,6 @@ export async function runIsolatedTask(
 
   const args = ["--mode", "json", "-p", "-ne"];
   if (opts.model) args.push("--model", opts.model);
-  if (opts.agent.name) {
-    const agentTools = resolveAgentTools(opts.agent.name);
-    if (agentTools.length > 0) args.push("--tools", agentTools.join(","));
-  }
 
   const proc = spawn("pi", [...args, tmp.path], {
     cwd: opts.cwd,

@@ -355,6 +355,22 @@ function registerModeHooks(pi: ExtensionAPI): void {
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  // Sub-agent tool filtering
+  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
+    const agentName = process.env.OMO_AGENT_NAME;
+    const tryFilter = () => {
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      if (all.length <= 4) { setImmediate(tryFilter); return; } // wait for extensions
+      const agent = getAgent(agentName);
+      if (!agent) return;
+      const toolList = resolveAgentTools(agent);
+      const allow = new Set([...toolList]);
+      const active = all.filter((n: string) => allow.has(n));
+      if (active.length > 0) pi.setActiveTools(active);
+    };
+    setImmediate(tryFilter);
+  }
+
   registerModeCommands(pi);
   registerModeHooks(pi);
 
