@@ -22,7 +22,7 @@
     "gemini"
   ],
   "pi": {
-    "extensions": ["./src/adapters/pi.ts", "./src/adapters/pi-modes.ts"]
+    "extensions": ["./src/pi/core/pi.ts", "./src/pi/core/pi-modes.ts"]
   },
   "repository": {
     "type": "git",
