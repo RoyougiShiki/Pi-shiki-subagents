@@ -12,7 +12,7 @@ import { Input, Key, matchesKey, Spacer, Text } from "@earendil-works/pi-tui";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createChatStatusView } from "./chat-status-view";
-import { getHub, type ChatMessage } from "./pi-hub";
+import { getHub, type ChatMessage } from "../meeting/pi-hub";
 
 const OVERLAY_HEIGHT_RATIO = 0.8;
 

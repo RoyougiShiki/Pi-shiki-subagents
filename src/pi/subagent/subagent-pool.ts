@@ -18,9 +18,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { discoverAgents, type AgentConfig } from "../adapters/agent-discovery";
-import { getRuntimeBlockedAgents } from "../adapters/agent-runtime-config";
-import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../adapters/delegation-rules";
+import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
+import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
+import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");

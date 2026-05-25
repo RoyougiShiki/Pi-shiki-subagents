@@ -31,31 +31,31 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions } from "./pi-modes";
-import type { WorkflowStageToolResult } from "../core/workflow-types";
-import { AGENT_PROMPTS, reloadAgentPrompts } from "./pi-agents";
+import type { WorkflowStageToolResult } from "../../core/workflow-types";
+import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
   formatPiCouncilResults,
   resolvePiCouncilParticipants,
   runPiCouncilParticipant,
   type PiCouncilParticipant,
   type PiCouncilRunResult,
-} from "./pi-council";
-import { formatPiMeetingResult, runPiMeeting, type PiMeetingParticipantResult } from "./pi-meeting";
-export { AGENT_PROMPTS } from "./pi-agents";
-export { formatPiCouncilResults, resolvePiCouncilParticipants } from "./pi-council";
+} from "../meeting/pi-council";
+import { formatPiMeetingResult, runPiMeeting, type PiMeetingParticipantResult } from "../meeting/pi-meeting";
+export { AGENT_PROMPTS } from "../meeting/pi-agents";
+export { formatPiCouncilResults, resolvePiCouncilParticipants } from "../meeting/pi-council";
 
 
-export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
-import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "./subagent-pool";
-import { getHub } from "./pi-hub";
-import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "./chat-status-view";
-import { runPrivateChat, runGroupChat, autoOpenChat } from "./pi-chat-bridge";
-import { WorkflowManager } from "./workflow-manager";
-import { bindWorkflowChatBridge } from "./workflow-chat-binding";
-import { registerWorkflowCommands } from "./workflow-commands";
-import { WorkflowsConfig } from "../core/workflow-types";
-import { DEFAULT_WORKFLOWS } from "../config/schema";
-import { deepMerge, loadPluginConfig } from "../config/loader";
+export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "../meeting/pi-meeting";
+import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "../subagent/subagent-pool";
+import { getHub } from "../meeting/pi-hub";
+import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
+import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
+import { WorkflowManager } from "../workflow/workflow-manager";
+import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
+import { registerWorkflowCommands } from "../workflow/workflow-commands";
+import { WorkflowsConfig } from "../../core/workflow-types";
+import { DEFAULT_WORKFLOWS } from "../../config/schema";
+import { deepMerge, loadPluginConfig } from "../../config/loader";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -1290,7 +1290,7 @@ ${agentOutput.slice(0, 3000)}`;
   // ── Cleanup on session shutdown ────────────────────────────────────
   pi.on("session_shutdown", async () => {
     try {
-      const { getPool } = await import("./subagent-pool");
+      const { getPool } = await import("../subagent/subagent-pool");
       getPool().killAll();
     } catch (err) {
       console.error("[pi-hub] Cleanup error:", err);

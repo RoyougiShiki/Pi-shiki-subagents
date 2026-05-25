@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { WorkflowManager } from "./workflow-manager";
-import { WorkflowsConfig } from "../core/workflow-types";
+import { WorkflowsConfig } from "../../core/workflow-types";
 
 export function registerWorkflowCommands(
   pi: ExtensionAPI,

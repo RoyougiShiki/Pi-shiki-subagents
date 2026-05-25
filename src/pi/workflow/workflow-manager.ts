@@ -6,12 +6,12 @@ import {
   type StageEvent,
   type WorkflowDefinition,
   type WorkflowStageToolResult,
-} from "../core/workflow-types";
+} from "../../core/workflow-types";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getPool } from "./subagent-pool";
-import { resolveAgent, type AgentConfig } from "../adapters/agent-discovery";
+import { getPool } from "../subagent/subagent-pool";
+import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
 
 function isChoiceNode(node: WorkflowNode): node is ChoiceNode {
   return (node as any).type === "choice";

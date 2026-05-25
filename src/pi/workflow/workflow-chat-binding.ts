@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { ChildProcess } from 'node:child_process';
-import type { StageEvent } from '../core/workflow-types';
-import type { WorkflowManager } from './workflow-manager';
+import type { StageEvent } from '../../core/workflow-types';
+import type { WorkflowManager } from '../workflow/workflow-manager';
 
 export function bindWorkflowChatBridge(args: {
   manager: WorkflowManager;

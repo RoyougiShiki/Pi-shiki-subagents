@@ -18,7 +18,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadRuntimeAgentDefinitions } from "../adapters/agent-runtime-config";
+import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 

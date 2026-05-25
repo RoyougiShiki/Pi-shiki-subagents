@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AGENT_PROMPTS } from "./pi-agents";
 import { PoolMeetingBackend } from "./pi-meeting-pool";
-import type { OmniMoConfig, PiCouncilParticipantConfig } from "./pi";
+import type { OmniMoConfig, PiCouncilParticipantConfig } from "../core/pi";
 import {
   extractAssistantTextFromMessages,
   resolvePiCouncilParticipants,
