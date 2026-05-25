@@ -1073,7 +1073,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.on("turn_end", async () => {
     _turnCount++;
     if (_turnCount % REVIEW_INTERVAL === 0) {
-      _sessionCtx?.ui.notify("[Agent Review] " + REVIEW_INTERVAL + " turns completed. Review your role and constraints.", "info");
+      pi.sendMessage({
+        customType: "role_review",
+        content: "[Agent Review] " + REVIEW_INTERVAL + " turns completed. Review your role, constraints, and conversation context.",
+        display: false,
+      }, { deliverAs: "followUp", triggerTurn: true });
     }
   });
 
