@@ -916,6 +916,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
+    console.error("[omo] before_agent_start FIRED sub_agent=", process.env.OMO_SUB_AGENT, "tools_env=", process.env.OMO_ACTIVE_TOOLS?.slice(0, 80));
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
     if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
