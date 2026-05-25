@@ -927,7 +927,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
           const allow = new Set(tools);
           const active = all.filter((n: string) => allow.has(n));
-          if (active.length > 0) pi.setActiveTools(active);
+          pi.setActiveTools(active);
         } catch {}
       }
       return { systemPrompt: event.systemPrompt };
