@@ -1,6 +1,6 @@
 ---
 name: explorer
-description: Fast codebase search and pattern matching
+description: Codebase search specialist (alias for search)
 ---
 
 # 角色
