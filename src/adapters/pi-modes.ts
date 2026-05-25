@@ -359,15 +359,26 @@ export default function (pi: ExtensionAPI) {
   if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
     const agentName = process.env.OMO_AGENT_NAME;
     const tryFilter = () => {
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      if (all.length === 0) { setImmediate(tryFilter); return; }
-      const agent = getAgent(agentName);
-      if (!agent) { setImmediate(tryFilter); return; }
-      const toolList = resolveAgentTools(agent);
-      if (toolList.length > 0) {
-        const allow = new Set([...toolList]);
-        const active = all.filter((n: string) => allow.has(n));
-        if (active.length > 0) pi.setActiveTools(active);
+      try {
+        const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+        if (all.length === 0) { setImmediate(tryFilter); return; }
+        const agent = getAgent(agentName);
+        if (!agent) {
+          try { fs.appendFileSync("/tmp/omo-dbg.log", `agent=${agentName} NOT_FOUND\n`); } catch {}
+          setImmediate(tryFilter); return;
+        }
+        const toolList = resolveAgentTools(agent);
+        if (toolList.length > 0) {
+          const allow = new Set([...toolList]);
+          const active = all.filter((n: string) => allow.has(n));
+          if (active.length > 0) {
+            pi.setActiveTools(active);
+            fs.appendFileSync("/tmp/omo-dbg.log",
+              `agent=${agentName} all=[${all.join(",")}] roles=${JSON.stringify(agent.roles)} resolved=[${toolList.join(",")}] active=[${active.join(",")}] OK\n`);
+          }
+        }
+      } catch (e) {
+        try { fs.appendFileSync("/tmp/omo-dbg.log", `ERROR: ${(e as Error).message}\n`); } catch {}
       }
     };
     setImmediate(tryFilter);
