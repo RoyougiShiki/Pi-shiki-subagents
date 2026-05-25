@@ -251,7 +251,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
       { id: "clarify", agent: "thinker-clarify", description: "澄清用户需求", outputSchema: "clarify" },
       { id: "analysis", agent: "thinker-analysis", description: "分析影响范围、方案和风险", outputSchema: "analysis" },
       { id: "plan", agent: "designer", description: "生成实施计划与任务文件", outputSchema: "plan" },
-      { id: "implement", agent: "implementer", description: "按计划驱动实现与审查", outputSchema: "implementation" },
+      { id: "implement", agent: "dispatcher", description: "按计划驱动实现与审查", outputSchema: "implementation" },
     ],
   },
   {
@@ -264,11 +264,12 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
   },
   {
     name: "batch-dev",
-    description: "批量开发流程：分析 → 计划 → 批次执行",
+    description: "批量开发流程：澄清需求 → 分析 → 计划 → 实施",
     stages: [
+      { id: "clarify", agent: "thinker-clarify", description: "澄清用户需求", outputSchema: "clarify" },
       { id: "analysis", agent: "thinker-analysis", description: "识别可批量处理的独立任务", outputSchema: "analysis" },
       { id: "plan", agent: "designer", description: "生成批量任务计划", outputSchema: "plan" },
-      { id: "batch", agent: "batch", description: "按依赖分批驱动 fixer/oracle", outputSchema: "implementation" },
+      { id: "implement", agent: "dispatcher", description: "按依赖分批驱动 fixer/oracle", outputSchema: "implementation" },
     ],
   },
   {

@@ -75,30 +75,6 @@
       "管理"
     ]
   },
-  "implementer": {
-    "type": "subagent",
-    "delegates": [
-      "fixer",
-      "oracle"
-    ],
-    "label": "标准实施",
-    "roles": [
-      "流程",
-      "管理"
-    ]
-  },
-  "batch": {
-    "type": "subagent",
-    "delegates": [
-      "fixer",
-      "oracle"
-    ],
-    "label": "批次执行",
-    "roles": [
-      "流程",
-      "管理"
-    ]
-  },
   "explorer": {
     "type": "subagent",
     "delegates": [],
@@ -188,6 +164,18 @@
     "管理": [
       "omo_subagent",
       "omo_council"
+    ]
+  },
+  "dispatcher": {
+    "type": "subagent",
+    "delegates": [
+      "fixer",
+      "oracle"
+    ],
+    "label": "实施调度",
+    "roles": [
+      "流程",
+      "管理"
     ]
   }
 }
