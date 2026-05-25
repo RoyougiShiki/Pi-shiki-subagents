@@ -337,11 +337,6 @@ function registerModeHooks(pi: ExtensionAPI): void {
     _agentDefs = null;
     _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
-    if (process.env.OMO_SUB_AGENT === "1") {
-      try {
-        fs.appendFileSync("/tmp/omo-start.log", `session_start FIRED agent=${subagentName}\n`);
-      } catch {}
-    }
     if (process.env.OMO_SUB_AGENT === "1" && subagentName && applyAgentTools(pi, subagentName, true)) {
       return;
     }
