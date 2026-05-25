@@ -237,10 +237,6 @@ export interface OmniMoConfig {
   agents?: Record<string, { model?: string; variant?: string; thinking?: string }>;
   disabled_agents?: string[];
   council?: PiCouncilConfig;
-  compliance_check?: {
-    enabled?: boolean;
-    modes?: string[];
-  };
   workflows?: WorkflowsConfig;
 }
 
@@ -1071,56 +1067,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   });
 
   // ── Optional behavior/compliance notification on turn end ────────
-  pi.on("turn_end", async (event, ctx) => {
-    try {
-      const config = loadOmniMoConfig();
-      if (!config?.compliance_check?.enabled) return;
-
-      const activeMode = loadActiveMode();
-      const checkModes: string[] = (config.compliance_check?.modes as string[]) ?? ["thinker-clarify", "thinker-analysis"];
-      if (!checkModes.includes(activeMode)) return;
-
-      const modeFilePath = path.join(homedir(), ".pi", "agents", `${activeMode}.md`);
-      let modePrompt = "";
-      try { modePrompt = fs.readFileSync(modeFilePath, "utf-8"); } catch { return; }
-
-      const agentOutput = event.message?.content
-        ?.filter((c: any) => c.type === "text")
-        ?.map((c: any) => c.text)
-        ?.join("\n") ?? "";
-
-      if (!agentOutput.trim()) return;
-
-      const prompt = `Respond with JSON only: { "compliant": boolean, "violations": [{ "type": string, "severity": "blocking" | "major" | "minor", "description": string }] }
-
-You are a compliance checker. Check if the agent's output violates the mode rules.
-
-Mode rules:
-${modePrompt.slice(0, 2000)}
-
-Agent output:
-${agentOutput.slice(0, 3000)}`;
-
-      const tmpFile = path.join(homedir(), ".pi", "agent", ".compliance-tmp.txt");
-      fs.writeFileSync(tmpFile, prompt, "utf-8");
-      const { execFileSync } = await import("node:child_process");
-      const result = execFileSync("pi", ["--print", "--no-tools", `@${tmpFile}`], {
-        encoding: "utf-8",
-        timeout: 15000,
-      });
-
-      let checkResult: any;
-      try { checkResult = JSON.parse(result.trim()); } catch { return; }
-
-      if (!checkResult.compliant && checkResult.violations?.length > 0) {
-        const violationMsg = checkResult.violations
-          .map((v: any) => `- [${v.severity}] ${v.type}: ${v.description}`)
-          .join("\n");
-        _sessionCtx?.ui.notify(`[Behavior Reminder]\n${violationMsg}`, "warning");
-        _sessionCtx?.ui.setStatus("behavior", `Behavior reminder: ${checkResult.violations[0]?.type ?? 'issue'}`);
-      }
-    } catch (e) {
-      console.error("[oh-my-opencode-slim] Compliance check error:", e instanceof Error ? e.message : String(e));
+  // Periodic role review — reminds agent every N turns
+  let _turnCount = 0;
+  const REVIEW_INTERVAL = 5;
+  pi.on("turn_end", async () => {
+    _turnCount++;
+    if (_turnCount % REVIEW_INTERVAL === 0) {
+      _sessionCtx?.ui.notify("[Agent Review] " + REVIEW_INTERVAL + " turns completed. Review your role and constraints.", "info");
     }
   });
 
