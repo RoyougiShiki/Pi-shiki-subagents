@@ -38,15 +38,15 @@ import {
   ForegroundFallbackManager,
 } from '../hooks';
 import { processImageAttachments } from '../hooks/image-hook';
-import { createInterviewManager } from '../interview';
+import { createInterviewManager } from '../opencode/interview';
 import { createBuiltinMcps } from '../mcp';
 
 import {
   createCouncilTool,
   createPresetManager,
   createVisionAnalyzeTool,
-  createWebfetchTool,
 } from '../tools';
+import { createWebfetchTool } from '../opencode/tools';
 import {
   createDisplayNameMentionRewriter,
   resolveRuntimeAgentName,
