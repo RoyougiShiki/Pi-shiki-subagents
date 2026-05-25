@@ -360,13 +360,15 @@ export default function (pi: ExtensionAPI) {
     const agentName = process.env.OMO_AGENT_NAME;
     const tryFilter = () => {
       const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      if (all.length <= 4) { setImmediate(tryFilter); return; } // wait for extensions
+      if (all.length === 0) { setImmediate(tryFilter); return; }
       const agent = getAgent(agentName);
-      if (!agent) return;
+      if (!agent) { setImmediate(tryFilter); return; }
       const toolList = resolveAgentTools(agent);
-      const allow = new Set([...toolList]);
-      const active = all.filter((n: string) => allow.has(n));
-      if (active.length > 0) pi.setActiveTools(active);
+      if (toolList.length > 0) {
+        const allow = new Set([...toolList]);
+        const active = all.filter((n: string) => allow.has(n));
+        if (active.length > 0) pi.setActiveTools(active);
+      }
     };
     setImmediate(tryFilter);
   }
