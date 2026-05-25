@@ -21,7 +21,7 @@
     "type": "subagent",
     "delegates": [
       "explorer",
-      "librarian",
+      "search",
       "observer"
     ],
     "label": "需求澄清",
@@ -35,7 +35,7 @@
     "type": "subagent",
     "delegates": [
       "explorer",
-      "librarian",
+      "search",
       "observer",
       "oracle"
     ],
@@ -50,7 +50,7 @@
     "type": "subagent",
     "delegates": [
       "explorer",
-      "librarian",
+      "search",
       "observer",
       "oracle"
     ],
@@ -80,16 +80,6 @@
     "delegates": [],
     "next": [],
     "label": "搜索",
-    "roles": [
-      "读",
-      "搜索"
-    ]
-  },
-  "librarian": {
-    "type": "subagent",
-    "delegates": [],
-    "next": [],
-    "label": "查阅",
     "roles": [
       "读",
       "搜索"
@@ -176,6 +166,16 @@
     "roles": [
       "流程",
       "管理"
+    ]
+  },
+  "search": {
+    "type": "subagent",
+    "delegates": [],
+    "next": [],
+    "label": "查阅",
+    "roles": [
+      "读",
+      "搜索"
     ]
   }
 }
