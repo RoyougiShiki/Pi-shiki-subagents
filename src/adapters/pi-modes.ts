@@ -359,33 +359,24 @@ export default function (pi: ExtensionAPI) {
   try { fs.appendFileSync("/tmp/omo-ext.log",
     `OMO_SUB_AGENT=[${process.env.OMO_SUB_AGENT}] OMO_AGENT_NAME=[${process.env.OMO_AGENT_NAME}]\n`); } catch {}
   // Sub-agent tool filtering
-  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
+    if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
     const agentName = process.env.OMO_AGENT_NAME;
-    const tryFilter = () => {
-      try {
-        const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-        if (all.length === 0) { setImmediate(tryFilter); return; }
+    try {
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      if (all.length > 0) {
         const agent = getAgent(agentName);
-        if (!agent) {
-          try { fs.appendFileSync("/tmp/omo-dbg.log", `agent=${agentName} NOT_FOUND\n`); } catch {}
-          setImmediate(tryFilter); return;
-        }
-        const toolList = resolveAgentTools(agent);
-        if (toolList.length > 0) {
-          const allow = new Set([...toolList]);
-          const active = all.filter((n: string) => allow.has(n));
-          if (active.length > 0) {
-            pi.setActiveTools(active);
-            fs.appendFileSync("/tmp/omo-dbg.log",
-              `agent=${agentName} all=[${all.join(",")}] roles=${JSON.stringify(agent.roles)} resolved=[${toolList.join(",")}] active=[${active.join(",")}] OK\n`);
+        if (agent) {
+          const toolList = resolveAgentTools(agent);
+          if (toolList.length > 0) {
+            const allow = new Set([...toolList]);
+            const active = all.filter((n: string) => allow.has(n));
+            if (active.length > 0) pi.setActiveTools(active);
           }
         }
-      } catch (e) {
-        try { fs.appendFileSync("/tmp/omo-dbg.log", `ERROR: ${(e as Error).message}\n`); } catch {}
       }
-    };
-    setImmediate(tryFilter);
+    } catch {}
   }
+
 
   registerModeCommands(pi);
   registerModeHooks(pi);
