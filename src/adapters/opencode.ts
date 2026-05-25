@@ -1,7 +1,7 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { createAgents, getAgentConfigs, getDisabledAgents } from '../agents';
 import { buildOrchestratorPrompt } from '../agents/orchestrator';
-import { ORCHESTRATOR_INTENT_GATE_REMINDER } from '../core/workflow-templates';
+import { ORCHESTRATOR_INTENT_GATE_REMINDER } from '../opencode/workflow-templates';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';

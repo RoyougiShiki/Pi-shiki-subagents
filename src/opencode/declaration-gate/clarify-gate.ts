@@ -3,11 +3,11 @@ import {
   findLastUser,
   getTextFromMessage,
   type MessageWithParts,
-} from '../shared-message-types';
+} from '../../hooks/shared-message-types';
 import {
   CLARIFY_GATE_BLOCK_MESSAGE,
   CLARIFY_GATE_INSTRUCTION,
-} from '../../core/workflow-templates';
+} from '../../opencode/workflow-templates';
 
 const MAX_ROUNDS = 3;
 

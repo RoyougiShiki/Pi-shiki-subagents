@@ -2,7 +2,7 @@ import { createGate } from './gate-factory';
 import {
   ORCHESTRATION_GATE_BLOCK_MESSAGE,
   ORCHESTRATION_GATE_INSTRUCTION,
-} from '../../core/workflow-templates';
+} from '../../opencode/workflow-templates';
 
 export function createOrchestrationGateHook(options?: {
   isRalphLoopActive?: () => boolean;

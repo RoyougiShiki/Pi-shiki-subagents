@@ -2,7 +2,7 @@ import { createGate } from './gate-factory';
 import {
   APPROVAL_GATE_BLOCK_MESSAGE,
   APPROVAL_GATE_INSTRUCTION,
-} from '../../core/workflow-templates';
+} from '../../opencode/workflow-templates';
 
 export function createApprovalGateHook(options?: {
   isRalphLoopActive?: () => boolean;

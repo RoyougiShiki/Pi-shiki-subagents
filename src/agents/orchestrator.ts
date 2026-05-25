@@ -10,7 +10,7 @@ import {
   ORCHESTRATOR_AGENT_DESCRIPTIONS,
   ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES,
   ORCHESTRATOR_VALIDATION_ROUTING,
-} from '../core/workflow-templates';
+} from '../opencode/workflow-templates';
 
 export interface AgentDefinition {
   name: string;

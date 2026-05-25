@@ -10,8 +10,8 @@ export {
   createClarifyGateHook,
   createIntentGateHook,
   createOrchestrationGateHook,
-} from './declaration-gate';
-export { createDelegateTaskRetryHook } from './delegate-task-retry';
+} from '../opencode/declaration-gate';
+export { createDelegateTaskRetryHook } from '../opencode/delegate-task-retry';
 export { createFilterAvailableSkillsHook } from './filter-available-skills';
 export {
   ForegroundFallbackManager,

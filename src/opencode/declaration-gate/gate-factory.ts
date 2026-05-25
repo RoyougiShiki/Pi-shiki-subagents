@@ -1,5 +1,5 @@
 
-import { findLastUser, getTextFromMessage, type MessageWithParts } from '../shared-message-types';
+import { findLastUser, getTextFromMessage, type MessageWithParts } from '../../hooks/shared-message-types';
 
 export interface GateConfig {
   name: string;

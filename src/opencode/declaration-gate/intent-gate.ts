@@ -2,7 +2,7 @@ import { createGate } from './gate-factory';
 import {
   INTENT_GATE_BLOCK_MESSAGE,
   INTENT_GATE_INSTRUCTION,
-} from '../../core/workflow-templates';
+} from '../../opencode/workflow-templates';
 
 export function createIntentGateHook(options?: {
   isRalphLoopActive?: () => boolean;
