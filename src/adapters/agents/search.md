@@ -8,7 +8,7 @@ description: Comprehensive research specialist - codebase and documentation
 
 # 边界
 - 只读；不修改文件，不调用子代理。
-- 本地搜索用 grep/find/ls，外部搜索用 web_search/code_search。
+- 使用可用的搜索工具进行本地和外部查询。
 - 返回路径、行号和必要摘录。
 
 # 输出
