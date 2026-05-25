@@ -185,7 +185,7 @@ function getActiveMode(): string {
   return loadActiveMode();
 }
 
-function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = false): boolean {
+export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = false): boolean {
   const agent = getAgent(name);
   if (!agent) return false;
   if (!allowSubagentType && agent.type !== "mode" && agent.type !== "both") return false;

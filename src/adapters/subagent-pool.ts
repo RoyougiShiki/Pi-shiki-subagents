@@ -21,8 +21,39 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { discoverAgents, type AgentConfig } from "./agent-discovery";
 import { getRuntimeBlockedAgents } from "./agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "./delegation-rules";
+
+const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+const DEFAULTS_PATH = path.join(__dirname, "agents-default.json");
+
 // Note: typebox is resolved by pi.ts from its own path, not from here.
 // We define inline JSON Schema instead.
+
+function loadToolGroups(): Record<string, string[]> {
+  for (const p of [CONFIG_PATH, DEFAULTS_PATH]) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(p, "utf-8"));
+      if (raw._tool_groups) return raw._tool_groups;
+    } catch {}
+  }
+  return {};
+}
+
+function resolveAgentTools(agentName: string): string[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    const agent = raw.agents?.[agentName];
+    if (agent?.roles?.length) {
+      const groups = loadToolGroups();
+      const tools = new Set<string>();
+      for (const role of agent.roles) {
+        const group = groups[role];
+        if (group) group.forEach(t => tools.add(t));
+      }
+      return [...tools];
+    }
+  } catch {}
+  return [];
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -59,10 +90,12 @@ export function buildSubagentEnv(opts: {
   allowedSubagents?: readonly string[];
   stageResultPath?: string;
 }): NodeJS.ProcessEnv {
+  const activeTools = resolveAgentTools(opts.agentName);
   return {
     ...(opts.baseEnv ?? process.env),
     OMO_SUB_AGENT: "1",
     OMO_AGENT_NAME: opts.agentName,
+    OMO_ACTIVE_TOOLS: activeTools.length > 0 ? activeTools.join(",") : "",
     OMO_SUBAGENT_DEPTH: String(opts.depth ?? 1),
     ...(opts.parentAgent ? { OMO_PARENT_AGENT_NAME: opts.parentAgent } : {}),
     ...(opts.allowedSubagents ? { OMO_ALLOWED_SUBAGENTS: opts.allowedSubagents.join(",") } : {}),

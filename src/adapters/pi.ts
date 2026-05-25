@@ -843,6 +843,18 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
+  // Sub-agent tool filtering via parent-passed env var
+  const activeToolsEnv = process.env.OMO_ACTIVE_TOOLS;
+  if (process.env.OMO_SUB_AGENT === "1" && activeToolsEnv) {
+    try {
+      const tools = activeToolsEnv.split(",").filter(Boolean);
+      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      const allow = new Set(tools);
+      const active = all.filter((n: string) => allow.has(n));
+      pi.setActiveTools(active);
+    } catch {}
+  }
+
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
