@@ -743,6 +743,13 @@
                 "type": "string"
               }
             },
+            "search": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "fixer": {
               "minItems": 1,
               "type": "array",

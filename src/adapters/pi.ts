@@ -843,18 +843,6 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
-  // Sub-agent tool filtering via parent-passed env var
-  const activeToolsEnv = process.env.OMO_ACTIVE_TOOLS;
-  if (process.env.OMO_SUB_AGENT === "1" && activeToolsEnv) {
-    try {
-      const tools = activeToolsEnv.split(",").filter(Boolean);
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      const allow = new Set(tools);
-      const active = all.filter((n: string) => allow.has(n));
-      pi.setActiveTools(active);
-    } catch {}
-  }
-
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
@@ -931,6 +919,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
     if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
+      // Apply tool filtering from parent-passed env var
+      const activeToolsEnv = process.env.OMO_ACTIVE_TOOLS;
+      if (activeToolsEnv) {
+        try {
+          const tools = activeToolsEnv.split(",").filter(Boolean);
+          const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+          const allow = new Set(tools);
+          const active = all.filter((n: string) => allow.has(n));
+          if (active.length > 0) pi.setActiveTools(active);
+        } catch {}
+      }
       return { systemPrompt: event.systemPrompt };
     }
     
