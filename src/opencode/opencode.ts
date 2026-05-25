@@ -37,7 +37,7 @@ import {
   createTodoContinuationHook,
   ForegroundFallbackManager,
 } from '../hooks';
-import { processImageAttachments } from '../hooks/image-hook';
+import { processImageAttachments } from '../opencode/image-hook';
 import { createInterviewManager } from './interview';
 import { createBuiltinMcps } from '../opencode/mcp';
 

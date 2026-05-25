@@ -3,7 +3,7 @@ import {
   findLastUser,
   getTextFromMessage,
   type MessageWithParts,
-} from '../../hooks/shared-message-types';
+} from '../../opencode/shared-message-types';
 import {
   CLARIFY_GATE_BLOCK_MESSAGE,
   CLARIFY_GATE_INSTRUCTION,
