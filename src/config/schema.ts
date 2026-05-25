@@ -7,6 +7,7 @@ const FALLBACK_AGENT_NAMES = [
   'orchestrator',
   'oracle',
   'designer',
+  'search',
   'explorer',
   'librarian',
   'fixer',
@@ -16,6 +17,7 @@ const MANUAL_AGENT_NAMES = [
   'orchestrator',
   'oracle',
   'designer',
+  'search',
   'explorer',
   'librarian',
   'fixer',
@@ -74,6 +76,7 @@ const FallbackChainsSchema = z
     designer: AgentModelChainSchema.optional(),
     explorer: AgentModelChainSchema.optional(),
     librarian: AgentModelChainSchema.optional(),
+    search: AgentModelChainSchema.optional(),
     fixer: AgentModelChainSchema.optional(),
   })
   .catchall(AgentModelChainSchema);

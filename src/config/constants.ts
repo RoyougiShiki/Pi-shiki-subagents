@@ -5,6 +5,7 @@ export const AGENT_ALIASES: Record<string, string> = {
 };
 
 export const SUBAGENT_NAMES = [
+  'search',
   'explorer',
   'librarian',
   'oracle',
@@ -58,6 +59,7 @@ export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
   fixer: [],
   designer: [],
   explorer: [],
+  search: [],
   librarian: [],
   oracle: [],
   observer: [],
@@ -72,6 +74,7 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
   oracle: 'openai/gpt-5.5',
   librarian: 'openai/gpt-5.4-mini',
   explorer: 'openai/gpt-5.4-mini',
+  search: 'openai/gpt-5.4-mini',
   designer: 'openai/gpt-5.4-mini',
   fixer: 'openai/gpt-5.4-mini',
   observer: 'openai/gpt-5.4-mini',

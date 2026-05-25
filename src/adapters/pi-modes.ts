@@ -25,7 +25,8 @@ import { loadRuntimeAgentDefinitions } from "./agent-runtime-config";
 interface AgentDefinition {
   type: "mode" | "subagent" | "both";
   label: string;
-  tools: string[];
+  tools?: string[];
+  roles?: string[];
   next?: string[];
   instructions?: string;
   hidden?: boolean;
@@ -170,7 +171,8 @@ function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = fal
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
     // Empty tools = allow all (used by fallback agent)
-    const tools = agent.tools && agent.tools.length > 0 ? agent.tools : all;
+    const toolList = resolveAgentTools(agent);
+    const tools = toolList.length > 0 ? toolList : all;
     const allow = new Set([...tools, "switch_mode"]);
     allow.delete("subagent");
     const active = all.filter((n: string) => allow.has(n));
@@ -199,6 +201,29 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
 
 export function getModeInstructions(name: string): string | undefined {
   return getAgent(name)?.instructions;
+}
+
+function loadToolGroups(): Record<string, string[]> {
+  try {
+    const configPath = getConfigPath();
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    return raw._tool_groups || {};
+  } catch {
+    return {};
+  }
+}
+
+function resolveAgentTools(agent: AgentDefinition): string[] {
+  if (agent.roles && agent.roles.length > 0) {
+    const groups = loadToolGroups();
+    const tools = new Set<string>();
+    for (const role of agent.roles) {
+      const group = groups[role];
+      if (group) group.forEach(t => tools.add(t));
+    }
+    return [...tools];
+  }
+  return agent.tools || [];
 }
 
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────

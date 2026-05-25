@@ -23,7 +23,6 @@ problem.
 - Read files (read)
 - Search by name patterns (glob)
 - Search by content (grep)
-- Search code patterns (ast_grep_search)
 - Use OpenCode's built-in \`lsp\` tool when available
 - Search external docs (if MCPs are configured for this agent)
 

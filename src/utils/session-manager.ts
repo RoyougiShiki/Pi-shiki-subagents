@@ -31,6 +31,8 @@ function aliasPrefix(agentType: AgentName): string {
   switch (agentType) {
     case 'explorer':
       return 'exp';
+    case 'search':
+      return 'sea';
     case 'librarian':
       return 'lib';
     case 'oracle':

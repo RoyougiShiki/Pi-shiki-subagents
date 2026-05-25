@@ -44,8 +44,6 @@ import { createInterviewManager } from '../interview';
 import { createBuiltinMcps } from '../mcp';
 
 import {
-  ast_grep_replace,
-  ast_grep_search,
   createCouncilTool,
   createPresetManager,
   createVisionAnalyzeTool,
@@ -403,8 +401,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       webfetch,
       ...todoContinuationHook.tool,
       ...backgroundTaskHook.tools,
-      ast_grep_search,
-      ast_grep_replace,
     },
 
     mcp: mcps,

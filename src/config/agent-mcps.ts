@@ -13,6 +13,7 @@ export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
   oracle: [],
   librarian: ['context7', 'grep_app'],
   explorer: [],
+  search: [],
   fixer: [],
   observer: [],
   council: [],

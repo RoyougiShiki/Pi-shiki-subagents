@@ -20,6 +20,7 @@ import { createDesignerAgent } from './designer';
 import { createExplorerAgent } from './explorer';
 import { createFixerAgent } from './fixer';
 import { createLibrarianAgent } from './librarian';
+import { createSearchAgent } from './search';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
 import type { OrchestratorPack } from '../core/workflow-pack';
@@ -201,6 +202,7 @@ export function isSubagent(name: string): name is SubagentName {
 const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
   explorer: createExplorerAgent,
   librarian: createLibrarianAgent,
+  search: createSearchAgent,
   oracle: createOracleAgent,
   designer: createDesignerAgent,
   fixer: createFixerAgent,

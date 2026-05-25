@@ -7,7 +7,7 @@
  *   - Agent markdown files are generated in ~/.pi/agents/ on first load
  *   - Constitution/orchestrator prompt is injected via before_agent_start
  *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
- *   - OMO's custom tools (delegate, council, ast-grep) are registered
+ *   - OMO's custom tools (delegate, council) are registered
  *     as pi tools (webfetch omitted — pi-web-access provides better ones)
  *   - /preset command switches model presets at runtime
  *
@@ -833,103 +833,9 @@ function createToolImplementations(config: OmniMoConfig | null) {
       },
     },
 
-    astGrepSearch: {
-      name: "omo_ast_grep_search",
-      label: "OMO AST Grep Search",
-      description: "AST-aware code search. Use for structural patterns like function shapes, class structures.",
-      promptSnippet: "Search code with AST pattern matching",
-      parameters: Type.Object({
-        pattern: Type.String({ description: "AST grep pattern (e.g., 'function $NAME($$$)')" }),
-        paths: Type.Optional(
-          Type.Array(Type.String(), { description: "Paths to search (default: current dir)" }),
-        ),
-      }),
-      async execute(
-        _toolCallId: string,
-        params: { pattern: string; paths?: string[] },
-        _signal: AbortSignal | undefined,
-        _onUpdate: any,
-        ctx: ExtensionContext,
-      ) {
-        const searchPaths = params.paths?.join(" ") ?? ".";
-        try {
-          const { execSync } = await import("node:child_process");
-          const result = execSync(
-            `sg --json '${params.pattern}' ${searchPaths}`,
-            { cwd: ctx.cwd, encoding: "utf-8", maxBuffer: 1024 * 1024, timeout: 30000 },
-          );
-          return {
-            content: [{ type: "text" as const, text: result || "(no matches)" }],
-            details: {},
-          };
-        } catch (err: any) {
-          if (err.status === 1 && !err.stdout) {
-            return {
-              content: [{ type: "text" as const, text: "(no matches)" }],
-              details: {},
-            };
-          }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `ast-grep failed: ${err.message ?? String(err)}. Use grep for simple patterns.`,
-              },
-            ],
-            details: {},
-            isError: true,
-          };
-        }
-      },
-    },
-
-    astGrepReplace: {
-      name: "omo_ast_grep_replace",
-      label: "OMO AST Grep Replace",
-      description: "AST-aware code replacement. Use for structural code transformations.",
-      promptSnippet: "Replace code patterns with AST-aware rewriting",
-      parameters: Type.Object({
-        pattern: Type.String({ description: "AST grep pattern to match" }),
-        rewrite: Type.String({ description: "Replacement pattern (use $MATCH, $NAME, etc.)" }),
-        paths: Type.Optional(
-          Type.Array(Type.String(), { description: "Paths to modify (default: current dir)" }),
-        ),
-      }),
-      async execute(
-        _toolCallId: string,
-        params: { pattern: string; rewrite: string; paths?: string[] },
-        _signal: AbortSignal | undefined,
-        _onUpdate: any,
-        ctx: ExtensionContext,
-      ) {
-        const searchPaths = params.paths?.join(" ") ?? ".";
-        try {
-          const { execSync } = await import("node:child_process");
-          const result = execSync(
-            `sg --json '${params.pattern}' --rewrite '${params.rewrite}' ${searchPaths}`,
-            { cwd: ctx.cwd, encoding: "utf-8", maxBuffer: 1024 * 1024, timeout: 30000 },
-          );
-          return {
-            content: [{ type: "text" as const, text: result || "(no changes)" }],
-            details: {},
-          };
-        } catch (err: any) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `ast-grep replace failed: ${err.message ?? String(err)}`,
-              },
-            ],
-            details: {},
-            isError: true,
-          };
-        }
-      },
-    },
-
 
   };
+
 }
 
 
@@ -1052,8 +958,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Register custom tools ───────────────────────────────────────────
   const tools = createToolImplementations(config);
   pi.registerTool(tools.council);
-  pi.registerTool(tools.astGrepSearch);
-  pi.registerTool(tools.astGrepReplace);
 
   // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
   registerSubagentTool(pi);

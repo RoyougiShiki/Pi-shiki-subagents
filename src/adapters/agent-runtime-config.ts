@@ -7,6 +7,7 @@ export interface RuntimeAgentDefinition {
   type?: "mode" | "subagent" | "both";
   label?: string;
   tools?: string[];
+  roles?: string[];
   delegates?: string[];
   blocked?: string[];
   hidden?: boolean;

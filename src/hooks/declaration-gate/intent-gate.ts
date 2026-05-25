@@ -16,7 +16,7 @@ export function createIntentGateHook(options?: {
     gatedTools: [
       'edit', 'Write', 'write', 'apply_patch',
       'task', 'bash', 'question',
-      'webfetch', 'todowrite', 'ast_grep_search', 'ast_grep_replace',
+      'webfetch', 'todowrite',
       'vision_analyze',
     ],
     blockMessage: options?.blockMessage ?? INTENT_GATE_BLOCK_MESSAGE,
