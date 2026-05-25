@@ -172,7 +172,7 @@ function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = fal
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
     // Empty tools = allow all (used by fallback agent)
     const toolList = resolveAgentTools(agent);
-    const tools = toolList.length > 0 ? toolList : all;
+    const tools = toolList.length > 0 ? toolList : (agent.tools && agent.tools.length > 0 ? agent.tools : all);
     const allow = new Set([...tools, "switch_mode"]);
     allow.delete("subagent");
     const active = all.filter((n: string) => allow.has(n));
@@ -216,6 +216,10 @@ function loadToolGroups(): Record<string, string[]> {
 function resolveAgentTools(agent: AgentDefinition): string[] {
   if (agent.roles && agent.roles.length > 0) {
     const groups = loadToolGroups();
+    if (Object.keys(groups).length === 0) {
+      // _tool_groups not found — return empty to force fallback to agent.tools
+      return [];
+    }
     const tools = new Set<string>();
     for (const role of agent.roles) {
       const group = groups[role];
