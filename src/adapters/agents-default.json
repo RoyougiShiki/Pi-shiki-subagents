@@ -19,188 +19,175 @@
   },
   "thinker-clarify": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "read",
-      "grep",
-      "find",
-      "ls",
-      "omo_subagent"
-    ],
     "delegates": [
       "explorer",
       "librarian",
       "observer"
     ],
-    "label": "需求澄清"
+    "label": "需求澄清",
+    "roles": [
+      "流程",
+      "管理",
+      "检索"
+    ]
   },
   "thinker-analysis": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "read",
-      "grep",
-      "find",
-      "ls",
-      "context_mode_ctx_search",
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "omo_subagent",
-      "omo_council"
-    ],
     "delegates": [
       "explorer",
       "librarian",
       "observer",
       "oracle"
     ],
-    "label": "需求分析"
+    "label": "需求分析",
+    "roles": [
+      "流程",
+      "管理",
+      "检索"
+    ]
   },
   "designer": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "read",
-      "write",
-      "edit",
-      "grep",
-      "find",
-      "ls",
-      "omo_subagent",
-      "omo_council"
-    ],
     "delegates": [
       "explorer",
       "librarian",
       "observer",
       "oracle"
     ],
-    "label": "技术设计"
+    "label": "技术设计",
+    "roles": [
+      "流程",
+      "管理",
+      "读",
+      "写",
+      "检索"
+    ]
   },
   "worker": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "todo",
-      "omo_subagent",
-      "read",
-      "grep",
-      "find",
-      "ls"
-    ],
     "delegates": [
       "fixer",
       "oracle"
     ],
-    "label": "快速实施"
+    "label": "快速实施",
+    "roles": [
+      "流程",
+      "管理"
+    ]
   },
   "implementer": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "read",
-      "todo",
-      "omo_subagent"
-    ],
     "delegates": [
       "fixer",
       "oracle"
     ],
-    "label": "标准实施"
+    "label": "标准实施",
+    "roles": [
+      "流程",
+      "管理"
+    ]
   },
   "batch": {
     "type": "subagent",
-    "tools": [
-      "stage_complete",
-      "stage_ask_user",
-      "read",
-      "omo_subagent"
-    ],
     "delegates": [
       "fixer",
       "oracle"
     ],
-    "label": "批次执行"
+    "label": "批次执行",
+    "roles": [
+      "流程",
+      "管理"
+    ]
   },
   "explorer": {
     "type": "subagent",
-    "tools": [
-      "read",
-      "grep",
-      "find",
-      "ls",
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet"
-    ],
     "delegates": [],
     "next": [],
-    "label": "搜索"
+    "label": "搜索",
+    "roles": [
+      "流程",
+      "搜索"
+    ]
   },
   "librarian": {
     "type": "subagent",
-    "tools": [
-      "web_search",
-      "code_search",
-      "fetch_content",
-      "get_search_content"
-    ],
     "delegates": [],
     "next": [],
-    "label": "查阅"
+    "label": "查阅",
+    "roles": [
+      "流程",
+      "搜索"
+    ]
   },
   "oracle": {
     "type": "subagent",
-    "tools": [
-      "read",
-      "grep",
-      "find",
-      "ls",
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet"
-    ],
     "delegates": [],
     "next": [],
-    "label": "评审"
+    "label": "评审",
+    "roles": [
+      "读",
+      "搜索",
+      "检索"
+    ]
   },
   "fixer": {
     "type": "subagent",
-    "tools": [
-      "read",
-      "write",
-      "edit",
-      "bash",
-      "grep",
-      "find",
-      "ls"
-    ],
     "delegates": [],
     "next": [],
-    "label": "实现"
+    "label": "实现",
+    "roles": [
+      "读",
+      "写",
+      "检索"
+    ]
   },
   "observer": {
     "type": "subagent",
-    "tools": [
-      "read"
-    ],
     "delegates": [],
     "next": [],
-    "label": "看图"
+    "label": "看图",
+    "roles": [
+      "读"
+    ]
   },
   "fallback": {
     "type": "mode",
     "tools": [],
     "delegates": [],
     "label": "兜底模式"
+  },
+  "_tool_groups": {
+    "读": [
+      "read"
+    ],
+    "检索": [
+      "codebase_memory_search_graph",
+      "codebase_memory_search_code",
+      "codebase_memory_trace_path",
+      "codebase_memory_get_code_snippet",
+      "context_mode_ctx_search"
+    ],
+    "搜索": [
+      "grep",
+      "find",
+      "ls",
+      "web_search",
+      "code_search",
+      "fetch_content",
+      "get_search_content"
+    ],
+    "写": [
+      "write",
+      "edit",
+      "bash"
+    ],
+    "流程": [
+      "stage_complete",
+      "stage_ask_user"
+    ],
+    "管理": [
+      "omo_subagent",
+      "omo_council"
+    ]
   }
 }
