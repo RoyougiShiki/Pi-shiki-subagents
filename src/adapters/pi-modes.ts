@@ -355,6 +355,7 @@ function registerModeHooks(pi: ExtensionAPI): void {
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  try { fs.appendFileSync("/tmp/omo-ext.log", "pi-modes.ts LOADED\n"); } catch {}
   // Sub-agent tool filtering
   if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
     const agentName = process.env.OMO_AGENT_NAME;
