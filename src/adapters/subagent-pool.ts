@@ -100,7 +100,7 @@ export function buildSubagentEnv(opts: {
     ...(opts.baseEnv ?? process.env),
     OMO_SUB_AGENT: "1",
     OMO_AGENT_NAME: opts.agentName,
-    OMO_ACTIVE_TOOLS: "grep,find,ls,stage_complete,stage_ask_user",
+    OMO_ACTIVE_TOOLS: "read,stage_complete,stage_ask_user",
     OMO_SUBAGENT_DEPTH: String(opts.depth ?? 1),
     ...(opts.parentAgent ? { OMO_PARENT_AGENT_NAME: opts.parentAgent } : {}),
     ...(opts.allowedSubagents ? { OMO_ALLOWED_SUBAGENTS: opts.allowedSubagents.join(",") } : {}),
@@ -145,6 +145,10 @@ export async function runIsolatedTask(
 
   const args = ["--mode", "json", "-p", "--no-session", "-ne"];
   if (opts.model) args.push("--model", opts.model);
+  if (opts.agent.name) {
+    const agentTools = resolveAgentTools(opts.agent.name);
+    if (agentTools.length > 0) args.push("--tools", agentTools.join(","));
+  }
 
   const proc = spawn("pi", [...args, tmp.path], {
     cwd: opts.cwd,
