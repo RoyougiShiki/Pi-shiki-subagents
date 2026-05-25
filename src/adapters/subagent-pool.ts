@@ -513,24 +513,11 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
     name: "omo_subagent",
     label: "OMO Subagent",
     description: [
-      "╔══════════════════════════════════════════════════╗",
-      "║  选择指南（选错会阻塞主 agent 或无法继续对话）      ║",
-      "║  • 只需要一次结果，不需要后续对话 → Single         ║",
-      "║  • 需要持续对话 / 用户可能要用 /chat 聊天 → Pool  ║",
-      "╚══════════════════════════════════════════════════╝",
-      "",
-      "Single: { agent, task }",
-      "  → 一次性查询，阻塞主 agent，不可继续对话",
-      "",
-      "Pool spawn: { pool: \"spawn\", id, agent, task }",
-      "  → 后台创建长驻子代理（非阻塞）",
-      "  → 之后可用 pool:send 继续，也可用 /chat 命令进入聊天面板",
-      "",
-      "Pool send: { pool: \"send\", id, message }",
-      "  → 继续与已有长驻子代理对话，非阻塞",
-      "",
-      "Pool list: { pool: \"list\" } → 查看活跃子代理",
-      "Pool kill: { pool: \"kill\", id } → 杀掉子代理",
+      "通过 pool 模式启动子代理。用法：",
+      "  pool spawn: { pool: \"spawn\", id, agent, task }",
+      "  pool send: { pool: \"send\", id, message }",
+      "  pool list: { pool: \"list\" }",
+      "  pool kill: { pool: \"kill\", id }",
     ].join("\n"),
     parameters: {
       type: "object",
@@ -663,25 +650,9 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         if (!agentCfg) {
           return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
         }
-        const result = await runIsolatedTask({
-          agent: agentCfg,
-          task: params.task,
-          model: params.model || agentCfg.model || defaultModel,
-          cwd,
-          parentAgent: callerAgent,
-          depth: callerDepth + 1,
-          allowedSubagents,
-        });
         return {
-          content: [{ type: "text", text: result.response }],
-          details: {
-            agent: params.agent,
-            exitCode: result.exitCode,
-            durationMs: result.durationMs,
-            usage: result.usage,
-            model: result.model,
-          },
-          isError: result.exitCode !== 0,
+          content: [{ type: "text", text: `Single mode is disabled. Use pool spawn: { pool: "spawn", id: "...", agent: "${params.agent}", task: "..." }` }],
+          details: {}, isError: true,
         };
       }
 
