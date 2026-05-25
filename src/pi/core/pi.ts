@@ -1076,7 +1076,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       pi.sendMessage({
         customType: "role_review",
         content: "[Agent Review] " + REVIEW_INTERVAL + " turns completed. Review your role, constraints, and conversation context.",
-        display: false,
+        display: true,
       }, { deliverAs: "followUp", triggerTurn: true });
     }
   });
