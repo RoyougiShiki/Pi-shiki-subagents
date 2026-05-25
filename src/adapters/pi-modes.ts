@@ -180,9 +180,13 @@ function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentType = fal
     if (missing.length > 0) {
       console.error(`[omo-modes] applyMode("${name}") tools=${tools.length}, all=${all.length}, active=${active.length}, missing=${missing.length}: ${missing.slice(0,10).join(",")}...`);
     }
+    console.error(`[omo-modes] applyAgentTools("${name}") roles=${JSON.stringify(agent.roles)} tools=[${tools.join(",")}] active=[${active.join(",")}]`);
     pi.setActiveTools(active);
     saveAgent(name);
-  } catch {}
+  } catch (e) {
+    console.error(`[omo-modes] applyAgentTools("${name}") error:`, e);
+    return false;
+  }
   return true;
 }
 
