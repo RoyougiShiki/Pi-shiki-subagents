@@ -44,11 +44,7 @@ import { formatPiMeetingResult, runPiMeeting, type PiMeetingParticipantResult } 
 export { AGENT_PROMPTS } from "./pi-agents";
 export { formatPiCouncilResults, resolvePiCouncilParticipants } from "./pi-council";
 
-import {
-  compareToBaseline,
-  createBaseline,
-} from "../core/tool-detector";
-import type { ToolInfo, ToolChange } from "../core/tool-detector";
+
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "./pi-meeting";
 import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "./subagent-pool";
 import { getHub } from "./pi-hub";

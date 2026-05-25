@@ -23,7 +23,7 @@ import { createLibrarianAgent } from './librarian';
 import { createSearchAgent } from './search';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
-import type { OrchestratorPack } from '../core/workflow-pack';
+import type { OrchestratorPack } from './orchestrator';
 import {
   type AgentDefinition,
   createOrchestratorAgent,

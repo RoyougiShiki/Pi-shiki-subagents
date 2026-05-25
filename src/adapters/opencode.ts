@@ -2,8 +2,6 @@ import type { Plugin } from '@opencode-ai/plugin';
 import { createAgents, getAgentConfigs, getDisabledAgents } from '../agents';
 import { buildOrchestratorPrompt } from '../agents/orchestrator';
 import { ORCHESTRATOR_INTENT_GATE_REMINDER } from '../core/workflow-templates';
-import { buildMergedPack } from '../core/workflow-pack';
-import type { WorkflowPack } from '../core/workflow-pack';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -133,7 +131,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
   let sessionAgentMap: Map<string, string>;
   let chatHeadersHook: ReturnType<typeof createChatHeadersHook>;
   let delegateTaskRetryHook: ReturnType<typeof createDelegateTaskRetryHook>;
-  let workflowPack: WorkflowPack;
   let applyPatchHook: ReturnType<typeof createApplyPatchHook>;
   let jsonErrorRecoveryHook: ReturnType<typeof createJsonErrorRecoveryHook>;
   let foregroundFallback: ForegroundFallbackManager;
@@ -158,7 +155,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     config = loadPluginConfig(ctx.directory);
 
     // Load optional workflow pack(s) from config
-    workflowPack = buildMergedPack(config.workflowPacks);
 
     // Safety net: if a runtime preset was set via /preset command and
     // OpenCode ever fully re-runs the plugin function (not just the
@@ -180,7 +176,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
 
     disabledAgents = getDisabledAgents(config);
     rewriteDisplayNameMentions = createDisplayNameMentionRewriter(config);
-    agentDefs = createAgents(config, workflowPack.orchestrator);
+    agentDefs = createAgents(config, undefined);
     agents = getAgentConfigs(config);
 
     // Build a map of agent name → priority model array for runtime
@@ -256,29 +252,29 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
     // Approval gate: LLM must declare APPROVED: before edit/write tools
     approvalGateHook = createApprovalGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
-      instruction: workflowPack.gates?.approval?.instruction,
-      blockMessage: workflowPack.gates?.approval?.blockMessage,
+      instruction: undefined,
+      blockMessage: undefined,
     });
 
     // Clarify gate: LLM must declare READY: confirmed / READY: need to check
     clarifyGateHook = createClarifyGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
-      instruction: workflowPack.gates?.clarify?.instruction,
-      blockMessage: workflowPack.gates?.clarify?.blockMessage,
+      instruction: undefined,
+      blockMessage: undefined,
     });
 
     // Intent gate: LLM must declare Intent: before any tool
     intentGateHook = createIntentGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
-      instruction: workflowPack.gates?.intent?.instruction,
-      blockMessage: workflowPack.gates?.intent?.blockMessage,
+      instruction: undefined,
+      blockMessage: undefined,
     });
 
     // Orchestration gate: LLM must declare ORCHESTRATION: before task tool
     orchestrationGateHook = createOrchestrationGateHook({
       isRalphLoopActive: () => ralphLoopHook?.getState()?.active ?? false,
-      instruction: workflowPack.gates?.orchestration?.instruction,
-      blockMessage: workflowPack.gates?.orchestration?.blockMessage,
+      instruction: undefined,
+      blockMessage: undefined,
     });
 
     // Initialize available skills filter hook
@@ -414,26 +410,6 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
       ) {
         (opencodeConfig as { default_agent?: string }).default_agent =
           'orchestrator';
-      }
-
-      // Register pack skill directories so OpenCode discovers them
-      // via the native skill tool — same mechanism as original superpowers.
-      if (config.workflowPacks?.length) {
-        const distDir = dirname(fileURLToPath(import.meta.url));
-        for (const packId of config.workflowPacks) {
-          const skillsDir = join(distDir, '..', 'src', 'packs', packId, 'skills');
-          if (existsSync(skillsDir)) {
-            const cfg = opencodeConfig as Record<string, unknown>;
-            cfg.skills = cfg.skills ?? {};
-            (cfg.skills as Record<string, unknown>).paths = (
-              (cfg.skills as Record<string, unknown>).paths ?? []
-            ) as string[];
-            const paths = (cfg.skills as Record<string, unknown>).paths as string[];
-            if (!paths.includes(skillsDir)) {
-              paths.push(skillsDir);
-            }
-          }
-        }
       }
 
       // Merge Agent configs — per-agent shallow merge to preserve
@@ -995,7 +971,7 @@ const OhMyOpenCodeLite: Plugin = async (ctx) => {
           const orchestratorPrompt =
             typeof orchestratorDef?.config?.prompt === 'string'
               ? orchestratorDef.config.prompt
-              : buildOrchestratorPrompt(disabledAgents, workflowPack.orchestrator);
+              : buildOrchestratorPrompt(disabledAgents, undefined);
           output.system[0] =
             orchestratorPrompt +
             (output.system[0] ? `\n\n${output.system[0]}` : '');

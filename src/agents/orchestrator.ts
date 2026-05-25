@@ -1,5 +1,11 @@
 import type { AgentConfig } from '@opencode-ai/sdk/v2';
-import type { OrchestratorPack } from '../core/workflow-pack';
+
+// Formerly from workflow-pack — kept inline to preserve API
+export interface OrchestratorPack {
+  workflowAdditions?: string;
+  communicationAdditions?: string;
+  constraintAdditions?: string;
+}
 import {
   ORCHESTRATOR_AGENT_DESCRIPTIONS,
   ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES,
