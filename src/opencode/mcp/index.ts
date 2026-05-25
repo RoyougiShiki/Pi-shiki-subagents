@@ -1,4 +1,4 @@
-import type { McpName } from '../config';
+import type { McpName } from '../../config';
 import { context7 } from './context7';
 import { grep_app } from './grep-app';
 import type { McpConfig } from './types';

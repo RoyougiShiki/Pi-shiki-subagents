@@ -7,4 +7,4 @@ export type {
   PluginConfig,
   WorkflowsConfig,
 } from './config';
-export type { RemoteMcpConfig } from './mcp';
+export type { RemoteMcpConfig } from './opencode/mcp';
