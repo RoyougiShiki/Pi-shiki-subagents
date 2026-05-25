@@ -263,16 +263,6 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     ],
   },
   {
-    name: "batch-dev",
-    description: "批量开发流程：澄清需求 → 分析 → 计划 → 实施",
-    stages: [
-      { id: "clarify", agent: "thinker-clarify", description: "澄清用户需求", outputSchema: "clarify" },
-      { id: "analysis", agent: "thinker-analysis", description: "识别可批量处理的独立任务", outputSchema: "analysis" },
-      { id: "plan", agent: "designer", description: "生成批量任务计划", outputSchema: "plan" },
-      { id: "implement", agent: "dispatcher", description: "按依赖分批驱动 fixer/oracle", outputSchema: "implementation" },
-    ],
-  },
-  {
     name: "review-only",
     description: "只读审查流程：分析 → oracle 审查",
     stages: [
