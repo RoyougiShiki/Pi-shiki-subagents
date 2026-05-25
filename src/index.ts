@@ -1,4 +1,4 @@
-export { default } from './adapters/opencode';
+export { default } from './opencode/opencode';
 
 export type {
   AgentName,

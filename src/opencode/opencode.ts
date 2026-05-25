@@ -1,7 +1,7 @@
 import type { Plugin } from '@opencode-ai/plugin';
 import { createAgents, getAgentConfigs, getDisabledAgents } from '../agents';
 import { buildOrchestratorPrompt } from '../agents/orchestrator';
-import { ORCHESTRATOR_INTENT_GATE_REMINDER } from '../opencode/workflow-templates';
+import { ORCHESTRATOR_INTENT_GATE_REMINDER } from './workflow-templates';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +38,7 @@ import {
   ForegroundFallbackManager,
 } from '../hooks';
 import { processImageAttachments } from '../hooks/image-hook';
-import { createInterviewManager } from '../opencode/interview';
+import { createInterviewManager } from './interview';
 import { createBuiltinMcps } from '../mcp';
 
 import {
@@ -46,7 +46,7 @@ import {
   createPresetManager,
   createVisionAnalyzeTool,
 } from '../tools';
-import { createWebfetchTool } from '../opencode/tools';
+import { createWebfetchTool } from './tools';
 import {
   createDisplayNameMentionRewriter,
   resolveRuntimeAgentName,
