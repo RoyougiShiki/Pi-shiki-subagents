@@ -2,13 +2,13 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { PluginInput } from '@opencode-ai/plugin';
-import type { InterviewConfig } from '../config';
+import type { InterviewConfig } from '../../config';
 import {
   createInternalAgentTextPart,
   hasInternalInitiatorMarker,
   log,
-} from '../utils';
-import { parseModelReference } from '../utils/session';
+} from '../../utils';
+import { parseModelReference } from '../../utils/session';
 import {
   appendInterviewAnswers,
   createInterviewDirectoryPath,

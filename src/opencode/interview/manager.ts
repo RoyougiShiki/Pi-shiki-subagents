@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { PluginInput } from '@opencode-ai/plugin';
-import type { PluginConfig } from '../config';
-import { log } from '../utils';
+import type { PluginConfig } from '../../config';
+import { log } from '../../utils';
 import {
   DEFAULT_DASHBOARD_PORT,
   probeDashboard,

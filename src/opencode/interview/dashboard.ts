@@ -10,7 +10,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { URL } from 'node:url';
-import { log } from '../utils';
+import { log } from '../../utils';
 import {
   extractSummarySection,
   extractTitle,

@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { createServer } from 'node:http';
-import type { PluginConfig } from '../config';
+import type { PluginConfig } from '../../config';
 import { readDashboardAuthFile } from './dashboard';
 import { createInterviewManager } from './manager';
 
