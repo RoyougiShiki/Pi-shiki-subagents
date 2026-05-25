@@ -80,6 +80,7 @@ function loadAgentFile(name: string): { instructions: string; tools?: string[]; 
 // ── Agent 定义加载 ────────────────────────────────────────────────────────
 
 let _agentDefs: Record<string, AgentDefinition> | null = null;
+let _toolGroups: Record<string, string[]> | null = null;
 
 function loadAgentDefinitions(): Record<string, AgentDefinition> {
   if (_agentDefs) return _agentDefs;
@@ -102,6 +103,27 @@ function loadAgentDefinitions(): Record<string, AgentDefinition> {
 
 function getAgent(name: string): AgentDefinition | undefined {
   return loadAgentDefinitions()[name];
+}
+
+function ensureToolGroups(): Record<string, string[]> {
+  if (_toolGroups) return _toolGroups;
+  // Try user config first
+  try {
+    const configPath = getConfigPath();
+    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (raw._tool_groups) {
+      _toolGroups = raw._tool_groups;
+      return _toolGroups!;
+    }
+  } catch {}
+  // Fall back to defaults
+  try {
+    const raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+    _toolGroups = raw._tool_groups || {};
+  } catch {
+    _toolGroups = {};
+  }
+  return _toolGroups!;
 }
 
 function getAllAgentNames(): string[] {
@@ -208,13 +230,7 @@ export function getModeInstructions(name: string): string | undefined {
 }
 
 function loadToolGroups(): Record<string, string[]> {
-  try {
-    const configPath = getConfigPath();
-    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return raw._tool_groups || {};
-  } catch {
-    return {};
-  }
+  return ensureToolGroups();
 }
 
 function resolveAgentTools(agent: AgentDefinition): string[] {
@@ -312,12 +328,14 @@ function registerModeHooks(pi: ExtensionAPI): void {
       const saved = loadSessionMode(_currentSessionFile);
       if (saved && getAgent(saved)) {
         _agentDefs = null;
+        _toolGroups = null;
         applyMode(pi, saved);
         return;
       }
     }
 
     _agentDefs = null;
+    _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
     if (process.env.OMO_SUB_AGENT === "1" && subagentName && applyAgentTools(pi, subagentName, true)) {
       return;
