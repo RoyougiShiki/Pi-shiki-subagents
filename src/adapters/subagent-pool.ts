@@ -96,12 +96,11 @@ export function buildSubagentEnv(opts: {
   allowedSubagents?: readonly string[];
   stageResultPath?: string;
 }): NodeJS.ProcessEnv {
-  const activeTools = resolveAgentTools(opts.agentName);
   return {
     ...(opts.baseEnv ?? process.env),
     OMO_SUB_AGENT: "1",
     OMO_AGENT_NAME: opts.agentName,
-    OMO_ACTIVE_TOOLS: activeTools.length > 0 ? activeTools.join(",") : "",
+    OMO_ACTIVE_TOOLS: "grep,find,ls,stage_complete,stage_ask_user",
     OMO_SUBAGENT_DEPTH: String(opts.depth ?? 1),
     ...(opts.parentAgent ? { OMO_PARENT_AGENT_NAME: opts.parentAgent } : {}),
     ...(opts.allowedSubagents ? { OMO_ALLOWED_SUBAGENTS: opts.allowedSubagents.join(",") } : {}),

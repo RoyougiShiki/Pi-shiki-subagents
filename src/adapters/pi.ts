@@ -843,19 +843,22 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
+  // Debug: log sub-agent env
+  if (process.env.OMO_SUB_AGENT === "1") {
+    try {
+      fs.appendFileSync("/tmp/omo-debug.log", 
+        `OMO_SUB_AGENT=1 OMO_AGENT_NAME=${process.env.OMO_AGENT_NAME} OMO_ACTIVE_TOOLS=${process.env.OMO_ACTIVE_TOOLS?.slice(0,200)}\n`);
+    } catch {}
+  }
+
   // Sub-agent tool filtering: apply after all extensions registered their tools
   if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_ACTIVE_TOOLS) {
     const allowedTools = process.env.OMO_ACTIVE_TOOLS.split(",").filter(Boolean);
     const apply = () => {
       const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      // Only apply when tools > 4 (built-in), meaning MCP tools are registered
-      if (all.length > 4 || all.length === 0) {
-        const allow = new Set(allowedTools);
-        const active = all.filter((n: string) => allow.has(n));
-        if (active.length > 0) pi.setActiveTools(active);
-      } else {
-        setImmediate(apply);
-      }
+      const allow = new Set(allowedTools);
+      const active = all.filter((n: string) => allow.has(n));
+      if (active.length > 0) pi.setActiveTools(active);
     };
     setImmediate(apply);
   }
