@@ -550,7 +550,7 @@ export function writeWorkflowStageResult(result: WorkflowStageToolResult, result
 
 export function ensureAgentFiles(): void {
   const agentsDir = getPiAgentsDirForSync();
-  const defaultAgentsDir = path.join(__dirname, "agents");
+  const defaultAgentsDir = path.join(__dirname, "..", "..", "adapters", "agents");
   fs.mkdirSync(agentsDir, { recursive: true });
   try {
     if (!fs.existsSync(defaultAgentsDir)) return;

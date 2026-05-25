@@ -35,7 +35,7 @@ interface AgentDefinition {
 // ── 常量 ──────────────────────────────────────────────────────────────────
 
 const AGENTS_DIR = path.join(homedir(), ".pi", "agents");
-const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
+const DEFAULTS_PATH = path.join(__dirname, "..", "..", "adapters", "agents-default.json");
 const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-modes.json");
 let _currentSessionFile: string | undefined;
 
