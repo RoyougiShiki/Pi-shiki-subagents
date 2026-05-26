@@ -206,9 +206,9 @@ export class WorkflowManager {
 
   private buildStageTask(node: StageNode, input: string): string {
     const parts = [
-      "You are running as one stage in a workflow.",
-      "Workflow definitions control the process. Your agent prompt controls your role boundary.",
-      "Use the available stage tools to ask the user a question or request completion.",
+      "You are running as one stage in a workflow. When done, call stage_complete.",
+      "If you need to ask the user something, call stage_ask_user.",
+      "Do NOT just reply with text. You must use stage_complete or stage_ask_user.",
     ];
     if (node.description) parts.push(`Stage description:\n${node.description}`);
     if (node.task) parts.push(`Stage task:\n${node.task}`);
@@ -305,7 +305,7 @@ export class WorkflowManager {
     this.clearStageResult(stageResultPath);
     if (!stageResult.result) {
       // Initial spawn: retry once with reminder
-      const retryMsg = "You ended your turn without indicating stage status. Continue working, or use tool to ask a question or request completion.";
+      const retryMsg = "[System] Call stage_complete to finish this stage. Use stage_ask_user if you need input. Do not just reply with text.";
       const retryResult = await this.pool.sendPrompt(poolId, retryMsg);
       if (retryResult.error) {
         const error = retryResult.error;
