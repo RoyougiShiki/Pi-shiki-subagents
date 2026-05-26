@@ -351,6 +351,21 @@ export class AgentPool {
 
     this.agents.set(opts.id, entry);
 
+    // Save to registry (persists across restarts)
+    this.saveToRegistry({
+      id: opts.id,
+      name: opts.name,
+      agentName: opts.agent.name,
+      task: opts.task,
+      model: opts.model,
+      cwd: opts.cwd,
+      parentAgent: opts.parentAgent,
+      depth: opts.depth,
+      allowedSubagents: opts.allowedSubagents,
+      stageResultPath: opts.stageResultPath,
+      spawnedAt: Date.now(),
+    });
+
     proc.stdout!.on("data", (chunk: Buffer) => {
       this.handleData(opts.id, chunk);
     });
@@ -699,6 +714,47 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           }
           const ok = pool.kill(params.id);
           return { content: [{ type: "text", text: ok ? `✓ Killed "${params.id}"` : `✗ Agent "${params.id}" not found` }], details: {} };
+        }
+
+        if (params.pool === "listSaved") {
+          const entries = pool.listRegistryEntries();
+          if (entries.length === 0) {
+            return { content: [{ type: "text", text: "No saved sub-agent sessions." }], details: {} };
+          }
+          const lines = entries.map((r) =>
+            `  ${r.id} (${r.agentName}) — ${r.task.slice(0, 100)}`
+          );
+          return { content: [{ type: "text", text: `Saved sessions (${entries.length}):\n${lines.join("\n")}` }], details: {} };
+        }
+
+        if (params.pool === "resume") {
+          if (!params.id) {
+            return { content: [{ type: "text", text: "resume requires id" }], details: {}, isError: true };
+          }
+          const entries = pool.listRegistryEntries();
+          const record = entries.find((r) => r.id === params.id);
+          if (!record) {
+            return { content: [{ type: "text", text: `Saved session "${params.id}" not found` }], details: {}, isError: true };
+          }
+          const agentCfg = agents.find((a) => a.name === record.agentName);
+          if (!agentCfg) {
+            return { content: [{ type: "text", text: `Agent "${record.agentName}" not found. Cannot resume.` }], details: {}, isError: true };
+          }
+          // Spawn with saved task context
+          pool.spawn({
+            id: record.id,
+            name: record.name,
+            agent: agentCfg,
+            task: record.task,
+            model: params.model || agentCfg.model || defaultModel,
+            cwd: record.cwd || cwd,
+            parentAgent: process.env.OMO_AGENT_NAME,
+            depth: (Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0) + 1,
+            allowedSubagents: parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS),
+          }).catch((err) => {
+            console.error(`[omo-subagent] Resume ${params.id} failed:`, err);
+          });
+          return { content: [{ type: "text", text: `✓ Agent "${record.id}" (${record.agentName}) resumed with task context.` }], details: {} };
         }
       }
 
