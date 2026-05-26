@@ -1174,7 +1174,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           state,
           scope: "pool",
           startedAt: a.startedAt,
-          lastUpdate: a.lastUpdate,
         });
         statusViews.push({
           view,

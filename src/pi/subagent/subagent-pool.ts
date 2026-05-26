@@ -78,7 +78,6 @@ export interface PoolAgentInfo {
   messageCount: number;
   model: string;
   lastResponse?: string;
-  lastUpdate?: number;
 }
 
 // ─── One-shot runner (pi --mode json) ─────────────────────────────────────
@@ -261,7 +260,6 @@ interface PoolEntry {
   model: string;
   buffer: string;
   lastResponse: string;
-  lastUpdate: number;
   pendingResolve: ((result: { response: string; error?: string }) => void) | null;
   pendingTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -329,7 +327,6 @@ export class AgentPool {
       model: opts.model || "default",
       buffer: "",
       lastResponse: "",
-      lastUpdate: Date.now(),
       pendingResolve: null,
       pendingTimer: null,
     };
@@ -396,7 +393,6 @@ export class AgentPool {
             const m = msgs[i];
             if (m.role === "assistant") {
               entry.lastResponse = extractText(m.content) || entry.lastResponse;
-              entry.lastUpdate = Date.now();
               break;
             }
           }
@@ -413,10 +409,7 @@ export class AgentPool {
 
         if (ev.type === "message_end" && ev.message?.role === "assistant") {
           const text = extractText(ev.message.content);
-          if (text) {
-            entry.lastResponse = text;
-            entry.lastUpdate = Date.now();
-          }
+          if (text) entry.lastResponse = text;
         }
       } catch {}
     }
@@ -466,7 +459,6 @@ export class AgentPool {
         messageCount: entry.messageCount,
         model: entry.model,
         lastResponse: entry.lastResponse.slice(0, 200),
-        lastUpdate: entry.lastUpdate,
       });
     }
     return result;
