@@ -6,6 +6,12 @@ export interface ChatStatusInput {
   state: ChatStatusState;
   scope: ChatStatusScope;
   startedAt?: number;
+  /**
+   * Timestamp of the most recent activity.
+   * When provided, elapsed = now - lastUpdate (shows time since last activity).
+   * Falls back to startedAt when absent.
+   */
+  lastUpdate?: number;
   now?: number;
   fallbackRecommended?: boolean;
 }
@@ -51,8 +57,8 @@ function normalizeName(name: string): string {
 
 export function createChatStatusView(input: ChatStatusInput): ChatStatusView {
   const name = normalizeName(input.name);
-  const elapsed = typeof input.startedAt === "number"
-    ? formatElapsedMs((input.now ?? Date.now()) - input.startedAt)
+  const elapsed = typeof (input.lastUpdate ?? input.startedAt) === "number"
+    ? formatElapsedMs((input.now ?? Date.now()) - (input.lastUpdate ?? input.startedAt!))
     : undefined;
   const fallbackRecommended = input.fallbackRecommended === true
     || input.state === "failed"
