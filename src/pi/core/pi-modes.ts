@@ -309,6 +309,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
         if (agent && (agent.type === "mode" || agent.type === "both")) {
           applyMode(pi, trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
+          ctx.ui.setWidget("mode-indicator", [`Mode: ${trimmed}`]);
           try { _onModeChange?.(trimmed); } catch {}
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
@@ -328,6 +329,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
       if (!picked || picked === current) return;
       applyMode(pi, picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
+      ctx.ui.setWidget("mode-indicator", [`Mode: ${picked}`]);
       try { _onModeChange?.(picked); } catch {}
     },
   });
