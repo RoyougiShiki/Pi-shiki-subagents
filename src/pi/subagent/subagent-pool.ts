@@ -25,7 +25,7 @@ import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
 
-// Registry for pool agent metadata (survives pi restart)
+// Registry for pool agent metadata (used by SDK migration)
 const REGISTRY_FILENAME = "pool-registry.json";
 
 interface PoolAgentRecord {
@@ -39,6 +39,7 @@ interface PoolAgentRecord {
   depth?: number;
   allowedSubagents?: readonly string[];
   stageResultPath?: string;
+  sessionFile?: string;
   spawnedAt: number;
 }
 
@@ -349,19 +350,6 @@ export class AgentPool {
     };
 
     this.agents.set(opts.id, entry);
-    this.saveToRegistry({
-      id: opts.id,
-      name: opts.name,
-      agentName: opts.agent.name,
-      task: opts.task,
-      model: opts.model,
-      cwd: opts.cwd,
-      parentAgent: opts.parentAgent,
-      depth: opts.depth,
-      allowedSubagents: opts.allowedSubagents,
-      stageResultPath: opts.stageResultPath,
-      spawnedAt: Date.now(),
-    });
 
     proc.stdout!.on("data", (chunk: Buffer) => {
       this.handleData(opts.id, chunk);
@@ -384,7 +372,8 @@ export class AgentPool {
       ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
       : opts.task;
 
-    return this.sendPrompt(opts.id, systemPart);
+    const result = await this.sendPrompt(opts.id, systemPart);
+    return result;
   }
 
   private handleData(id: string, chunk: Buffer) {
@@ -513,7 +502,6 @@ export class AgentPool {
     }
     try { entry.proc.kill(); } catch {}
     this.agents.delete(id);
-    this.removeFromRegistry(id);
     return true;
   }
 
@@ -556,34 +544,9 @@ export class AgentPool {
     return new Map();
   }
 
-  /**
-   * Re-spawn saved agents from the registry after a restart.
-   * Returns the records that were successfully resumed.
-   */
-  async restoreSavedAgents(discoverAgent: (cwd: string, name: string) => AgentConfig | undefined): Promise<PoolAgentRecord[]> {
-    const registry = this.loadRegistry();
-    if (registry.size === 0) return [];
-    const restored: PoolAgentRecord[] = [];
-    for (const [id, record] of registry) {
-      if (this.agents.has(id)) continue;
-      const agent = discoverAgent(record.cwd ?? process.cwd(), record.agentName);
-      if (!agent) continue;
-      const result = await this.spawn({
-        id,
-        name: record.name,
-        agent,
-        task: record.task,
-        model: record.model,
-        cwd: record.cwd,
-        parentAgent: record.parentAgent,
-        depth: record.depth,
-        allowedSubagents: record.allowedSubagents,
-        stageResultPath: record.stageResultPath,
-      });
-      if (!result.error) restored.push(record);
-      else this.removeFromRegistry(id);
-    }
-    return restored;
+  /** List registry entries for the current session (human-readable). */
+  listRegistryEntries(): PoolAgentRecord[] {
+    return [...this.loadRegistry().values()];
   }
 }
 
