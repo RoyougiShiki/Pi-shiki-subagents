@@ -453,7 +453,11 @@ export class AgentPool {
   sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
     const entry = this.agents.get(id);
     if (!entry) {
-      return Promise.resolve({ response: "", error: `Agent "${id}" not found in pool` });
+      const saved = this.listRegistryEntries();
+      const hint = saved.some((r) => r.id === id)
+        ? `. Use pool:resume with id="${id}" to recover`
+        : "";
+      return Promise.resolve({ response: "", error: `Agent "${id}" not found in pool${hint}` });
     }
     if (entry.status === "dead") {
       return Promise.resolve({ response: "", error: `Agent "${id}" is dead` });
@@ -590,6 +594,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       "  pool spawn: { pool: \"spawn\", id, agent, task }",
       "  pool send: { pool: \"send\", id, message }",
       "  pool list: { pool: \"list\" }",
+      "  pool listSaved: { pool: \"listSaved\" } — 查看可恢复的旧 session",
+      "  pool resume: { pool: \"resume\", id } — 恢复旧 session（重启后原agent不可用），保存的session还在，可以恢复",
       "  pool kill: { pool: \"kill\", id }",
     ].join("\n"),
     parameters: {
