@@ -35,14 +35,15 @@ export interface StageNode {
   id?: string;
   agent: string;
   description?: string;
-  /** Stage-specific task instructions. Workflow defines flow; agent prompt defines role. */
   task?: string;
-  /** Optional schema name for later validation/format-specific handling. */
   outputSchema?: string;
-  /** Keep the stage pool agent alive after completion. Defaults to false. */
   keepAlive?: boolean;
-  /** Optional per-stage delegation override; narrows configured delegates for this stage. */
   allowedSubagents?: string[];
+  /** Auto-review: stage output is reviewed by this agent before transition. */
+  review?: {
+    agent: string;
+    maxRetries?: number;
+  };
 }
 
 export interface ChoiceNode {

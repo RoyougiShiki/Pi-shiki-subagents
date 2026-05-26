@@ -207,6 +207,11 @@ export const FailoverConfigSchema = z.object({
 
 export type FailoverConfig = z.infer<typeof FailoverConfigSchema>;
 
+const ReviewConfigSchema = z.object({
+  agent: z.string(),
+  maxRetries: z.number().int().min(1).optional(),
+});
+
 export const StageNodeSchema = z.object({
   id: z.string().optional(),
   agent: z.string(),
@@ -215,6 +220,7 @@ export const StageNodeSchema = z.object({
   outputSchema: z.string().optional(),
   keepAlive: z.boolean().optional(),
   allowedSubagents: z.array(z.string()).optional(),
+  review: ReviewConfigSchema.optional(),
 });
 
 export const ChoiceNodeSchema: z.ZodType<ChoiceNode> = z.lazy(() => z.object({
@@ -245,8 +251,8 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     description: "标准开发流程：澄清 → 分析 → 计划 → 标准实施",
     stages: [
       { id: "clarify", agent: "thinker-clarify", description: "澄清用户需求", outputSchema: "clarify" },
-      { id: "analysis", agent: "thinker-analysis", description: "分析影响范围、方案和风险", outputSchema: "analysis" },
-      { id: "plan", agent: "designer", description: "生成实施计划与任务文件", outputSchema: "plan" },
+      { id: "analysis", agent: "thinker-analysis", description: "分析影响范围、方案和风险", outputSchema: "analysis", review: { agent: "oracle" } },
+      { id: "plan", agent: "designer", description: "生成实施计划与任务文件", outputSchema: "plan", review: { agent: "oracle" } },
       { id: "implement", agent: "dispatcher", description: "按计划驱动实现与审查", outputSchema: "implementation" },
     ],
   },
@@ -254,7 +260,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     name: "quick-fix",
     description: "快速修复流程：分析 → 快速实施",
     stages: [
-      { id: "analysis", agent: "thinker-analysis", description: "确认小范围修复边界", outputSchema: "analysis" },
+      { id: "analysis", agent: "thinker-analysis", description: "确认小范围修复边界", outputSchema: "analysis", review: { agent: "oracle" } },
       { id: "worker", agent: "worker", description: "驱动 fixer 实现并用 oracle 审查", outputSchema: "implementation" },
     ],
   },
@@ -262,7 +268,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     name: "review-only",
     description: "只读审查流程：分析 → oracle 审查",
     stages: [
-      { id: "analysis", agent: "thinker-analysis", description: "整理审查目标和上下文", outputSchema: "analysis" },
+      { id: "analysis", agent: "thinker-analysis", description: "整理审查目标和上下文", outputSchema: "analysis", review: { agent: "oracle" } },
       { id: "review", agent: "oracle", description: "进行只读审查并输出风险", outputSchema: "review" },
     ],
   },
@@ -271,7 +277,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     description: "研究流程：澄清 → 分析",
     stages: [
       { id: "clarify", agent: "thinker-clarify", description: "澄清研究问题", outputSchema: "clarify" },
-      { id: "analysis", agent: "thinker-analysis", description: "只读研究并给出结论", outputSchema: "analysis" },
+      { id: "analysis", agent: "thinker-analysis", description: "只读研究并给出结论", outputSchema: "analysis", review: { agent: "oracle" } },
     ],
   },
 ];

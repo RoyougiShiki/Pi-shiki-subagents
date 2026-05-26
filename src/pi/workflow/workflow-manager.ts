@@ -347,6 +347,43 @@ export class WorkflowManager {
       throw new Error(output.summary);
     }
 
+    // ── Auto-review: run once, result attached to output ──
+    if (node.review && output.status === "complete" && this.running) {
+      const reviewAgentCfg = node.review.agent
+        ? this.resolveAgentFn(this.cwd, node.review.agent)
+        : undefined;
+      if (!reviewAgentCfg) {
+        console.warn(`[workflow] Review agent "${node.review.agent}" not found, skipping`);
+      } else {
+        const reviewPoolId = `${poolId}-review`;
+        const reviewTask = [
+          `Review stage "${node.agent}" output:`,
+          `Summary: ${output.summary}`,
+          output.context ? `Context: ${output.context}` : "",
+          output.evidence?.length ? `Evidence:\n${output.evidence.map((e: any) => `  - ${e.reason}${e.path ? ` (${e.path})` : ""}`).join("\n")}` : "",
+          output.artifacts?.decisions?.length ? `Decisions:\n${output.artifacts.decisions.map((d: string) => `  - ${d}`).join("\n")}` : "",
+          output.artifacts?.risks?.length ? `Risks:\n${output.artifacts.risks.map((r: string) => `  - ${r}`).join("\n")}` : "",
+          "",
+          "Reply APPROVED or REJECTED with reasoning.",
+        ].filter(Boolean).join("\n");
+
+        const reviewResult = await this.pool.spawn({
+          id: reviewPoolId, name: `${stageId}-review`,
+          agent: reviewAgentCfg, task: reviewTask,
+          cwd: this.cwd, parentAgent: "coordinator", depth: 2,
+        });
+
+        this.pool.kill(reviewPoolId).catch(() => {});
+
+        const approved = (reviewResult.response ?? "").toUpperCase().includes("APPROVED");
+        if (approved) {
+          output = { ...output, artifacts: { ...(output.artifacts ?? {}), decisions: [...(output.artifacts?.decisions ?? []), `审查通过(${reviewAgentCfg.name})`] } };
+        } else {
+          output = { ...output, artifacts: { ...(output.artifacts ?? {}), risks: [...(output.artifacts?.risks ?? []), `审查意见(${reviewAgentCfg.name}): ${(reviewResult.response ?? "").slice(0, 300)}`] } };
+        }
+      }
+    }
+
     // Clean up waiting_user events for this stage before emitting complete
     this.pendingEvents = this.pendingEvents.filter(
       (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
