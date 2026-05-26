@@ -1066,16 +1066,25 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Optional behavior/compliance notification on turn end ────────
-  // Periodic role review — reminds agent every N turns
-  let _turnCount = 0;
+  // ── Periodic role review — reminds agent every N user messages ──
+  // Counts agent_end (once per user message), not turn_end (fires per LLM turn,
+  // which is too frequent when the agent makes multiple tool calls in one response).
+  // Uses _skipNextAgentEnd to avoid counting the agent_end triggered by the
+  // review message itself (sendMessage with triggerTurn:true).
+  let _userMsgCount = 0;
+  let _skipNextAgentEnd = false;
   const REVIEW_INTERVAL = 5;
-  pi.on("turn_end", async () => {
-    _turnCount++;
-    if (_turnCount % REVIEW_INTERVAL === 0) {
+  pi.on("agent_end", async () => {
+    if (_skipNextAgentEnd) {
+      _skipNextAgentEnd = false;
+      return;
+    }
+    _userMsgCount++;
+    if (_userMsgCount % REVIEW_INTERVAL === 0) {
+      _skipNextAgentEnd = true;
       pi.sendMessage({
         customType: "role_review",
-        content: "[Agent Review] " + REVIEW_INTERVAL + " turns completed. Review your role, constraints, and conversation context.",
+        content: "[Agent Review] " + REVIEW_INTERVAL + " user messages processed. Review your role, constraints, and conversation context.",
         display: true,
       }, { deliverAs: "followUp", triggerTurn: true });
     }
