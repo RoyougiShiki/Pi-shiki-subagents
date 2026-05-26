@@ -71,6 +71,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+/**
+ * Compute word-level overlap ratio between two texts.
+ * Filters out short words (<4 chars) to ignore noise.
+ * Returns 0.0–1.0 where 1.0 = identical substantive content.
+ */
+function computeSemanticOverlap(a: string, b: string): number {
+  const tokenize = (t: string) =>
+    new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3));
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+  return intersection / Math.max(setA.size, setB.size);
+}
+
 export class PoolMeetingBackend implements PiMeetingBackend {
   async run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult> {
     const transcript: PiMeetingMessage[] = [];
@@ -115,12 +133,63 @@ export class PoolMeetingBackend implements PiMeetingBackend {
       // Wait for initial processing
       await sleep(5000);
 
-      // Run discussion rounds
+      // Run discussion rounds with early-stop on convergence
       const maxRounds = Math.min(request.maxRounds || 3, 5);
+      if (maxRounds <= 0) throw new Error("maxRounds must be >= 1");
       const phases: Array<"opening" | "discussion" | "final"> = ["opening", "discussion", "final"];
+      // Track previous responses for convergence detection
+      const previousResponses = new Map<string, string>();
 
       for (let round = 0; round < maxRounds; round++) {
         const phase = phases[round] || "discussion";
+
+        // Convergence check: if all participants repeated themselves in the
+        // previous discussion round, skip remaining discussion rounds.
+        if (phase === "discussion" && previousResponses.size > 0) {
+          const thresholds = [0.75, 0.70, 0.65, 0.60];
+          const threshold = thresholds[round - 1] ?? 0.55;
+          let convergedCount = 0;
+          for (const [name, prev] of previousResponses) {
+            const latest = [...transcript].reverse().find(m => m.from === name && m.phase === "discussion");
+            if (latest && computeSemanticOverlap(prev, latest.content) >= threshold) {
+              convergedCount++;
+            }
+          }
+          if (convergedCount >= request.participants.length) {
+            // All converged — skip to final if there are participants
+            if (request.participants.length > 0) {
+              const finalRound = maxRounds - 1;
+              const finalPhase = "final";
+              const contextSummary = transcript
+                .map(m => "[" + m.from + "]: " + (m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content))
+                .join("\n") || "(no prior discussion)";
+              const roundPrompt = "--- Round " + (finalRound + 1) + " (" + finalPhase + ") ---\n\nQuestion: " + request.question + "\n\nFull discussion:\n" + contextSummary + "\n\nProvide your final position and recommendation.";
+              const finalPromises = request.participants.map((p, i) => {
+                const proc = spawnedProcs[i];
+                if (!proc || proc.killed) return Promise.resolve({ name: p.name, agent: p.agent, response: "(process dead)" });
+                sendPrompt(proc, roundPrompt);
+                return readResponse(proc, 60000).then(response => ({ name: p.name, agent: p.agent, response }));
+              });
+              const finalResponses = await Promise.all(finalPromises);
+              for (const r of finalResponses) {
+                transcript.push({
+                  id: crypto.randomUUID(),
+                  meetingId: request.meetingId,
+                  round: finalRound,
+                  phase: finalPhase,
+                  from: r.name,
+                  role: r.agent,
+                  content: r.response,
+                  timestamp: Date.now(),
+                });
+              }
+              roundsCompleted = finalRound + 1;
+            } else {
+              roundsCompleted = round;
+            }
+            break; // exit for loop — converged
+          }
+        }
 
         const contextSummary = transcript.filter(m => m.round < round)
           .map(m => "[" + m.from + "]: " + (m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content))
@@ -155,6 +224,13 @@ export class PoolMeetingBackend implements PiMeetingBackend {
             content: r.response,
             timestamp: Date.now(),
           });
+        }
+
+        // Store responses for convergence detection in next round
+        if (phase === "opening" || phase === "discussion") {
+          for (const r of responses) {
+            previousResponses.set(r.name, r.response);
+          }
         }
 
         roundsCompleted = round + 1;

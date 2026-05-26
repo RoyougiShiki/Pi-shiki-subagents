@@ -189,6 +189,24 @@ function createPiMeetingId(): string {
   return `omo-meet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Compute word-level overlap ratio between two texts.
+ * Filters out short words (<4 chars) to ignore noise.
+ * Returns 0.0–1.0 where 1.0 = identical substantive content.
+ */
+function computeSemanticOverlap(a: string, b: string): number {
+  const tokenize = (t: string) =>
+    new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3));
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+  return intersection / Math.max(setA.size, setB.size);
+}
+
 function truncateForDigest(text: string, maxChars = 900): string {
   const trimmed = text.trim();
   return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
@@ -501,9 +519,44 @@ export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
 
     await runPhase("opening", 0);
     let roundsCompleted = 0;
+    // Track previous discussion messages for convergence detection
+    let previousDiscussionContent = new Map<string, string>();
     for (let round = 1; round <= request.maxRounds; round++) {
       await runPhase("discussion", round);
       roundsCompleted = round;
+      // Convergence check: if all participants are repeating themselves,
+      // skip remaining discussion rounds.
+      if (round < request.maxRounds && previousDiscussionContent.size > 0) {
+        const currentDiscussion = new Map<string, string>();
+        for (const msg of transcript) {
+          if (msg.phase === "discussion" && msg.round === round) {
+            currentDiscussion.set(msg.from, msg.content);
+          }
+        }
+        if (currentDiscussion.size >= request.participants.length) {
+          const thresholds = [0.75, 0.70, 0.65];
+          const threshold = thresholds[round - 1] ?? 0.55;
+          let convergedCount = 0;
+          for (const [name, content] of currentDiscussion) {
+            const prev = previousDiscussionContent.get(name);
+            if (prev) {
+              const overlap = computeSemanticOverlap(prev, content);
+              if (overlap >= threshold) convergedCount++;
+            }
+          }
+          if (convergedCount >= request.participants.length) {
+            // All converged — skip to final immediately
+            break;
+          }
+        }
+      }
+      // Store current discussion for next round's comparison
+      previousDiscussionContent.clear();
+      for (const msg of transcript) {
+        if (msg.phase === "discussion" && (msg.round === round || (round > 0 && msg.round === round))) {
+          previousDiscussionContent.set(msg.from, msg.content);
+        }
+      }
     }
     await runPhase("final", request.maxRounds + 1);
 
