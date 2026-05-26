@@ -31,7 +31,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
-import { initModeWidget, destroyModeWidget } from "./mode-widget";
 import { resolveAgent } from "../../adapters/agent-discovery";
 import type { WorkflowStageToolResult } from "../../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
@@ -899,12 +898,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     ensureAgentFiles();
 
-    // Initialise mode widget + wire live updates via closure
+    // Wire mode change → status bar
     try {
-      const mode = loadActiveMode() || "coordinator";
-      initModeWidget(ctx, mode);
+      const initialMode = loadActiveMode() || "coordinator";
+      ctx.ui.setStatus("mode", `Mode: ${initialMode}`);
       setOnModeChange((newMode: string) => {
-        ctx.ui.setWidget("mode-indicator", [`Mode: ${newMode}`]);
+        ctx.ui.setStatus("mode", `Mode: ${newMode}`);
       });
     } catch {}
 
@@ -1270,9 +1269,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Cleanup on session shutdown ────────────────────────────────────
   pi.on("session_shutdown", async () => {
-    try {
-      if (_sessionCtx) destroyModeWidget(_sessionCtx);
-    } catch {}
     try {
       const { getPool } = await import("../subagent/subagent-pool");
       getPool().killAll();

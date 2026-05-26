@@ -301,6 +301,12 @@ function registerModeCommands(pi: ExtensionAPI): void {
       const allNames = getAllAgentNames();
 
       if (trimmed) {
+        if (trimmed === "fallback") {
+          applyMode(pi, "fallback");
+          ctx.ui.setStatus("mode", "Mode: fallback");
+          try { _onModeChange?.("fallback"); } catch {}
+          return;
+        }
         if (!allNames.includes(trimmed)) {
           ctx.ui.notify(`未知模式: "${trimmed}"。`, "error");
           return;
@@ -309,7 +315,6 @@ function registerModeCommands(pi: ExtensionAPI): void {
         if (agent && (agent.type === "mode" || agent.type === "both")) {
           applyMode(pi, trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
-          ctx.ui.setWidget("mode-indicator", [`Mode: ${trimmed}`]);
           try { _onModeChange?.(trimmed); } catch {}
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
@@ -323,13 +328,12 @@ function registerModeCommands(pi: ExtensionAPI): void {
         const label = a?.label || k;
         return `${k === current ? "● " : "○ "}${k} — ${label}`;
       });
-      const selected = await ctx.ui.select(`当前: ${current}. 选择模式:`, options);
+      const selected = await ctx.ui.select("选择模式:", options);
       if (!selected) return;
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
       applyMode(pi, picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
-      ctx.ui.setWidget("mode-indicator", [`Mode: ${picked}`]);
       try { _onModeChange?.(picked); } catch {}
     },
   });
@@ -421,6 +425,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
       applyMode(pi, name);
+      try { _onModeChange?.(name); } catch {}
       return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };
     },
   });
