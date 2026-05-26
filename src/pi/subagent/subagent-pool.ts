@@ -25,6 +25,23 @@ import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
 
+// Registry for pool agent metadata (survives pi restart)
+const REGISTRY_FILENAME = "pool-registry.json";
+
+interface PoolAgentRecord {
+  id: string;
+  name: string;
+  agentName: string;
+  task: string;
+  model?: string;
+  cwd?: string;
+  parentAgent?: string;
+  depth?: number;
+  allowedSubagents?: readonly string[];
+  stageResultPath?: string;
+  spawnedAt: number;
+}
+
 // Note: typebox is resolved by pi.ts from its own path, not from here.
 // We define inline JSON Schema instead.
 
@@ -332,6 +349,19 @@ export class AgentPool {
     };
 
     this.agents.set(opts.id, entry);
+    this.saveToRegistry({
+      id: opts.id,
+      name: opts.name,
+      agentName: opts.agent.name,
+      task: opts.task,
+      model: opts.model,
+      cwd: opts.cwd,
+      parentAgent: opts.parentAgent,
+      depth: opts.depth,
+      allowedSubagents: opts.allowedSubagents,
+      stageResultPath: opts.stageResultPath,
+      spawnedAt: Date.now(),
+    });
 
     proc.stdout!.on("data", (chunk: Buffer) => {
       this.handleData(opts.id, chunk);
@@ -483,12 +513,77 @@ export class AgentPool {
     }
     try { entry.proc.kill(); } catch {}
     this.agents.delete(id);
+    this.removeFromRegistry(id);
     return true;
   }
 
   /** Kill all pool agents. */
   killAll(): void {
     for (const [id] of this.agents) this.kill(id);
+  }
+
+  // ─── Persistence registry (survives pi restart) ───────────────────
+
+  private get registryPath(): string {
+    return path.join(this.sessionDir, REGISTRY_FILENAME);
+  }
+
+  private saveToRegistry(record: PoolAgentRecord): void {
+    try {
+      const existing = this.loadRegistry();
+      existing.set(record.id, record);
+      const dir = path.dirname(this.registryPath);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(this.registryPath, JSON.stringify([...existing.values()], null, 2), "utf-8");
+    } catch {}
+  }
+
+  private removeFromRegistry(id: string): void {
+    try {
+      const existing = this.loadRegistry();
+      existing.delete(id);
+      fs.writeFileSync(this.registryPath, JSON.stringify([...existing.values()], null, 2), "utf-8");
+    } catch {}
+  }
+
+  loadRegistry(): Map<string, PoolAgentRecord> {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.registryPath, "utf-8"));
+      if (Array.isArray(raw)) {
+        return new Map(raw.map((r: PoolAgentRecord) => [r.id, r]));
+      }
+    } catch {}
+    return new Map();
+  }
+
+  /**
+   * Re-spawn saved agents from the registry after a restart.
+   * Returns the records that were successfully resumed.
+   */
+  async restoreSavedAgents(discoverAgent: (cwd: string, name: string) => AgentConfig | undefined): Promise<PoolAgentRecord[]> {
+    const registry = this.loadRegistry();
+    if (registry.size === 0) return [];
+    const restored: PoolAgentRecord[] = [];
+    for (const [id, record] of registry) {
+      if (this.agents.has(id)) continue;
+      const agent = discoverAgent(record.cwd ?? process.cwd(), record.agentName);
+      if (!agent) continue;
+      const result = await this.spawn({
+        id,
+        name: record.name,
+        agent,
+        task: record.task,
+        model: record.model,
+        cwd: record.cwd,
+        parentAgent: record.parentAgent,
+        depth: record.depth,
+        allowedSubagents: record.allowedSubagents,
+        stageResultPath: record.stageResultPath,
+      });
+      if (!result.error) restored.push(record);
+      else this.removeFromRegistry(id);
+    }
+    return restored;
   }
 }
 

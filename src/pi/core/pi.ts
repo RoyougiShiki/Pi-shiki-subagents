@@ -32,6 +32,7 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
 import { initModeWidget, destroyModeWidget } from "./mode-widget";
+import { resolveAgent } from "../../adapters/agent-discovery";
 import type { WorkflowStageToolResult } from "../../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
@@ -908,6 +909,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     } catch {}
 
     // omo_subagent replaces the old subagent tool - registered in registerSubagentTool
+
+    // Restore pool agents from registry (survives pi restart)
+    try {
+      const pool = getPool();
+      const restored = await pool.restoreSavedAgents(resolveAgent);
+      if (restored.length > 0) {
+        const names = restored.map((r) => r.name || r.agentName).join(", ");
+        console.error(`[omo-subagent] Restored ${restored.length} pool agent(s): ${names}`);
+      }
+    } catch {}
   });
 
   // ── Inject orchestrator system prompt ───────────────────────────────
