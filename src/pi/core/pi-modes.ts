@@ -297,7 +297,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
         const agent = getAgent(trimmed);
         if (agent && (agent.type === "mode" || agent.type === "both")) {
           applyMode(pi, trimmed);
-          ctx.ui.notify(`切换到: ${trimmed}`, "info");
+          ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
         }
@@ -315,7 +315,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
       applyMode(pi, picked);
-      ctx.ui.notify(`切换到: ${picked}`, "info");
+      ctx.ui.setStatus("mode", `Mode: ${picked}`);
     },
   });
 }
