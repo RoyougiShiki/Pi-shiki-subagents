@@ -356,8 +356,11 @@ function registerModeHooks(pi: ExtensionAPI): void {
     _agentDefs = null;
     _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
-    if (process.env.OMO_SUB_AGENT === "1" && subagentName && applyAgentTools(pi, subagentName, true)) {
-      return;
+    if (process.env.OMO_SUB_AGENT === "1" && subagentName) {
+      console.error(`[omo-modes] session_start sub-agent: ${subagentName}`);
+      const ok = applyAgentTools(pi, subagentName, true);
+      console.error(`[omo-modes] applyAgentTools result: ${ok}`);
+      if (ok) return;
     }
     const mode = loadActiveMode();
     applyMode(pi, mode);

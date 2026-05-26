@@ -912,7 +912,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     } catch {}
 
 
-    // omo_subagent replaces the old subagent tool - registered in registerSubagentTool
   });
 
   // ── Inject orchestrator system prompt ───────────────────────────────
