@@ -250,6 +250,17 @@ function resolveAgentTools(agent: AgentDefinition): string[] {
   return agent.tools || [];
 }
 
+// ── Mode change callback (wired by composition root) ─────────────────
+let _onModeChange: ((mode: string) => void) | null = null;
+
+/**
+ * Register a callback invoked after every mode switch.
+ * Called by pi.ts (composition root) to wire view layer updates.
+ */
+export function setOnModeChange(cb: (mode: string) => void): void {
+  _onModeChange = cb;
+}
+
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 function registerModeCommands(pi: ExtensionAPI): void {
@@ -298,6 +309,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
         if (agent && (agent.type === "mode" || agent.type === "both")) {
           applyMode(pi, trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
+          try { _onModeChange?.(trimmed); } catch {}
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
         }
@@ -316,6 +328,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
       if (!picked || picked === current) return;
       applyMode(pi, picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
+      try { _onModeChange?.(picked); } catch {}
     },
   });
 }

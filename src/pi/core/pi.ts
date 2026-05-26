@@ -30,7 +30,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadActiveMode, getModeInstructions } from "./pi-modes";
+import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
+import { initModeWidget, destroyModeWidget, updateModeWidget } from "./mode-widget";
 import type { WorkflowStageToolResult } from "../../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
@@ -897,10 +898,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     ensureAgentFiles();
 
-    // Update status with current mode (default: coordinator)
+    // Initialise modes logic → view wiring (composition root)
     try {
-      const m = loadActiveMode() || "coordinator";
-      ctx.ui.setStatus("mode", `Mode: ${m}`);
+      setOnModeChange(updateModeWidget);
+      initModeWidget(ctx, loadActiveMode() || "coordinator");
     } catch {}
 
     // omo_subagent replaces the old subagent tool - registered in registerSubagentTool
@@ -1255,6 +1256,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Cleanup on session shutdown ────────────────────────────────────
   pi.on("session_shutdown", async () => {
+    try {
+      destroyModeWidget();
+    } catch {}
     try {
       const { getPool } = await import("../subagent/subagent-pool");
       getPool().killAll();
