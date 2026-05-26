@@ -31,7 +31,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
-import type { WorkflowStageToolResult } from "../../core/workflow-types";
+import type { WorkflowStageToolResult, StageResultComplete, StageResultAskUser } from "../../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
   formatPiCouncilResults,
@@ -46,7 +46,8 @@ export { formatPiCouncilResults, resolvePiCouncilParticipants } from "../meeting
 
 
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "../meeting/pi-meeting";
-import { registerSubagentTool, getPool, getPoolProcess, type PoolAgentInfo } from "../subagent/subagent-pool";
+import { registerSubagentTool, getPool, initPoolModelResolver, type PoolAgentInfo } from "../subagent/subagent-pool";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
@@ -704,10 +705,9 @@ function createToolImplementations(config: OmniMoConfig | null) {
             return { content: [{ type: "text" as const, text: resolved.error }], details: {}, isError: true };
           }
 
-          const { spawn } = await import("node:child_process");
           const hub = getHub();
           const meetingId = `omo-meet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-          const spawnedProcs: import("node:child_process").ChildProcess[] = [];
+          const spawnedSessions: AgentSession[] = [];
           const errors: string[] = [];
 
           // 启动每个 participant RPC 进程
@@ -731,20 +731,18 @@ function createToolImplementations(config: OmniMoConfig | null) {
             ].filter(Boolean).join("\n");
 
             try {
-              const sessionDir = path.join(homedir(), ".pi", "agent", "sessions", "subagents");
-              fs.mkdirSync(sessionDir, { recursive: true });
-              const proc = spawn("pi", ["--mode", "rpc", "--session-dir", sessionDir], {
-                stdio: ["pipe", "pipe", "pipe"],
-                env: { ...process.env, OMO_SUB_AGENT: "1" },
+              const created = await createAgentSession({
+                cwd: ctx.cwd,
+                sessionManager: SessionManager.inMemory(),
               });
-              spawnedProcs.push(proc);
-              proc.stdin!.write(JSON.stringify({ type: "prompt", message: task }) + "\n");
+              spawnedSessions.push(created.session);
+              await created.session.prompt(task);
             } catch (e: any) {
               errors.push(`${participant.name}: spawn failed - ${e.message}`);
             }
           }
 
-          if (spawnedProcs.length === 0) {
+          if (spawnedSessions.length === 0) {
             return {
               content: [{ type: "text" as const, text: `❌ 群聊创建失败,所有参与者都无法启动。\n${errors.join("\n")}` }],
               details: { mode, question: params.question, errors },
@@ -754,11 +752,11 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
           // 注册到 hub
           const participants = resolved.participants
-            .filter((_, i) => i < spawnedProcs.length)
+            .filter((_, i) => i < spawnedSessions.length)
             .map((p, i) => ({
               name: p.name,
               agentType: p.agent,
-              proc: spawnedProcs[i],
+              session: spawnedSessions[i],
             }));
           hub.registerMeeting(meetingId, params.question.slice(0, 60), participants);
 
@@ -895,6 +893,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Capture ctx for WorkflowManager chat overlay
     _sessionCtx = ctx;
 
+    // Wire model resolver so pool sub-agents get preset models
+    initPoolModelResolver((modelId) => {
+      const slash = modelId.indexOf("/");
+      if (slash <= 0) return undefined;
+      return ctx.modelRegistry.find(modelId.slice(0, slash), modelId.slice(slash + 1));
+    });
+
     ensureAgentFiles();
 
     // Wire mode change → status bar
@@ -966,9 +971,32 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     parameters: Type.Object({
       summary: Type.String({ description: "简短阶段总结" }),
       context: Type.String({ description: "传给下一阶段的上下文" }),
+      evidence: Type.Optional(Type.Array(Type.Object({
+        path: Type.Optional(Type.String({ description: "文件路径" })),
+        source: Type.Optional(Type.String({ description: "来源" })),
+        reason: Type.String({ description: "引用理由" }),
+      }), { description: "证据引用" })),
+      artifacts: Type.Optional(Type.Object({
+        files: Type.Optional(Type.Array(Type.String({ description: "文件列表" }))),
+        decisions: Type.Optional(Type.Array(Type.String({ description: "决策记录" }))),
+        risks: Type.Optional(Type.Array(Type.String({ description: "风险点" }))),
+        commands: Type.Optional(Type.Array(Type.String({ description: "可执行命令" }))),
+      }, { description: "产出物" })),
+      suggestedNext: Type.Optional(Type.Object({
+        branch: Type.Optional(Type.String({ description: "建议分支" })),
+        reason: Type.Optional(Type.String({ description: "理由" })),
+      }, { description: "下步建议" })),
     }),
     async execute(_toolCallId, params) {
-      const ok = writeWorkflowStageResult({ type: "complete", summary: params.summary, context: params.context }, process.env.OMO_STAGE_RESULT_PATH);
+      const result: StageResultComplete = {
+        type: "complete",
+        summary: params.summary,
+        context: params.context,
+        evidence: (params as any).evidence,
+        artifacts: (params as any).artifacts,
+        suggestedNext: (params as any).suggestedNext,
+      };
+      const ok = writeWorkflowStageResult(result, process.env.OMO_STAGE_RESULT_PATH);
       return ok
         ? { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } }
         : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
@@ -980,12 +1008,29 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     label: "Stage Ask User",
     description: "workflow stage 子代理需要用户输入时调用,写入结构化提问结果。",
     parameters: Type.Object({
-      summary: Type.String({ description: "当前阶段简短状态" }),
-      question: Type.String({ description: "要问用户的问题" }),
+      summary: Type.String({ description: "当前阶段状态" }),
+      question: Type.String({ description: "问题" }),
       options: Type.Optional(Type.Array(Type.String({ description: "可选项" }))),
+      evidence: Type.Optional(Type.Array(Type.Object({
+        path: Type.Optional(Type.String({ description: "文件路径" })),
+        source: Type.Optional(Type.String({ description: "来源" })),
+        reason: Type.String({ description: "引用理由" }),
+      }), { description: "证据引用" })),
+      artifacts: Type.Optional(Type.Object({
+        decisions: Type.Optional(Type.Array(Type.String({ description: "决策记录" }))),
+        risks: Type.Optional(Type.Array(Type.String({ description: "风险点" }))),
+      }, { description: "产出物" })),
     }),
     async execute(_toolCallId, params) {
-      const ok = writeWorkflowStageResult({ type: "ask_user", summary: params.summary, question: params.question, options: params.options }, process.env.OMO_STAGE_RESULT_PATH);
+      const result: StageResultAskUser = {
+        type: "ask_user",
+        summary: params.summary,
+        question: params.question,
+        options: params.options,
+        evidence: (params as any).evidence,
+        artifacts: (params as any).artifacts,
+      };
+      const ok = writeWorkflowStageResult(result, process.env.OMO_STAGE_RESULT_PATH);
       return ok
         ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
         : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
@@ -1006,7 +1051,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   bindWorkflowChatBridge({
     manager: workflowManager,
     hub: getHub(),
-    getPoolProcess,
+    getPoolSession: (id) => getPool().getSession(id),
     autoOpenChat,
     getSessionCtx: () => _sessionCtx,
     notify: (message, level = 'info') => _sessionCtx?.ui.notify(message, level),
@@ -1234,16 +1279,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       if (picked.type === "chat") {
         const existing = hub.getMeeting(picked.meetingId);
         if (!existing) {
-          const proc = getPoolProcess(picked.meetingId);
-          if (!proc) {
-            ctx.ui.notify("子代理进程已不存在", "error");
+          const session = getPool().getSession(picked.meetingId);
+          if (!session) {
+            ctx.ui.notify("子代理会话已不存在", "error");
             return;
           }
           const agentInfo = agents.find((a: PoolAgentInfo) => a.id === picked.meetingId);
           hub.registerChat(picked.meetingId, picked.name, {
             name: picked.name,
             agentType: agentInfo?.agentName ?? "agent",
-            proc,
+            session,
           }, undefined, {
             scope: "pool",
             state: agentInfo?.status === "streaming" || agentInfo?.status === "starting" ? "working" : "idle",
@@ -1261,7 +1306,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     try {
       const { getPool } = await import("../subagent/subagent-pool");
-      getPool().killAll();
+      await getPool().killAll();
     } catch (err) {
       console.error("[pi-hub] Cleanup error:", err);
     }

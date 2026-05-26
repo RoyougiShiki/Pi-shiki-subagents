@@ -73,6 +73,9 @@ export interface StageResultComplete {
   type: "complete";
   summary: string;
   context: string;
+  evidence?: StageOutput["evidence"];
+  artifacts?: StageOutput["artifacts"];
+  suggestedNext?: StageOutput["suggestedNext"];
 }
 
 export interface StageResultAskUser {
@@ -80,6 +83,9 @@ export interface StageResultAskUser {
   summary: string;
   question: string;
   options?: string[];
+  evidence?: StageOutput["evidence"];
+  artifacts?: StageOutput["artifacts"];
+  suggestedNext?: StageOutput["suggestedNext"];
 }
 
 export type WorkflowStageToolResult = StageResultComplete | StageResultAskUser;

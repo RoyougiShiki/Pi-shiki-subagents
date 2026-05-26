@@ -43,7 +43,7 @@ export function createSearchAgent(
   }
 
   return {
-    name: 'search',
+    name: "",
     description:
       'Comprehensive research specialist. Searches local codebase and external documentation. Use for finding files, patterns, docs, and examples.',
     config: {

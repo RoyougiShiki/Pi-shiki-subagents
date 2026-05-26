@@ -57,7 +57,7 @@ export function createFixerAgent(
   }
 
   return {
-    name: 'fixer',
+    name: "",
     description:
       'Fast implementation specialist. Receives complete context and task spec, executes code changes efficiently.',
     config: {

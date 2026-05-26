@@ -19,7 +19,7 @@ const HOOK_NAME = 'background-task';
 const z = tool.schema;
 
 /** Default agent when subagent_type is not specified. */
-const DEFAULT_AGENT = 'explorer';
+const DEFAULT_AGENT = 'search';
 
 interface TaskToolArgs {
   description?: string;

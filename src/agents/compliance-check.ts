@@ -34,7 +34,7 @@ export function createComplianceCheckAgent(
   }
 
   return {
-    name: 'compliance-check',
+    name: '',
     description:
       'Compliance checker for mode prompt rule violations. Analyzes agent output against mode rules.',
     config: {

@@ -1,7 +1,32 @@
 import { describe, expect, mock, test } from 'bun:test';
-import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { ExtensionContext, AgentSession } from '@earendil-works/pi-coding-agent';
 import type { StageEvent } from '../core/workflow-types';
-import { bindWorkflowChatBridge } from './workflow-chat-binding';
+import { bindWorkflowChatBridge } from '../pi/workflow/workflow-chat-binding';
+
+function createMockSession(): AgentSession {
+  return {
+    steer: mock(() => Promise.resolve()),
+    prompt: mock(() => Promise.resolve()),
+    followUp: mock(() => Promise.resolve()),
+    subscribe: mock(() => () => {}),
+    abort: mock(() => Promise.resolve()),
+    dispose: mock(() => {}),
+    isStreaming: false,
+    agent: { waitForIdle: mock(() => Promise.resolve()), state: { messages: [] } } as any,
+    messages: [],
+    model: undefined,
+    thinkingLevel: 'off' as any,
+    sessionFile: undefined,
+    sessionId: 'test',
+    setModel: mock(() => Promise.resolve()),
+    setThinkingLevel: mock(() => {}),
+    cycleModel: mock(() => Promise.resolve(undefined)),
+    cycleThinkingLevel: mock(() => undefined),
+    compact: mock(() => Promise.resolve({} as any)),
+    abortCompaction: mock(() => {}),
+    navigateTree: mock(() => Promise.resolve({ editorText: undefined, cancelled: false })),
+  } as unknown as AgentSession;
+}
 
 describe('bindWorkflowChatBridge', () => {
   test('registers a private chat on running and routes user messages to workflow manager', async () => {
@@ -20,8 +45,8 @@ describe('bindWorkflowChatBridge', () => {
       registerChat,
       updateChatStatus: mock(() => {}),
     };
-    const proc = { pid: 1234 } as any;
-    const getPoolProcess = mock(() => proc);
+    const session = createMockSession();
+    const getPoolSession = mock(() => session);
     const autoOpenChat = mock(() => {});
     const notify = mock(() => {});
     const setStatus = mock(() => {});
@@ -29,7 +54,7 @@ describe('bindWorkflowChatBridge', () => {
     let sessionCtx: ExtensionContext | null = null;
 
     const sendAgentMessage = mock(() => {});
-    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => sessionCtx, notify, setStatus, clearStatus, sendAgentMessage });
+    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolSession, autoOpenChat, getSessionCtx: () => sessionCtx, notify, setStatus, clearStatus, sendAgentMessage });
 
     handlers[0]!({ type: 'running', agent: 'worker', stageId: 's1', poolId: 'p1' });
 
@@ -70,13 +95,14 @@ describe('bindWorkflowChatBridge', () => {
       registerChat: mock(() => ({})),
       updateChatStatus: mock(() => {}),
     };
-    const getPoolProcess = mock(() => ({ pid: 1234 }));
+    const session = createMockSession();
+    const getPoolSession = mock(() => session);
     const autoOpenChat = mock(() => {});
     const notify = mock(() => {});
     const setStatus = mock(() => {});
     const clearStatus = mock(() => {});
 
-    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolProcess, autoOpenChat, getSessionCtx: () => null, notify, setStatus, clearStatus });
+    bindWorkflowChatBridge({ manager: manager as any, hub: hub as any, getPoolSession, autoOpenChat, getSessionCtx: () => null, notify, setStatus, clearStatus });
 
     handlers[0]!({ type: 'running', agent: 'worker', stageId: 's1', poolId: 'p1' });
     handlers[0]!({ type: 'message', agent: 'worker', stageId: 's1', poolId: 'p1', text: 'assistant says hi' });

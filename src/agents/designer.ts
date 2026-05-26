@@ -70,7 +70,7 @@ export function createDesignerAgent(
   }
 
   return {
-    name: 'designer',
+    name: "",
     description:
       'UI/UX design, review, and implementation. Use for styling, responsive design, component architecture and visual polish.',
     config: {

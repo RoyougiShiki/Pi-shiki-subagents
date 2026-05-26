@@ -78,7 +78,7 @@ export function createCouncilAgent(
   );
 
   const definition: AgentDefinition = {
-    name: 'council',
+    name: "",
     description:
       'Multi-LLM council agent that synthesizes responses from multiple models for higher-quality outputs',
     config: {

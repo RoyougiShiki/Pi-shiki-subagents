@@ -1,13 +1,10 @@
 // Agent names
 export const AGENT_ALIASES: Record<string, string> = {
-  explore: 'explorer',
   'frontend-ui-ux-engineer': 'designer',
 };
 
 export const SUBAGENT_NAMES = [
   'search',
-  'explorer',
-  'librarian',
   'oracle',
   'designer',
   'fixer',
@@ -26,14 +23,11 @@ export type AgentName = (typeof ALL_AGENT_NAMES)[number];
 // Subagent delegation rules: which agents can spawn which subagents
 // orchestrator: can spawn all subagents (full delegation)
 // fixer: leaf node — prompt forbids delegation; use grep/glob for lookups
-// designer: can spawn explorer (for research during design)
-// explorer/librarian/oracle: cannot spawn any subagents (leaf nodes)
-// Unknown agent types not listed here default to explorer-only access
+// oracle: cannot spawn any subagents (leaf node)
+// Unknown agent types not listed here default to restricted access
 // Which agents each agent type can spawn via delegation.
 // councillor is internal — only CouncilManager spawns it.
 export const ORCHESTRATABLE_AGENTS = [
-  'explorer',
-  'librarian',
   'oracle',
   'designer',
   'fixer',
@@ -58,9 +52,7 @@ export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
   orchestrator: ORCHESTRATABLE_AGENTS,
   fixer: [],
   designer: [],
-  explorer: [],
   search: [],
-  librarian: [],
   oracle: [],
   observer: [],
   council: [],
@@ -69,18 +61,8 @@ export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
 
 // Default models for each agent
 // orchestrator is undefined so its model is fully resolved at runtime via priority fallback
-export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
-  orchestrator: undefined,
-  oracle: 'openai/gpt-5.5',
-  librarian: 'openai/gpt-5.4-mini',
-  explorer: 'openai/gpt-5.4-mini',
-  search: 'openai/gpt-5.4-mini',
-  designer: 'openai/gpt-5.4-mini',
-  fixer: 'openai/gpt-5.4-mini',
-  observer: 'openai/gpt-5.4-mini',
-  council: 'openai/gpt-5.4-mini',
-  councillor: 'openai/gpt-5.4-mini',
-};
+// DEFAULT_MODELS is intentionally removed. Only active preset configures models.
+// Ultimate fallback is "openai/gpt-4o-mini" used directly where needed.
 
 // Polling configuration
 export const POLL_INTERVAL_MS = 500;

@@ -1,5 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import type { ChildProcess } from 'node:child_process';
+import type { ExtensionAPI, ExtensionContext, AgentSession } from '@earendil-works/pi-coding-agent';
 import type { StageEvent } from '../../core/workflow-types';
 import type { WorkflowManager } from '../workflow/workflow-manager';
 
@@ -10,13 +9,13 @@ export function bindWorkflowChatBridge(args: {
     registerChat(
       id: string,
       name: string,
-      participant: { name: string; agentType: string; proc: ChildProcess },
+      participant: { name: string; agentType: string; session: AgentSession },
       onUserMessage?: (message: string) => Promise<{ response?: string; error?: string } | void>,
       chatStatus?: { scope?: 'workflow' | 'pool' | 'standalone'; state?: 'working' | 'waiting' | 'idle' | 'failed' | 'dead' | 'done'; startedAt?: number; fallbackRecommended?: boolean },
     ): unknown;
     updateChatStatus(id: string, patch: { state?: 'working' | 'waiting' | 'idle' | 'failed' | 'dead' | 'done'; fallbackRecommended?: boolean }): void;
   };
-  getPoolProcess: (id: string) => ChildProcess | undefined;
+  getPoolSession: (id: string) => AgentSession | undefined;
   autoOpenChat: (meetingId: string, displayName: string, ctx: ExtensionContext) => void;
   getSessionCtx: () => ExtensionContext | null;
   notify?: (message: string, level?: 'info' | 'warning' | 'error' | 'success') => void;
@@ -27,12 +26,12 @@ export function bindWorkflowChatBridge(args: {
   return args.manager.onEvent((event: StageEvent) => {
     if (event.type === 'running') {
       if (!args.hub.getMeeting(event.poolId)) {
-        const proc = args.getPoolProcess(event.poolId);
-        if (proc) {
+        const session = args.getPoolSession(event.poolId);
+        if (session) {
           args.hub.registerChat(event.poolId, event.agent, {
             name: event.agent,
             agentType: event.agent,
-            proc,
+            session,
           }, (message) => args.manager.sendUserMessage(message), {
             scope: 'workflow',
             state: 'working',

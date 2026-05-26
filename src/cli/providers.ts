@@ -11,24 +11,18 @@ export const MODEL_MAPPINGS = {
   openai: {
     orchestrator: { model: 'openai/gpt-5.5' },
     oracle: { model: 'openai/gpt-5.5', variant: 'high' },
-    librarian: { model: 'openai/gpt-5.4-mini', variant: 'low' },
-    explorer: { model: 'openai/gpt-5.4-mini', variant: 'low' },
     designer: { model: 'openai/gpt-5.4-mini', variant: 'medium' },
     fixer: { model: 'openai/gpt-5.4-mini', variant: 'low' },
   },
   kimi: {
     orchestrator: { model: 'kimi-for-coding/k2p5' },
     oracle: { model: 'kimi-for-coding/k2p5', variant: 'high' },
-    librarian: { model: 'kimi-for-coding/k2p5', variant: 'low' },
-    explorer: { model: 'kimi-for-coding/k2p5', variant: 'low' },
     designer: { model: 'kimi-for-coding/k2p5', variant: 'medium' },
     fixer: { model: 'kimi-for-coding/k2p5', variant: 'low' },
   },
   copilot: {
     orchestrator: { model: 'github-copilot/claude-opus-4.6' },
     oracle: { model: 'github-copilot/claude-opus-4.6', variant: 'high' },
-    librarian: { model: 'github-copilot/grok-code-fast-1', variant: 'low' },
-    explorer: { model: 'github-copilot/grok-code-fast-1', variant: 'low' },
     designer: {
       model: 'github-copilot/gemini-3.1-pro-preview',
       variant: 'medium',
@@ -38,8 +32,6 @@ export const MODEL_MAPPINGS = {
   'zai-plan': {
     orchestrator: { model: 'zai-coding-plan/glm-5' },
     oracle: { model: 'zai-coding-plan/glm-5', variant: 'high' },
-    librarian: { model: 'zai-coding-plan/glm-5', variant: 'low' },
-    explorer: { model: 'zai-coding-plan/glm-5', variant: 'low' },
     designer: { model: 'zai-coding-plan/glm-5', variant: 'medium' },
     fixer: { model: 'zai-coding-plan/glm-5', variant: 'low' },
   },
@@ -50,8 +42,33 @@ export function generateLiteConfig(
 ): Record<string, unknown> {
   const config: Record<string, unknown> = {
     $schema: SCHEMA_URL,
-    preset: 'openai',
-    presets: {},
+    preset: '省钱模式',
+    presets: {
+      '省钱模式': {
+        'thinker-clarify': { model: '<YOUR_MODEL>' },
+        'thinker-analysis': { model: '<YOUR_MODEL>' },
+        worker: { model: '<YOUR_MODEL>' },
+        dispatcher: { model: '<YOUR_MODEL>' },
+        search: { model: '<YOUR_MODEL>' },
+        oracle: { model: '<YOUR_MODEL>' },
+        designer: { model: '<YOUR_MODEL>' },
+        fixer: { model: '<YOUR_MODEL>' },
+        observer: { model: '<YOUR_MODEL>' },
+        council: { model: '<YOUR_MODEL>' },
+      },
+      '性能模式': {
+        'thinker-clarify': { model: '<YOUR_MODEL>' },
+        'thinker-analysis': { model: '<YOUR_MODEL>' },
+        worker: { model: '<YOUR_MODEL>' },
+        dispatcher: { model: '<YOUR_MODEL>' },
+        search: { model: '<YOUR_MODEL>' },
+        oracle: { model: '<YOUR_MODEL>' },
+        designer: { model: '<YOUR_MODEL>' },
+        fixer: { model: '<YOUR_MODEL>' },
+        observer: { model: '<YOUR_MODEL>' },
+        council: { model: '<YOUR_MODEL>' },
+      },
+    },
   };
 
   const createAgentConfig = (
@@ -97,9 +114,6 @@ export function generateLiteConfig(
       ]),
     );
   };
-
-  // Always use OpenAI as default
-  (config.presets as Record<string, unknown>).openai = buildPreset('openai');
 
   return config;
 }

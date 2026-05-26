@@ -71,14 +71,14 @@ export const ORCHESTRATOR_INTENT_GATE_REMINDER =
   'Before any action, output one line: "Intent: [type]". Then execute.';
 
 export const ORCHESTRATOR_AGENT_DESCRIPTIONS = {
-  explorer: `@explorer
-- Role: Parallel search specialist. "Where is X?" → @explorer. "Implement X" → yourself.
+  explorer: `@search
+- Role: Search specialist. "Where is X?" → @search. "Implement X" → yourself.
 - Permissions: Read files
 - Delegate when: Prefer for codebase search/investigation • Broad/uncertain scope • Need summarized map vs full contents
 - Don't delegate when: Know the path and need actual content • About to edit the file`,
 
-  librarian: `@librarian
-- Role: Research specialist for docs/examples. "How does this library work?" → @librarian. General programming → yourself.
+  librarian: `@search
+- Role: Research specialist for docs/examples. "How does this library work?" → @search. General programming → yourself.
 - Permissions: None
 - Delegate when: Prefer for external library docs/API references • Unfamiliar library • Version-specific behavior matters
 - Don't delegate when: Standard usage you're confident • General programming knowledge • Built-in language features`,
@@ -128,10 +128,10 @@ export const ORCHESTRATOR_VALIDATION_ROUTING = [
 ] as const;
 
 export const ORCHESTRATOR_PARALLEL_DELEGATION_EXAMPLES = [
-  '- Multiple @explorer searches across different domains?',
-  '- @explorer + @librarian research in parallel?',
+  '- Multiple @search across different domains?',
+  '- @search across multiple sources in parallel?',
   '- Multiple @fixer instances for faster, scoped implementation?',
-  '- @observer + @explorer in parallel (visual analysis + code search)?',
+  '- @observer + @search in parallel (visual analysis + code search)?',
 ] as const;
 
 export const DISAMBIGUATION_GATE_BLOCK_MESSAGE =

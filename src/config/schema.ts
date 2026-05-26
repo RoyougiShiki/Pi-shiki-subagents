@@ -8,8 +8,6 @@ const FALLBACK_AGENT_NAMES = [
   'oracle',
   'designer',
   'search',
-  'explorer',
-  'librarian',
   'fixer',
 ] as const;
 
@@ -18,8 +16,6 @@ const MANUAL_AGENT_NAMES = [
   'oracle',
   'designer',
   'search',
-  'explorer',
-  'librarian',
   'fixer',
 ] as const;
 

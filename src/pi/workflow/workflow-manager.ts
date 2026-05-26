@@ -41,8 +41,7 @@ export interface WorkflowPool {
     stageResultPath?: string;
   }): Promise<{ response: string; error?: string }>;
   sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }>;
-  kill(id: string): boolean;
-  getProcess?(id: string): { stdin: { write(data: string): void } | null } | undefined;
+  kill(id: string): Promise<boolean>;
 }
 
 export interface WorkflowManagerOptions {
@@ -72,7 +71,7 @@ function parseWorkflowStageToolResult(text: string): { result?: WorkflowStageToo
     if (typeof candidate.context !== "string") {
       return { error: "stage_complete.context must be a string" };
     }
-    return { result: { type: "complete", summary: candidate.summary, context: candidate.context } };
+    return { result: { type: "complete", summary: candidate.summary, context: candidate.context, evidence: (candidate as any).evidence, artifacts: (candidate as any).artifacts, suggestedNext: (candidate as any).suggestedNext } };
   }
 
   if (candidate.type === "ask_user") {
@@ -91,6 +90,8 @@ function parseWorkflowStageToolResult(text: string): { result?: WorkflowStageToo
         summary: candidate.summary,
         question: candidate.question,
         options: Array.isArray(candidate.options) ? candidate.options.filter((v): v is string => typeof v === "string") : undefined,
+        evidence: (candidate as any).evidence,
+        artifacts: (candidate as any).artifacts,
       },
     };
   }
@@ -100,12 +101,14 @@ function parseWorkflowStageToolResult(text: string): { result?: WorkflowStageToo
 
 function stageResultToStageOutput(result: WorkflowStageToolResult): StageOutput {
   if (result.type === "complete") {
-    return { status: "complete", summary: result.summary, context: result.context };
+    return { status: "complete", summary: result.summary, context: result.context, evidence: result.evidence, artifacts: result.artifacts, suggestedNext: result.suggestedNext };
   }
   return {
     status: "needs_user",
     summary: result.summary,
     context: "",
+    evidence: result.evidence,
+    artifacts: result.artifacts,
     openQuestions: [{ question: result.question, options: result.options }],
   };
 }
@@ -363,11 +366,8 @@ export class WorkflowManager {
           (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
         );
         try {
-          const proc = this.pool.getProcess?.(poolId);
-          if (proc?.stdin) {
-            const note = this.transitionPending?.rejectMessage || "Your completion request was rejected. Continue working.";
-            proc.stdin.write(JSON.stringify({ type: "steer", message: note }) + "\n");
-          }
+          const note = this.transitionPending?.rejectMessage || "Your completion request was rejected. Continue working.";
+          this.pool.sendPrompt(poolId, note, 'steer').catch(() => {});
         } catch {}
         this.emit({ type: "complete", agent: node.agent, stageId, poolId, output });
         output = await this.waitForUserCompletion();

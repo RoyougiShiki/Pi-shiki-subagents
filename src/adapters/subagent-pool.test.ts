@@ -1,27 +1,6 @@
-import { EventEmitter } from 'node:events';
-import { describe, expect, test } from 'bun:test';
-import { AgentPool, buildSubagentEnv } from './subagent-pool';
+import { describe, expect, test, mock } from 'bun:test';
+import { AgentPool } from '../pi/subagent/subagent-pool';
 import type { AgentConfig } from './agent-discovery';
-
-class FakeStream extends EventEmitter {
-  writes: string[] = [];
-  write(chunk: string): boolean {
-    this.writes.push(chunk);
-    return true;
-  }
-}
-
-class FakeChildProcess extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-  stdin = new FakeStream();
-  killed = false;
-  kill(): boolean {
-    this.killed = true;
-    this.emit('close', null);
-    return true;
-  }
-}
 
 function makeAgent(name = 'worker'): AgentConfig {
   return {
@@ -32,106 +11,233 @@ function makeAgent(name = 'worker'): AgentConfig {
   };
 }
 
-function agentEnd(text: string): Buffer {
-  return Buffer.from(JSON.stringify({
-    type: 'agent_end',
-    messages: [
-      { role: 'assistant', content: [{ type: 'text', text }] },
-    ],
-  }) + '\n');
+/**
+ * Create a mock createAgentSession that returns a controllable session.
+ * prompt() resolves when _simulateAgentEnd() is called.
+ * messages() returns the last simulated assistant response.
+ */
+function mockCreateSession() {
+  const listeners: Array<(event: any) => void> = [];
+  let resolvePrompt: ((value: unknown) => void) | null = null;
+  let rejectPrompt: ((reason: any) => void) | null = null;
+  let latestMessages: any[] = [];
+
+  const session = {
+    steer: mock(() => Promise.resolve()),
+    followUp: mock(() => Promise.resolve()),
+    subscribe: mock((cb: (event: any) => void) => {
+      listeners.push(cb);
+      return () => {};
+    }),
+    abort: mock(() => {
+      // Simulate SDK behavior: abort rejects pending prompt
+      if (rejectPrompt) {
+        const rj = rejectPrompt;
+        rejectPrompt = null;
+        resolvePrompt = null;
+        rj(new Error('Aborted'));
+      }
+      return Promise.resolve();
+    }),
+    dispose: mock(() => {}),
+    isStreaming: false,
+    get model() { return { provider: 'test', id: 'mock-model' }; },
+    get messages() { return latestMessages; },
+    agent: {
+      waitForIdle: mock(() => Promise.resolve()),
+      state: { messages: [] },
+    },
+    sessionFile: undefined,
+    sessionId: 'mock-session',
+    setModel: mock(() => Promise.resolve()),
+    setThinkingLevel: mock(() => {}),
+    cycleModel: mock(() => Promise.resolve(undefined)),
+    cycleThinkingLevel: mock(() => undefined),
+    compact: mock(() => Promise.resolve({} as any)),
+    abortCompaction: mock(() => {}),
+    navigateTree: mock(() => Promise.resolve({ editorText: undefined, cancelled: false })),
+    prompt: mock(async (_text: string) => {
+      return new Promise((resolve, reject) => {
+        resolvePrompt = resolve;
+        rejectPrompt = reject;
+      });
+    }),
+    setSteeringMode: mock(() => {}),
+    setFollowUpMode: mock(() => {}),
+    setAutoCompactionEnabled: mock(() => {}),
+    setAutoRetryEnabled: mock(() => {}),
+    getSessionStats: mock(() => ({})),
+    getActiveToolNames: mock(() => []),
+    getAllTools: mock(() => []),
+    _simulateResponse(text: string) {
+      latestMessages = [
+        { role: 'assistant', content: [{ type: 'text', text }] },
+      ];
+      for (const cb of listeners) {
+        cb({ type: 'agent_end', messages: latestMessages });
+      }
+      if (resolvePrompt) {
+        const rp = resolvePrompt;
+        resolvePrompt = null;
+        rejectPrompt = null;
+        rp(undefined);
+      }
+    },
+  };
+
+  const createSession = mock(async () => ({ session, extensionsResult: {} as any, modelFallbackMessage: undefined }));
+
+  return { session, createSession };
 }
 
-async function tick(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-describe('subagent pool env', () => {
-  test('builds agent identity and allowedSubagents env', () => {
-    const env = buildSubagentEnv({
-      baseEnv: { KEEP: 'yes' },
-      agentName: 'worker',
-      depth: 1,
-      parentAgent: 'coordinator',
-      allowedSubagents: ['oracle'],
-      stageResultPath: '/tmp/stage-result.json',
-    });
-
-    expect(env.KEEP).toBe('yes');
-    expect(env.OMO_SUB_AGENT).toBe('1');
-    expect(env.OMO_AGENT_NAME).toBe('worker');
-    expect(env.OMO_SUBAGENT_DEPTH).toBe('1');
-    expect(env.OMO_PARENT_AGENT_NAME).toBe('coordinator');
-    expect(env.OMO_ALLOWED_SUBAGENTS).toBe('oracle');
-    expect(env.OMO_STAGE_RESULT_PATH).toBe('/tmp/stage-result.json');
-  });
-
-  test('omits optional env values when absent', () => {
-    const env = buildSubagentEnv({
-      baseEnv: {},
-      agentName: 'oracle',
-    });
-
-    expect(env.OMO_SUB_AGENT).toBe('1');
-    expect(env.OMO_AGENT_NAME).toBe('oracle');
-    expect(env.OMO_SUBAGENT_DEPTH).toBe('1');
-    expect(env.OMO_PARENT_AGENT_NAME).toBeUndefined();
-    expect(env.OMO_ALLOWED_SUBAGENTS).toBeUndefined();
-  });
-
-  test('preserves empty allowedSubagents as an explicit no-delegation env', () => {
-    const env = buildSubagentEnv({
-      baseEnv: {},
-      agentName: 'worker',
-      allowedSubagents: [],
-    });
-
-    expect(env.OMO_ALLOWED_SUBAGENTS).toBe('');
-  });
-});
-
-describe('AgentPool lifecycle', () => {
-  test('rejects concurrent sends while an agent is busy', async () => {
-    const child = new FakeChildProcess();
-    const pool = new AgentPool({
-      timeoutMs: 1000,
-      spawnProcess: () => child as any,
-      sessionDir: '/tmp/omo-subagent-test-sessions',
-    });
+describe('AgentPool basic operations', () => {
+  test('spawn creates agent and sends initial prompt', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
 
     const spawnPromise = pool.spawn({
-      id: 'busy-agent',
-      name: 'busy-agent',
+      id: 'test-agent',
+      name: 'test-agent',
       agent: makeAgent(),
-      task: 'initial',
+      task: 'do something',
     });
-    await tick();
 
-    const busy = await pool.sendPrompt('busy-agent', 'second prompt');
-    child.stdout.emit('data', agentEnd('done'));
-    const first = await spawnPromise;
+    // Let the microtask queue process
+    await new Promise(r => setTimeout(r, 10));
 
-    expect(busy.error).toBe('Agent "busy-agent" is busy');
-    expect(first.response).toBe('done');
-    expect(child.stdin.writes).toHaveLength(1);
+    // Simulate agent response
+    session._simulateResponse('task done');
+
+    const result = await spawnPromise;
+
+    expect(result.error).toBeUndefined();
+    expect(result.response).toBe('task done');
+    expect(pool.list()).toHaveLength(1);
+    expect(pool.list()[0].id).toBe('test-agent');
+    expect(pool.list()[0].status).toBe('idle');
+
+    await pool.kill('test-agent');
+    expect(pool.list()).toHaveLength(0);
+  });
+
+  test('sendPrompt sends to an existing agent', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    const spawnPromise = pool.spawn({
+      id: 'agent-send',
+      name: 'agent-send',
+      agent: makeAgent('thinker'),
+      task: 'initial task',
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+    session._simulateResponse('initial done');
+    await spawnPromise;
+
+    const sendPromise = pool.sendPrompt('agent-send', 'follow-up');
+    await new Promise(r => setTimeout(r, 10));
+    session._simulateResponse('follow-up done');
+
+    const result = await sendPromise;
+    expect(result.error).toBeUndefined();
+    expect(result.response).toBe('follow-up done');
+
+    await pool.kill('agent-send');
+  });
+
+  test('list returns agent info', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    const spawnPromise = pool.spawn({
+      id: 'list-agent',
+      name: 'list-agent',
+      agent: makeAgent(),
+      task: 'task',
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+    session._simulateResponse('ok');
+    await spawnPromise;
+
+    const agents = pool.list();
+    expect(agents.length).toBe(1);
+    expect(agents[0].id).toBe('list-agent');
+    expect(agents[0].status).toBe('idle');
+    expect(agents[0].model).toContain('mock');
+    expect(agents[0].startedAt).toBeGreaterThan(0);
+
+    await pool.killAll();
+    expect(pool.list()).toHaveLength(0);
+  });
+
+  test('kill removes agent from pool', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    const spawnPromise = pool.spawn({
+      id: 'kill-test',
+      name: 'kill-test',
+      agent: makeAgent(),
+      task: 'task',
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+    session._simulateResponse('ok');
+    await spawnPromise;
+
+    expect(pool.list()).toHaveLength(1);
+    const killed = await pool.kill('kill-test');
+    expect(killed).toBe(true);
+    expect(pool.list()).toHaveLength(0);
+  });
+
+  test('sendPrompt to non-existent agent returns error', async () => {
+    const pool = new AgentPool({ createSession: (() => { throw new Error('should not be called'); }) as any });
+    const result = await pool.sendPrompt('nonexistent', 'hello');
+    expect(result.error).toContain('not found');
+  });
+
+  test('registry persists across pool instances', () => {
+    const dir = '/tmp/omo-subagent-test-registry';
+    const { createSession: cs1 } = mockCreateSession();
+    const pool1 = new AgentPool({ sessionDir: dir, createSession: cs1 as any });
+
+    // Write directly to registry
+    pool1['saveToRegistry']({
+      id: 'persist-agent',
+      name: 'persist-agent',
+      agentName: 'worker',
+      task: 'persist task',
+      spawnedAt: Date.now(),
+    });
+
+    const entries = pool1.listRegistryEntries();
+    expect(entries.length).toBe(1);
+    expect(entries[0].id).toBe('persist-agent');
+
+    const pool2 = new AgentPool({ sessionDir: dir });
+    const entries2 = pool2.listRegistryEntries();
+    expect(entries2.length).toBe(1);
+    expect(entries2[0].id).toBe('persist-agent');
   });
 
   test('timeout kills the agent and removes it from the pool', async () => {
-    const child = new FakeChildProcess();
-    const pool = new AgentPool({
-      timeoutMs: 5,
-      spawnProcess: () => child as any,
-      sessionDir: '/tmp/omo-subagent-test-sessions',
-    });
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ timeoutMs: 5, createSession: createSession as any });
 
-    const result = await pool.spawn({
+    const spawnPromise = pool.spawn({
       id: 'timeout-agent',
       name: 'timeout-agent',
       agent: makeAgent(),
       task: 'initial',
     });
 
+    // Don't simulate response — let timeout fire
+    const result = await spawnPromise;
+
     expect(result.error).toBe('Agent "timeout-agent" timed out');
-    expect(child.killed).toBe(true);
     expect(pool.list()).toHaveLength(0);
     expect(await pool.sendPrompt('timeout-agent', 'late')).toEqual({
       response: '',
@@ -139,51 +245,22 @@ describe('AgentPool lifecycle', () => {
     });
   });
 
-  test('late agent_end after timeout is ignored', async () => {
-    const child = new FakeChildProcess();
-    const pool = new AgentPool({
-      timeoutMs: 5,
-      spawnProcess: () => child as any,
-      sessionDir: '/tmp/omo-subagent-test-sessions',
-    });
+  test('kill during pending prompt resolves with error', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
 
-    const result = await pool.spawn({
-      id: 'late-agent',
-      name: 'late-agent',
-      agent: makeAgent(),
-      task: 'initial',
-    });
-    child.stdout.emit('data', agentEnd('late response'));
-
-    expect(result.error).toBe('Agent "late-agent" timed out');
-    expect(pool.list()).toHaveLength(0);
-    expect(await pool.sendPrompt('late-agent', 'after late response')).toEqual({
-      response: '',
-      error: 'Agent "late-agent" not found in pool',
-    });
-  });
-
-  test('kill resolves a pending prompt and removes the agent', async () => {
-    const child = new FakeChildProcess();
-    const pool = new AgentPool({
-      timeoutMs: 1000,
-      spawnProcess: () => child as any,
-      sessionDir: '/tmp/omo-subagent-test-sessions',
-    });
-
-    const pending = pool.spawn({
+    const spawnPromise = pool.spawn({
       id: 'kill-agent',
       name: 'kill-agent',
       agent: makeAgent(),
       task: 'initial',
     });
-    await tick();
-    const killed = pool.kill('kill-agent');
-    const result = await pending;
 
-    expect(killed).toBe(true);
-    expect(result.error).toBe('Killed');
-    expect(child.killed).toBe(true);
+    await new Promise(r => setTimeout(r, 10));
+    await pool.kill('kill-agent');
+    const result = await spawnPromise;
+
+    expect(result.error).toBe('Aborted');
     expect(pool.list()).toHaveLength(0);
   });
 });

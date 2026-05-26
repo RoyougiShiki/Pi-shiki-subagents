@@ -9,7 +9,7 @@ describe('providers', () => {
     expect(keys.sort()).toEqual(['copilot', 'kimi', 'openai', 'zai-plan']);
   });
 
-  test('generateLiteConfig always generates openai preset', () => {
+  test('generateLiteConfig generates preset templates with placeholders', () => {
     const config = generateLiteConfig({
       installSkills: false,
       installCustomSkills: false,
@@ -19,88 +19,14 @@ describe('providers', () => {
     expect(config.$schema).toBe(
       'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json',
     );
-    expect(config.preset).toBe('openai');
-    const agents = (config.presets as any).openai;
-    expect(agents).toBeDefined();
-    expect(agents.orchestrator.model).toBe('openai/gpt-5.5');
-    expect(agents.orchestrator.variant).toBeUndefined();
-    expect(agents.fixer.model).toBe('openai/gpt-5.4-mini');
-    expect(agents.fixer.variant).toBe('low');
-  });
+    expect(config.preset).toBe('省钱模式');
+    expect((config.presets as any)['省钱模式']).toBeDefined();
+    expect((config.presets as any)['性能模式']).toBeDefined();
 
-  test('generateLiteConfig uses correct OpenAI models', () => {
-    const config = generateLiteConfig({
-      installSkills: false,
-      installCustomSkills: false,
-      reset: false,
-    });
-
-    const agents = (config.presets as any).openai;
-    expect(agents.orchestrator.model).toBe(
-      MODEL_MAPPINGS.openai.orchestrator.model,
-    );
-    expect(agents.oracle.model).toBe('openai/gpt-5.5');
-    expect(agents.oracle.variant).toBe('high');
-    expect(agents.librarian.model).toBe('openai/gpt-5.4-mini');
-    expect(agents.librarian.variant).toBe('low');
-    expect(agents.explorer.model).toBe('openai/gpt-5.4-mini');
-    expect(agents.explorer.variant).toBe('low');
-    expect(agents.designer.model).toBe('openai/gpt-5.4-mini');
-    expect(agents.designer.variant).toBe('medium');
-  });
-
-  test('generateLiteConfig includes default skills', () => {
-    const config = generateLiteConfig({
-      installSkills: true,
-      installCustomSkills: false,
-      reset: false,
-    });
-
-    const agents = (config.presets as any).openai;
-    // Orchestrator should always have '*'
-    expect(agents.orchestrator.skills).toEqual(['*']);
-
-    // Oracle should have bundled simplify
-    expect(agents.oracle.skills).toContain('simplify');
-
-    // Orchestrator should implicitly cover bundled codemap via '*'
-    expect(agents.orchestrator.skills).toContain('*');
-
-    // Designer should have 'agent-browser'
-    expect(agents.designer.skills).toContain('agent-browser');
-
-    // Explorer should have no bundled skills by default
-    expect(agents.explorer.skills).toEqual([]);
-
-    // Fixer should have no bundled skills by default
-    expect(agents.fixer.skills).toEqual([]);
-  });
-
-  test('generateLiteConfig includes mcps field', () => {
-    const config = generateLiteConfig({
-      installSkills: false,
-      installCustomSkills: false,
-      reset: false,
-    });
-
-    const agents = (config.presets as any).openai;
-    expect(agents.orchestrator.mcps).toBeDefined();
-    expect(Array.isArray(agents.orchestrator.mcps)).toBe(true);
-    expect(agents.librarian.mcps).toBeDefined();
-    expect(Array.isArray(agents.librarian.mcps)).toBe(true);
-  });
-
-  test('generateLiteConfig openai includes correct mcps', () => {
-    const config = generateLiteConfig({
-      installSkills: false,
-      installCustomSkills: false,
-      reset: false,
-    });
-
-    const agents = (config.presets as any).openai;
-    expect(agents.orchestrator.mcps).toEqual(['*', '!context7']);
-    expect(agents.librarian.mcps).toContain('context7');
-    expect(agents.librarian.mcps).toContain('grep_app');
-    expect(agents.designer.mcps).toEqual([]);
+    const economy = (config.presets as any)['省钱模式'];
+    expect(economy['thinker-clarify'].model).toBe('<YOUR_MODEL>');
+    expect(economy['thinker-analysis'].model).toBe('<YOUR_MODEL>');
+    expect(economy.worker.model).toBe('<YOUR_MODEL>');
+    expect(economy.oracle.model).toBe('<YOUR_MODEL>');
   });
 });

@@ -169,7 +169,7 @@ ${packOrchestrator?.workflowAdditions ?? ''}
 - Answer directly, no preamble
 - Don't summarize what you did unless asked
 - Don't explain code unless asked
-- Brief delegation notices: "Checking docs via @librarian..." not "I'm going to delegate to @librarian because..."
+- Brief delegation notices: "Checking docs via search..." not long explanations
 
 ## No Flattery
 Never: "Great question!" "Excellent idea!" "Smart choice!" or any praise of user input.
@@ -178,9 +178,9 @@ Never: "Great question!" "Excellent idea!" "Smart choice!" or any praise of user
 When user's approach seems problematic: state concern + alternative concisely, ask if they want to proceed anyway.
 
 ## Example
-**Bad:** "Great question! Let me think about the best approach here. I'm going to delegate to @librarian to check the latest Next.js documentation for the App Router, and then I'll implement the solution for you."
+**Bad:** "Great question! Let me search the Next.js documentation for the App Router approach."
 
-**Good:** "Checking Next.js App Router docs via @librarian..."
+**Good:** "Searching Next.js App Router docs..."
 [proceeds with implementation]
 
 ${packOrchestrator?.communicationAdditions ?? ''}
@@ -209,7 +209,7 @@ export function createOrchestratorAgent(
   const prompt = resolvePrompt(basePrompt, customPrompt, customAppendPrompt);
 
   const definition: AgentDefinition = {
-    name: 'orchestrator',
+    name: '',
     description:
       'AI coding orchestrator that delegates tasks to specialist agents for optimal quality, speed, and cost',
     config: {

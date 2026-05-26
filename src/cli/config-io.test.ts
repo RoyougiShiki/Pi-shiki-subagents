@@ -229,7 +229,7 @@ describe('config-io', () => {
     expect(saved.plugin.length).toBe(3);
   });
 
-  test('writeLiteConfig writes lite config with OpenAI preset', () => {
+  test('writeLiteConfig writes lite config with default preset', () => {
     const litePath = join(tmpDir, 'opencode', 'oh-my-opencode-slim.json');
     paths.ensureConfigDir();
 
@@ -244,8 +244,9 @@ describe('config-io', () => {
     expect(saved.$schema).toBe(
       'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json',
     );
-    expect(saved.preset).toBe('openai');
-    expect(saved.presets.openai).toBeDefined();
+    expect(saved.preset).toBe('省钱模式');
+    expect(saved.presets['省钱模式']).toBeDefined();
+    expect(saved.presets['性能模式']).toBeDefined();
   });
 
   test('disableDefaultAgents disables explore and general agents', () => {

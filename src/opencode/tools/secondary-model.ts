@@ -94,15 +94,6 @@ export async function readSecondaryModelFromConfig(directory: string) {
     );
 
     const pluginConfig = loadPluginConfig(directory);
-    const explorerModel = pickAgentModelRef(
-      pluginConfig.agents?.explorer?.model,
-    );
-    const librarianModel = pickAgentModelRef(
-      pluginConfig.agents?.librarian?.model,
-    );
-
-    pushModel(explorerModel);
-    pushModel(librarianModel);
 
     return models;
   } catch {

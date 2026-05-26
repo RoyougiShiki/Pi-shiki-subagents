@@ -11,8 +11,6 @@ export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
   orchestrator: ['*', '!context7'],
   designer: [],
   oracle: [],
-  librarian: ['context7', 'grep_app'],
-  explorer: [],
   search: [],
   fixer: [],
   observer: [],

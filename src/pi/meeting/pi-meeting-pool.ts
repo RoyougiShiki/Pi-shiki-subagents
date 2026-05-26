@@ -1,74 +1,33 @@
 /**
- * PoolMeetingBackend — Real-time multi-agent discussion.
- * Chair directly communicates with pi --mode rpc participants via stdin/stdout JSONL protocol.
+ * PoolMeetingBackend — Real-time multi-agent discussion via SDK sessions.
+ *
+ * Each participant runs as an in-process AgentSession.
+ * Chair directly communicates with participants via session.prompt/session.steer.
  */
 import * as crypto from "node:crypto";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, AgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENT_PROMPTS } from "./pi-agents";
 import type {
-  PiMeetingBackend, PiMeetingMessage, PiMeetingParticipantResult, PiMeetingRequest, PiMeetingResult
+  PiMeetingBackend, PiMeetingMessage, PiMeetingParticipantResult, PiMeetingRequest, PiMeetingResult,
 } from "./pi-meeting";
 
-function sendPrompt(proc: ChildProcess, message: string): void {
-  proc.stdin!.write(JSON.stringify({ type: "prompt", message }) + "\n");
-}
-
-function readResponse(proc: ChildProcess, timeoutMs = 30000): Promise<string> {
-  return new Promise((resolve) => {
-    let buffer = "";
-    const decoder = new TextDecoder();
-    let response = "";
-    let settled = false;
-
-    const onData = (chunk: Buffer) => {
-      buffer += decoder.decode(chunk, { stream: true });
-      while (true) {
-        const idx = buffer.indexOf("\n");
-        if (idx === -1) break;
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (!line.trim()) continue;
-        try {
-          const ev = JSON.parse(line);
-          if (!ev || typeof ev !== "object") continue;
-          if (ev.type === "agent_end") {
-            const msgs = ev.messages ?? [];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const m = msgs[i];
-              if (m.role === "assistant") {
-                const texts = (m.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text);
-                if (texts.length > 0) response = texts.join("\n").trim();
-                break;
-              }
-            }
-            settled = true;
-            cleanup();
-            resolve(response || "(no response)");
-            return;
-          }
-        } catch {}
-      }
-    };
-
-    const timer = setTimeout(() => {
-      if (!settled) { cleanup(); resolve(response || "(timeout)"); }
-    }, timeoutMs);
-
-    const cleanup = () => {
-      proc.stdout?.removeListener("data", onData);
-      clearTimeout(timer);
-    };
-
-    proc.stdout?.on("data", onData);
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+function extractAssistantText(messages: any[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "assistant") continue;
+    const content = m.content;
+    if (typeof content === "string" && content.trim()) return content.trim();
+    if (Array.isArray(content)) {
+      const text = content
+        .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+        .map((c: any) => c.text)
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+  }
+  return "";
 }
 
 /**
@@ -93,13 +52,16 @@ export class PoolMeetingBackend implements PiMeetingBackend {
   async run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult> {
     const transcript: PiMeetingMessage[] = [];
     const participantResults = new Map<string, PiMeetingParticipantResult>();
-    const spawnedProcs: ChildProcess[] = [];
+    const sessions: AgentSession[] = [];
     let roundsCompleted = 0;
 
+    // Set sub-agent env markers
+    const prevEnv = process.env.OMO_SUB_AGENT;
+    process.env.OMO_SUB_AGENT = "1";
+
     try {
-      // Spawn participants
-      for (let i = 0; i < request.participants.length; i++) {
-        const p = request.participants[i];
+      // Create participants via SDK
+      for (const p of request.participants) {
         const agentPrompt = AGENT_PROMPTS[p.agent]?.prompt || "You are a specialist.";
         const roleGuidance = p.prompt ? "\nRole guidance: " + p.prompt : "";
 
@@ -119,32 +81,28 @@ export class PoolMeetingBackend implements PiMeetingBackend {
           "When you receive the final round, provide your concluding position.",
         ].filter(Boolean).join("\n");
 
-        const proc = spawn("pi", ["--mode", "rpc", "--no-session"], {
-          stdio: ["pipe", "pipe", "pipe"],
-          env: { ...process.env, PI_AGENT_NAME: p.name },
+        const created = await createAgentSession({
+          cwd: ctx.cwd,
+          sessionManager: SessionManager.inMemory(),
+          tools: ["read", "bash", "grep", "find", "ls"],
         });
-        spawnedProcs.push(proc);
+        sessions.push(created.session);
         participantResults.set(p.name, { name: p.name, agent: p.agent, model: p.model, status: "completed" });
 
         // Send initial participant task
-        sendPrompt(proc, task);
+        await created.session.prompt(task);
       }
-
-      // Wait for initial processing
-      await sleep(5000);
 
       // Run discussion rounds with early-stop on convergence
       const maxRounds = Math.min(request.maxRounds || 3, 5);
       if (maxRounds <= 0) throw new Error("maxRounds must be >= 1");
-      const phases: Array<"opening" | "discussion" | "final"> = ["opening", "discussion", "final"];
-      // Track previous responses for convergence detection
       const previousResponses = new Map<string, string>();
 
       for (let round = 0; round < maxRounds; round++) {
+        const phases: Array<"opening" | "discussion" | "final"> = ["opening", "discussion", "final"];
         const phase = phases[round] || "discussion";
 
-        // Convergence check: if all participants repeated themselves in the
-        // previous discussion round, skip remaining discussion rounds.
+        // Convergence check
         if (phase === "discussion" && previousResponses.size > 0) {
           const thresholds = [0.75, 0.70, 0.65, 0.60];
           const threshold = thresholds[round - 1] ?? 0.55;
@@ -156,27 +114,34 @@ export class PoolMeetingBackend implements PiMeetingBackend {
             }
           }
           if (convergedCount >= request.participants.length) {
-            // All converged — skip to final if there are participants
+            // All converged — final round
             if (request.participants.length > 0) {
               const finalRound = maxRounds - 1;
-              const finalPhase = "final";
               const contextSummary = transcript
-                .map(m => "[" + m.from + "]: " + (m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content))
+                .map(m => `[${m.from}]: ${m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content}`)
                 .join("\n") || "(no prior discussion)";
-              const roundPrompt = "--- Round " + (finalRound + 1) + " (" + finalPhase + ") ---\n\nQuestion: " + request.question + "\n\nFull discussion:\n" + contextSummary + "\n\nProvide your final position and recommendation.";
-              const finalPromises = request.participants.map((p, i) => {
-                const proc = spawnedProcs[i];
-                if (!proc || proc.killed) return Promise.resolve({ name: p.name, agent: p.agent, response: "(process dead)" });
-                sendPrompt(proc, roundPrompt);
-                return readResponse(proc, 60000).then(response => ({ name: p.name, agent: p.agent, response }));
-              });
-              const finalResponses = await Promise.all(finalPromises);
+              const roundPrompt = `--- Round ${finalRound + 1} (final) ---\n\nQuestion: ${request.question}\n\nFull discussion:\n${contextSummary}\n\nProvide your final position and recommendation.`;
+
+              const finalResponses = await Promise.all(
+                request.participants.map(async (p, i) => {
+                  const session = sessions[i];
+                  if (!session) return { name: p.name, agent: p.agent, response: "(session dead)" };
+                  try {
+                    await session.prompt(roundPrompt);
+                    const text = extractAssistantText((session as any).messages ?? []);
+                    return { name: p.name, agent: p.agent, response: text || "(no response)" };
+                  } catch {
+                    return { name: p.name, agent: p.agent, response: "(error)" };
+                  }
+                }),
+              );
+
               for (const r of finalResponses) {
                 transcript.push({
                   id: crypto.randomUUID(),
                   meetingId: request.meetingId,
                   round: finalRound,
-                  phase: finalPhase,
+                  phase: "final",
                   from: r.name,
                   role: r.agent,
                   content: r.response,
@@ -187,12 +152,12 @@ export class PoolMeetingBackend implements PiMeetingBackend {
             } else {
               roundsCompleted = round;
             }
-            break; // exit for loop — converged
+            break;
           }
         }
 
         const contextSummary = transcript.filter(m => m.round < round)
-          .map(m => "[" + m.from + "]: " + (m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content))
+          .map(m => `[${m.from}]: ${m.content.length > 300 ? m.content.slice(0, 300) + "..." : m.content}`)
           .join("\n") || "(no prior discussion)";
 
         const phasePrompt = phase === "opening"
@@ -201,17 +166,22 @@ export class PoolMeetingBackend implements PiMeetingBackend {
             ? "Review others' views. Agree or disagree with reasoning."
             : "Provide your final position and recommendation.";
 
-        const roundPrompt = "--- Round " + (round + 1) + " (" + phase + ") ---\n\nQuestion: " + request.question + "\n\nPrior discussion:\n" + contextSummary + "\n\n" + phasePrompt;
+        const roundPrompt = `--- Round ${round + 1} (${phase}) ---\n\nQuestion: ${request.question}\n\nPrior discussion:\n${contextSummary}\n\n${phasePrompt}`;
 
         // Send to all participants concurrently
-        const responsePromises = request.participants.map((p, i) => {
-          const proc = spawnedProcs[i];
-          if (!proc || proc.killed) return Promise.resolve({ name: p.name, agent: p.agent, response: "(process dead)" });
-          sendPrompt(proc, roundPrompt);
-          return readResponse(proc, 60000).then(response => ({ name: p.name, agent: p.agent, response }));
-        });
-
-        const responses = await Promise.all(responsePromises);
+        const responses = await Promise.all(
+          request.participants.map(async (p, i) => {
+            const session = sessions[i];
+            if (!session) return { name: p.name, agent: p.agent, response: "(session dead)" };
+            try {
+              await session.prompt(roundPrompt);
+              const text = extractAssistantText((session as any).messages ?? []);
+              return { name: p.name, agent: p.agent, response: text || "(no response)" };
+            } catch {
+              return { name: p.name, agent: p.agent, response: "(error)" };
+            }
+          }),
+        );
 
         for (const r of responses) {
           transcript.push({
@@ -226,7 +196,7 @@ export class PoolMeetingBackend implements PiMeetingBackend {
           });
         }
 
-        // Store responses for convergence detection in next round
+        // Store for convergence detection
         if (phase === "opening" || phase === "discussion") {
           for (const r of responses) {
             previousResponses.set(r.name, r.response);
@@ -238,13 +208,13 @@ export class PoolMeetingBackend implements PiMeetingBackend {
 
       // Build result
       const finalPositions = transcript.filter(m => m.round === roundsCompleted - 1)
-        .map(m => "**" + m.from + "** (" + m.role + "): " + m.content.slice(0, 1000));
+        .map(m => `**${m.from}** (${m.role}): ${m.content.slice(0, 1000)}`);
 
       const report = "## Meeting Result\n\n### Question\n" + request.question +
         "\n\n### Rounds Completed\n" + roundsCompleted +
         (finalPositions.length > 0 ? "\n\n### Final Positions\n\n" + finalPositions.join("\n\n") : "") +
         (transcript.length > 0 ? "\n\n### Discussion\n\n" +
-          transcript.map(m => "**" + m.from + "** (round " + (m.round + 1) + "/" + m.phase + "): " + m.content.slice(0, 300)).join("\n\n") : "");
+          transcript.map(m => `**${m.from}** (round ${m.round + 1}/${m.phase}): ${m.content.slice(0, 300)}`).join("\n\n") : "");
 
       return {
         meetingId: request.meetingId,
@@ -259,7 +229,6 @@ export class PoolMeetingBackend implements PiMeetingBackend {
         requestedBackend: "pool",
         backendUsed: "pool",
       };
-
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -275,7 +244,13 @@ export class PoolMeetingBackend implements PiMeetingBackend {
         backendUsed: "pool",
       };
     } finally {
-      for (const proc of spawnedProcs) { try { proc.kill(); } catch {} }
+      // Cleanup all sessions
+      for (const session of sessions) {
+        try { await session.abort(); } catch {}
+        session.dispose();
+      }
+      if (prevEnv === undefined) delete process.env.OMO_SUB_AGENT;
+      else process.env.OMO_SUB_AGENT = prevEnv;
     }
   }
 }

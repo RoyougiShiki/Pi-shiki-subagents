@@ -2,25 +2,26 @@
  * pi-hub — 消息路由中心
  *
  * 职责：
- *   1. 管理活跃会议及其 participant RPC 进程
+ *   1. 管理活跃会议及其 participant SDK session
  *   2. 消息广播：broadcast → 指定 meeting 的所有 participant
  *   3. 群聊中参与者发言自动中继给其他参与者
  *   4. 消息日志（供 /chat 查看历史）
  *   5. 用户消息订阅（供 bridge 实时显示）
  *
  * 消息隔离：每条消息按 meetingId 路由，不同会议互不干扰
+ *
+ * 基于 pi SDK AgentSession，无子进程通信。
  */
 
 import * as crypto from "node:crypto";
-import type { ChildProcess } from "node:child_process";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 const MAX_MESSAGES = 500;
-const MAX_BUFFER = 1024 * 1024; // 1MB
 
 export interface MeetingParticipant {
   name: string;
   agentType: string;
-  proc: ChildProcess;
+  session: AgentSession;
 }
 
 export interface ChatStatusMetadata {
@@ -53,15 +54,17 @@ export interface ActiveMeeting {
 
 type MessageCallback = (msg: ChatMessage, meeting: ActiveMeeting) => void;
 
-function sendPrompt(proc: ChildProcess, message: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!proc.stdin || proc.killed) { resolve(); return; }
-    const cmd = JSON.stringify({ type: "prompt", message }) + "\n";
-    proc.stdin.write(cmd, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
+async function sendToSession(session: AgentSession, message: string): Promise<void> {
+  const sess = session as any;
+  try {
+    if (sess.isStreaming) {
+      await sess.steer(message);
+    } else {
+      await sess.prompt(message);
+    }
+  } catch (err) {
+    console.error(`[pi-hub] sendToSession failed:`, err);
+  }
 }
 
 class Hub {
@@ -102,45 +105,26 @@ class Hub {
   }
 
   private watchParticipant(meeting: ActiveMeeting, p: MeetingParticipant) {
-    let buffer = "";
-    const decoder = new TextDecoder();
-
-    p.proc.stdout?.on("data", (chunk: Buffer) => {
-      buffer += decoder.decode(chunk, { stream: true });
-      if (buffer.length > MAX_BUFFER) buffer = buffer.slice(-MAX_BUFFER);
-
-      while (true) {
-        const idx = buffer.indexOf("\n");
-        if (idx === -1) break;
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        try {
-          const ev = JSON.parse(trimmed);
-          if (!ev || typeof ev !== "object") continue;
-          if (ev.type === "agent_end") {
-            const msgs: any[] = ev.messages ?? [];
-            for (const m of msgs) {
-              if (m.role !== "assistant") continue;
-              const texts = (m.content ?? [])
-                .filter((c: any) => c.type === "text")
-                .map((c: any) => c.text);
-              if (texts.length === 0) continue;
-              const text = texts.join("\n").trim();
-              if (!text) continue;
-              this.handleAgentResponse(meeting, p, text);
-            }
-          }
-        } catch {
-          console.error(`[pi-hub] 非JSON输出 (${p.name}): ${trimmed.slice(0, 100)}`);
-        }
+    // Subscribe to session events to capture assistant responses
+    const unsubscribe = p.session.subscribe((event: any) => {
+      if (event.type !== "agent_end") return;
+      const msgs: any[] = event.messages ?? [];
+      for (const m of msgs) {
+        if (m.role !== "assistant") continue;
+        const texts = (m.content ?? [])
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text);
+        if (texts.length === 0) continue;
+        const text = texts.join("\n").trim();
+        if (!text) continue;
+        this.handleAgentResponse(meeting, p, text);
       }
     });
 
-    p.proc.on("close", () => {
-      console.error(`[pi-hub] Participant ${p.name} 进程关闭`);
+    // Track session disposal
+    (p.session as any).agent.waitForIdle().then(() => {
+      /* session still active */
+    }).catch(() => {
       if (meeting.status === "active" && meeting.chatStatus?.state !== "done") {
         meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "dead", fallbackRecommended: meeting.chatStatus?.scope === "workflow" };
       }
@@ -151,12 +135,12 @@ class Hub {
   private async handleAgentResponse(meeting: ActiveMeeting, sender: MeetingParticipant, text: string): Promise<void> {
     this.publishMessage(meeting, sender.name, text);
 
-    // 群聊：中继给其他参与者，让彼此看到对方发言
+    // 群聊：中继给其他参与者
     if (meeting.type === "group") {
       const others = meeting.participants.filter(p => p.name !== sender.name);
       if (others.length === 0) return;
       const relayMsg = `[${sender.name}]: ${text}`;
-      const promises = others.map(p => sendPrompt(p.proc, relayMsg).catch(err => {
+      const promises = others.map(p => sendToSession(p.session, relayMsg).catch(err => {
         console.error(`[pi-hub] 中继到 ${p.name} 失败: ${err.message}`);
       }));
       await Promise.all(promises);
@@ -176,7 +160,7 @@ class Hub {
     }
 
     const promises = meeting.participants.map(p =>
-      sendPrompt(p.proc, message).catch(err => {
+      sendToSession(p.session, message).catch(err => {
         console.error(`[pi-hub] 写入 ${p.name} 失败: ${err.message}`);
       })
     );

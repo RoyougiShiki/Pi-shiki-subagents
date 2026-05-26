@@ -1,6 +1,8 @@
 ---
 name: coordinator
 description: Workflow coordinator
+omo-managed: true
+omo-source-hash: 821966a8e7bea289faa732a734da2fe43a5b530364df7c47970dea47648f4fb4
 ---
 
 # 角色

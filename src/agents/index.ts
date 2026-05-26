@@ -4,7 +4,6 @@ import {
   type AgentOverrideConfig,
   ALL_AGENT_NAMES,
   DEFAULT_DISABLED_AGENTS,
-  DEFAULT_MODELS,
   getAgentOverride,
   getCustomAgentNames,
   loadAgentPrompt,
@@ -17,9 +16,7 @@ import { getAgentMcpList } from '../config/agent-mcps';
 import { createCouncilAgent } from './council';
 import { createCouncillorAgent } from './councillor';
 import { createDesignerAgent } from './designer';
-import { createExplorerAgent } from './explorer';
 import { createFixerAgent } from './fixer';
-import { createLibrarianAgent } from './librarian';
 import { createSearchAgent } from './search';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
@@ -123,7 +120,7 @@ function buildCustomAgentDefinition(
       model:
         typeof override.model === 'string'
           ? override.model
-          : (DEFAULT_MODELS.orchestrator ?? DEFAULT_MODELS.oracle),
+          : ('openai/gpt-4o-mini'),
       temperature: 0.2,
       prompt: resolvePrompt(basePrompt, filePrompt, fileAppendPrompt),
     },
@@ -200,8 +197,6 @@ export function isSubagent(name: string): name is SubagentName {
 // Agent Factories
 
 const SUBAGENT_FACTORIES: Record<SubagentName, AgentFactory> = {
-  explorer: createExplorerAgent,
-  librarian: createLibrarianAgent,
   search: createSearchAgent,
   oracle: createOracleAgent,
   designer: createDesignerAgent,
@@ -226,22 +221,13 @@ export function createAgents(
 ): AgentDefinition[] {
   const disabled = getDisabledAgents(config);
 
-  // TEMP: If fixer has no config, inherit from librarian's model to avoid breaking
-  // existing users who don't have fixer in their config yet
   const getModelForAgent = (name: SubagentName): string => {
-    if (name === 'fixer' && !getAgentOverride(config, 'fixer')?.model) {
-      const librarianOverride = getAgentOverride(config, 'librarian')?.model;
-      let librarianModel: string | undefined;
-      if (Array.isArray(librarianOverride)) {
-        const first = librarianOverride[0];
-        librarianModel = typeof first === 'string' ? first : first?.id;
-      } else {
-        librarianModel = librarianOverride;
-      }
-      return librarianModel ?? (DEFAULT_MODELS.librarian as string);
+    const override = getAgentOverride(config, name);
+    if (override?.model) {
+      if (typeof override.model === 'string') return override.model;
+      if (Array.isArray(override.model) && typeof override.model[0] === 'string') return override.model[0];
     }
-    // Subagents always have a defined default model; cast is safe here
-    return DEFAULT_MODELS[name] as string;
+    return 'openai/gpt-4o-mini';
   };
 
   // 1. Gather all sub-agent definitions with custom prompts
@@ -251,11 +237,13 @@ export function createAgents(
     .filter(([name]) => !disabled.has(name))
     .map(([name, factory]) => {
       const customPrompts = loadAgentPrompt(name, config?.preset);
-      return factory(
+      const agent = factory(
         getModelForAgent(name),
         customPrompts.prompt,
         customPrompts.appendPrompt,
       );
+      agent.name = name;
+      return agent;
     });
 
   // 1b. Discover unknown keys in config.agents as custom subagents.
@@ -306,18 +294,6 @@ export function createAgents(
   // 2b. Backward compat: if council has no preset override and still uses the
   // hardcoded default model, fall back to the deprecated council.master.model.
   // See https://github.com/alvinunreal/oh-my-opencode-slim/issues/369
-  const legacyMasterModel = config?.council?._legacyMasterModel;
-  if (legacyMasterModel) {
-    const councilAgent = builtInSubAgents.find((a) => a.name === 'council');
-    if (
-      councilAgent &&
-      !getAgentOverride(config, 'council')?.model &&
-      councilAgent.config.model === DEFAULT_MODELS.council
-    ) {
-      councilAgent.config.model = legacyMasterModel;
-    }
-  }
-
   const customSubAgents = protoCustomAgents.map((agent) => {
     const override = getAgentOverride(config, agent.name);
     if (override) {
@@ -330,11 +306,11 @@ export function createAgents(
   const allSubAgents = [...builtInSubAgents, ...customSubAgents];
 
   // 3. Create Orchestrator (with its own overrides and custom prompts)
-  // DEFAULT_MODELS.orchestrator is undefined; model is resolved via override or
+  // undefined is undefined; model is resolved via override or
   // left unset so the runtime chat.message hook can pick it from _modelArray.
   const orchestratorOverride = getAgentOverride(config, 'orchestrator');
   const orchestratorModel =
-    orchestratorOverride?.model ?? DEFAULT_MODELS.orchestrator;
+    orchestratorOverride?.model ?? undefined;
   const orchestratorPrompts = loadAgentPrompt('orchestrator', config?.preset);
   const orchestrator = createOrchestratorAgent(
     orchestratorModel,
@@ -343,6 +319,7 @@ export function createAgents(
     disabled,
     packOrchestrator,
   );
+  orchestrator.name = 'orchestrator';
   applyDefaultPermissions(orchestrator, orchestratorOverride?.skills);
   if (orchestratorOverride) {
     applyOverrides(orchestrator, orchestratorOverride);

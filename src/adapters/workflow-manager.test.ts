@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
-import { WorkflowManager, type WorkflowPool } from './workflow-manager';
+import { WorkflowManager, type WorkflowPool } from '../pi/workflow/workflow-manager';
 import type { AgentConfig } from './agent-discovery';
 import type { StageEvent, WorkflowDefinition, WorkflowStageToolResult } from '../core/workflow-types';
 
@@ -35,8 +35,6 @@ class FakePool implements WorkflowPool {
   spawnCalls: any[] = [];
   sendCalls: Array<{ id: string; message: string }> = [];
   killCalls: string[] = [];
-  getProcess: any = undefined;
-
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
     const stageResult = this.spawnStageResults.shift();
@@ -48,7 +46,7 @@ class FakePool implements WorkflowPool {
     return next;
   }
 
-  async sendPrompt(id: string, message: string): Promise<{ response: string; error?: string }> {
+  async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
     this.sendCalls.push({ id, message });
     const stageResult = this.sendStageResults.shift();
     const stageResultPath = this.spawnCalls.find((call) => call.id === id)?.stageResultPath;
@@ -60,7 +58,7 @@ class FakePool implements WorkflowPool {
     return next;
   }
 
-  kill(id: string): boolean {
+  async kill(id: string): Promise<boolean> {
     this.killCalls.push(id);
     return true;
   }
