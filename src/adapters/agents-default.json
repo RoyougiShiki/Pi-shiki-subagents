@@ -51,13 +51,13 @@
   "worker": {
     "type": "subagent",
     "delegates": [
-      "fixer",
       "oracle"
     ],
     "label": "快速实施",
     "roles": [
       "流程",
-      "管理"
+      "管理",
+      "写"
     ]
   },
   "oracle": {
