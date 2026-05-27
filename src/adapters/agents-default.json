@@ -54,11 +54,10 @@
       "oracle"
     ],
     "label": "快速实施",
-    "roles": [
-      "流程",
-      "管理",
-      "读",
-      "写"
+    "tools": [
+      "read",
+      "write",
+      "edit"
     ]
   },
   "oracle": {
