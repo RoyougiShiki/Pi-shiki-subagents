@@ -529,17 +529,23 @@
                   "id": "thinker",
                   "agent": "thinker",
                   "description": "澄清需求并分析影响范围、方案和风险",
-                  "outputSchema": "analysis"
+                  "outputSchema": "analysis",
+                  "review": {
+                    "agent": "oracle"
+                  }
                 },
                 {
                   "id": "plan",
                   "agent": "designer",
                   "description": "生成实施计划与任务文件",
-                  "outputSchema": "plan"
+                  "outputSchema": "plan",
+                  "review": {
+                    "agent": "oracle"
+                  }
                 },
                 {
                   "id": "implement",
-                  "agent": "implementer",
+                  "agent": "dispatcher",
                   "description": "按计划驱动实现与审查",
                   "outputSchema": "implementation"
                 }
@@ -553,55 +559,16 @@
                   "id": "thinker",
                   "agent": "thinker",
                   "description": "确认修复范围和边界",
-                  "outputSchema": "analysis"
+                  "outputSchema": "analysis",
+                  "review": {
+                    "agent": "oracle"
+                  }
                 },
                 {
                   "id": "worker",
                   "agent": "worker",
                   "description": "驱动 fixer 实现并用 oracle 审查",
                   "outputSchema": "implementation"
-                }
-              ]
-            },
-            {
-              "name": "batch-dev",
-              "description": "批量开发流程：分析与澄清 → 计划 → 批次执行",
-              "stages": [
-                {
-                  "id": "thinker",
-                  "agent": "thinker",
-                  "description": "识别可批量处理的独立任务",
-                  "outputSchema": "analysis"
-                },
-                {
-                  "id": "plan",
-                  "agent": "designer",
-                  "description": "生成批量任务计划",
-                  "outputSchema": "plan"
-                },
-                {
-                  "id": "batch",
-                  "agent": "batch",
-                  "description": "按依赖分批驱动 fixer/oracle",
-                  "outputSchema": "implementation"
-                }
-              ]
-            },
-            {
-              "name": "review-only",
-              "description": "只读审查流程：分析与澄清 → oracle 审查",
-              "stages": [
-                {
-                  "id": "thinker",
-                  "agent": "thinker",
-                  "description": "整理审查目标和上下文",
-                  "outputSchema": "analysis"
-                },
-                {
-                  "id": "review",
-                  "agent": "oracle",
-                  "description": "进行只读审查并输出风险",
-                  "outputSchema": "review"
                 }
               ]
             },
@@ -613,7 +580,10 @@
                   "id": "thinker",
                   "agent": "thinker",
                   "description": "澄清研究问题并做只读研究与结论",
-                  "outputSchema": "analysis"
+                  "outputSchema": "analysis",
+                  "review": {
+                    "agent": "oracle"
+                  }
                 }
               ]
             }
@@ -834,13 +804,6 @@
     "visionModel": {
       "description": "Model ID (provider/model format) for the vision_analyze tool. This model is used to analyze images via direct API call. Defaults to \"dmxapi/glm-4.1v-thinking-flash\" if not set.",
       "type": "string"
-    },
-    "workflowPacks": {
-      "description": "Optional workflow pack IDs to load at startup. Built-in: \"superpowers\". When a pack is loaded, its gate instructions, orchestrator-prompt sections, and workflow reference documents are merged over the built-in defaults. Default: [] (built-in only).",
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
     }
   },
   "$defs": {
@@ -872,6 +835,22 @@
               "items": {
                 "type": "string"
               }
+            },
+            "review": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "maxRetries": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "agent"
+              ]
             }
           },
           "required": [

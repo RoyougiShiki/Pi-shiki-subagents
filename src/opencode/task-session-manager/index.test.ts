@@ -46,7 +46,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
           prompt: 'inspect config schema',
         },
@@ -69,13 +69,13 @@ describe('task-session-manager hook', () => {
     await hook['experimental.chat.messages.transform']({}, messages);
 
     const userMessage = messages.messages[0];
-    expect(userMessage.parts[0].text).toContain('<resumable_sessions>');
+    expect(userMessage.parts[0].text).toContain('');
     expect(userMessage.parts[0].text).toContain('### Resumable Sessions');
     expect(userMessage.parts[0].text).toContain(
       'Aliases are task_id shortcuts, not session_id values. If unsure, start fresh.',
     );
     expect(userMessage.parts[0].text).toContain(
-      'explorer: exp-1 config schema',
+      'fixer: fix-1 config schema',
     );
     expect(userMessage.parts[0].text).toContain('</resumable_sessions>');
   });
@@ -96,7 +96,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
           prompt: 'inspect config schema',
         },
@@ -116,9 +116,9 @@ describe('task-session-manager hook', () => {
 
     const next = {
       args: {
-        subagent_type: 'explorer',
+        subagent_type: 'fixer',
         description: 'continue schema work',
-        task_id: 'exp-1',
+        task_id: 'fix-1',
       },
     };
     await hook['tool.execute.before'](
@@ -171,7 +171,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'session files',
         },
       },
@@ -192,9 +192,9 @@ describe('task-session-manager hook', () => {
     await hook['experimental.chat.messages.transform']({}, messages);
 
     const userMessage = messages.messages[0];
-    expect(userMessage.parts[0].text).toContain('exp-1 session files');
+    expect(userMessage.parts[0].text).toContain('fix-1 session files');
     expect(userMessage.parts[0].text).toContain(
-      'Context read by exp-1: src/index.ts (12 lines)',
+      'Context read by fix-1: src/index.ts (12 lines)',
     );
   });
 
@@ -244,7 +244,7 @@ describe('task-session-manager hook', () => {
 
     await hook['tool.execute.before'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
-      { args: { subagent_type: 'explorer', description: 'line counts' } },
+      { args: { subagent_type: 'fixer', description: 'line counts' } },
     );
     await hook['tool.execute.after'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
@@ -287,7 +287,7 @@ describe('task-session-manager hook', () => {
 
     await hook['tool.execute.before'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
-      { args: { subagent_type: 'explorer', description: 'repeat reads' } },
+      { args: { subagent_type: 'fixer', description: 'repeat reads' } },
     );
     await hook['tool.execute.after'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
@@ -337,7 +337,7 @@ describe('task-session-manager hook', () => {
 
     await hook['tool.execute.before'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
-      { args: { subagent_type: 'explorer', description: 'configured caps' } },
+      { args: { subagent_type: 'fixer', description: 'configured caps' } },
     );
     await hook['tool.execute.after'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
@@ -352,7 +352,7 @@ describe('task-session-manager hook', () => {
 
     const prompt = messages.messages[0].parts[0].text;
     expect(prompt).not.toContain('small.ts');
-    expect(prompt).toContain('Context read by exp-1:');
+    expect(prompt).toContain('Context read by fix-1:');
     expect(prompt).toContain('(+1 more)');
   });
 
@@ -381,7 +381,7 @@ describe('task-session-manager hook', () => {
 
     await hook['tool.execute.before'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
-      { args: { subagent_type: 'explorer', description: 'unmanaged read' } },
+      { args: { subagent_type: 'fixer', description: 'unmanaged read' } },
     );
     await hook['tool.execute.after'](
       { tool: 'task', sessionID: 'parent-1', callID: 'call-1' },
@@ -395,8 +395,8 @@ describe('task-session-manager hook', () => {
     await hook['experimental.chat.messages.transform']({}, messages);
 
     const prompt = messages.messages[0].parts[0].text;
-    expect(prompt).toContain('exp-1 unmanaged read');
-    expect(prompt).not.toContain('Context read by exp-1');
+    expect(prompt).toContain('fix-1 unmanaged read');
+    expect(prompt).not.toContain('Context read by fix-1');
   });
 
   test('prunes read context when remembered sessions are evicted', async () => {
@@ -424,7 +424,7 @@ describe('task-session-manager hook', () => {
       );
       await hook['tool.execute.before'](
         { tool: 'task', sessionID: 'parent-1', callID: `call-${index}` },
-        { args: { subagent_type: 'explorer', description: `thread ${index}` } },
+        { args: { subagent_type: 'fixer', description: `thread ${index}` } },
       );
       await hook['tool.execute.after'](
         { tool: 'task', sessionID: 'parent-1', callID: `call-${index}` },
@@ -438,11 +438,11 @@ describe('task-session-manager hook', () => {
     await hook['experimental.chat.messages.transform']({}, messages);
 
     const prompt = messages.messages[0].parts[0].text;
-    expect(prompt).not.toContain('exp-1 thread 1');
+    expect(prompt).not.toContain('fix-1 thread 1');
     expect(prompt).not.toContain('file-1.ts');
-    expect(prompt).toContain('exp-2 thread 2');
+    expect(prompt).toContain('fix-2 thread 2');
     expect(prompt).toContain('file-2.ts (12 lines)');
-    expect(prompt).toContain('exp-3 thread 3');
+    expect(prompt).toContain('fix-3 thread 3');
     expect(prompt).toContain('file-3.ts (12 lines)');
   });
 
@@ -457,7 +457,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
         },
       },
@@ -476,9 +476,9 @@ describe('task-session-manager hook', () => {
 
     const next = {
       args: {
-        subagent_type: 'explorer',
+        subagent_type: 'fixer',
         description: 'continue schema work',
-        task_id: 'exp-1',
+        task_id: 'fix-1',
       },
     };
     await hook['tool.execute.before'](
@@ -505,7 +505,7 @@ describe('task-session-manager hook', () => {
 
     const messages = createMessages('parent-1', 'do something');
     await hook['experimental.chat.messages.transform']({}, messages);
-    expect(messages.messages[0].parts[0].text).not.toContain('exp-1');
+    expect(messages.messages[0].parts[0].text).not.toContain('fix-1');
   });
 
   test('drops resumed predecessor when success returns a new task id', async () => {
@@ -519,7 +519,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
         },
       },
@@ -544,9 +544,9 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'continue schema work',
-          task_id: 'exp-1',
+          task_id: 'fix-1',
         },
       },
     );
@@ -581,7 +581,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
         },
       },
@@ -606,9 +606,9 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'continue schema work',
-          task_id: 'exp-1',
+          task_id: 'fix-1',
         },
       },
     );
@@ -626,7 +626,7 @@ describe('task-session-manager hook', () => {
     const messages = createMessages('parent-1', 'do something');
     await hook['experimental.chat.messages.transform']({}, messages);
 
-    expect(messages.messages[0].parts[0].text).toContain('exp-1 config schema');
+    expect(messages.messages[0].parts[0].text).toContain('fix-1 config schema');
   });
 
   test('ignores sessions that are not orchestrator-managed', async () => {
@@ -640,7 +640,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
         },
       },
@@ -759,7 +759,7 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'config schema',
         },
       },
@@ -784,9 +784,9 @@ describe('task-session-manager hook', () => {
       },
       {
         args: {
-          subagent_type: 'explorer',
+          subagent_type: 'fixer',
           description: 'continue schema work',
-          task_id: 'exp-1',
+          task_id: 'fix-1',
         },
       },
     );

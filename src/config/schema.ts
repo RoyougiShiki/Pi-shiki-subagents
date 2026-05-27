@@ -264,14 +264,6 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     ],
   },
   {
-    name: "review-only",
-    description: "只读审查流程：分析与澄清 → oracle 审查",
-    stages: [
-      { id: "thinker", agent: "thinker", description: "整理审查目标和上下文", outputSchema: "analysis", review: { agent: "oracle" } },
-      { id: "review", agent: "oracle", description: "进行只读审查并输出风险", outputSchema: "review" },
-    ],
-  },
-  {
     name: "research-only",
     description: "研究流程：澄清与分析",
     stages: [

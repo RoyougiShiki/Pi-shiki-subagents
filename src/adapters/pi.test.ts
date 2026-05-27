@@ -97,7 +97,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('writes workflow stage result IPC file', async () => {
-    const { writeWorkflowStageResult } = await import('./pi');
+    const { writeWorkflowStageResult } = await import('../pi/core/pi');
     const resultPath = path.join(tempDir, 'stage-result.json');
 
     const ok = writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' }, resultPath);
@@ -107,7 +107,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
 
     ensureAgentFiles();
 
@@ -123,7 +123,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('updates stale managed agent markdown and writes a backup', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
 
     ensureAgentFiles();
     const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
@@ -140,7 +140,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('does not overwrite unmanaged legacy or custom agent markdown', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
     const agentsDir = getPiAgentsDirForSync();
     fs.mkdirSync(agentsDir, { recursive: true });
     const oraclePath = path.join(agentsDir, 'oracle.md');
@@ -154,7 +154,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('migrates old OMO-generated markdown with obsolete model frontmatter', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
     const agentsDir = getPiAgentsDirForSync();
     fs.mkdirSync(agentsDir, { recursive: true });
     const sourcePath = path.join(import.meta.dir, 'agents', 'oracle.md');
@@ -174,7 +174,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('does not migrate custom prompt that keeps the default description', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
     const agentsDir = getPiAgentsDirForSync();
     fs.mkdirSync(agentsDir, { recursive: true });
     const oraclePath = path.join(agentsDir, 'oracle.md');
@@ -196,7 +196,7 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('migrates old English OMO-generated oracle markdown after reload', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
     const agentsDir = getPiAgentsDirForSync();
     fs.mkdirSync(agentsDir, { recursive: true });
     const oraclePath = path.join(agentsDir, 'oracle.md');
@@ -225,8 +225,8 @@ describe('Pi adapter agent prompt sync', () => {
   });
 
   test('reloads in-memory AGENT_PROMPTS after migrating files', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('./pi');
-    const { AGENT_PROMPTS } = await import('./pi-agents');
+    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
+    const { AGENT_PROMPTS } = await import('../pi/meeting/pi-agents');
     const agentsDir = getPiAgentsDirForSync();
     fs.mkdirSync(agentsDir, { recursive: true });
     const oraclePath = path.join(agentsDir, 'oracle.md');
@@ -282,7 +282,7 @@ describe('Pi adapter config helpers', () => {
   });
 
   test('strips JSON comments without breaking URLs inside strings', async () => {
-    const { stripJsonCommentsSafely } = await import('./pi');
+    const { stripJsonCommentsSafely } = await import('../pi/core/pi');
 
     const raw = `{
   "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/schema.json", // trailing comment
@@ -311,14 +311,14 @@ describe('Pi adapter config helpers', () => {
         meeting_backend: 'collaborating',
       },
       workflows: {
-        default: 'review-only',
-        list: [{ name: 'review-only', description: 'Review', stages: [{ agent: 'oracle' }] }],
+        default: 'research-only',
+        list: [{ name: 'research-only', description: 'Research', stages: [{ agent: 'thinker' }] }],
       },
     });
 
     const { getConfigSearchDirs } = await import('../cli/paths');
     const { loadPluginConfig } = await import('../config/loader');
-    const { loadOmniMoConfig } = await import('./pi');
+    const { loadOmniMoConfig } = await import('../pi/core/pi');
     const searchDirs = getConfigSearchDirs();
     const sharedConfig = loadPluginConfig(projectDir);
     const config = loadOmniMoConfig(projectDir);
@@ -327,7 +327,7 @@ describe('Pi adapter config helpers', () => {
     expect(sharedConfig.agents?.oracle?.model).toBe('runtime/review-oracle');
     expect(config?.agents?.oracle?.model).toBe('runtime/review-oracle');
     expect(config?.council?.meeting_backend).toBe('collaborating');
-    expect(config?.workflows?.default).toBe('review-only');
+    expect(config?.workflows?.default).toBe('research-only');
   });
 
   test('merges Pi native config as fallback and project config as override', async () => {
@@ -350,7 +350,7 @@ describe('Pi adapter config helpers', () => {
       },
     });
 
-    const piModule = await import('./pi');
+    const piModule = await import('../pi/core/pi');
     expect(piModule.getPiAgentDirForConfig()).toBe(piAgentDir);
     expect(fs.existsSync(path.join(piAgentDir, 'oh-my-opencode-slim.json'))).toBe(true);
     const config = piModule.loadOmniMoConfig(projectDir);
@@ -405,7 +405,7 @@ describe('Pi adapter config helpers', () => {
       },
     });
 
-    const { loadOmniMoConfig } = await import('./pi');
+    const { loadOmniMoConfig } = await import('../pi/core/pi');
     const config = loadOmniMoConfig(projectDir);
 
     expect(config?.agents?.oracle?.model).toBe('project/oracle-model');
@@ -423,7 +423,7 @@ describe('Pi adapter config helpers', () => {
 
 describe('Pi adapter council helpers', () => {
   test('resolves explicit participants with fallback names and agents', async () => {
-    const { resolvePiCouncilParticipants } = await import('./pi');
+    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
 
     const result = resolvePiCouncilParticipants({
       config: null,
@@ -443,7 +443,7 @@ describe('Pi adapter council helpers', () => {
   });
 
   test('resolves configured preset participants and skips legacy master', async () => {
-    const { resolvePiCouncilParticipants } = await import('./pi');
+    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
 
     const result = resolvePiCouncilParticipants({
       config: {
@@ -466,7 +466,7 @@ describe('Pi adapter council helpers', () => {
   });
 
   test('reports missing council configuration with actionable message', async () => {
-    const { resolvePiCouncilParticipants } = await import('./pi');
+    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
 
     const result = resolvePiCouncilParticipants({ config: null });
 
@@ -475,7 +475,7 @@ describe('Pi adapter council helpers', () => {
   });
 
   test('formats isolated council results preserving failures and completion count', async () => {
-    const { formatPiCouncilResults } = await import('./pi');
+    const { formatPiCouncilResults } = await import('../pi/core/pi');
 
     const output = formatPiCouncilResults('Choose an architecture', [
       { name: 'alpha', agent: 'oracle', model: 'openai/gpt-4o', status: 'completed', result: 'Use A' },
@@ -494,7 +494,7 @@ describe('Pi adapter council helpers', () => {
 
 describe('Pi adapter meeting helpers', () => {
   test('normalizes meeting objective with decision fallback', async () => {
-    const { normalizePiMeetingObjective } = await import('./pi');
+    const { normalizePiMeetingObjective } = await import('../pi/core/pi');
 
     expect(normalizePiMeetingObjective(undefined)).toBe('decision');
     expect(normalizePiMeetingObjective('review')).toBe('review');
@@ -502,7 +502,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('normalizes meeting max rounds into supported range', async () => {
-    const { normalizePiMeetingMaxRounds } = await import('./pi');
+    const { normalizePiMeetingMaxRounds } = await import('../pi/core/pi');
 
     expect(normalizePiMeetingMaxRounds(undefined)).toBe(2);
     expect(normalizePiMeetingMaxRounds(0)).toBe(0);
@@ -511,7 +511,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('normalizes meeting backend with session fallback', async () => {
-    const { normalizePiMeetingBackend } = await import('./pi');
+    const { normalizePiMeetingBackend } = await import('../pi/core/pi');
 
     expect(normalizePiMeetingBackend(undefined)).toBe('session');
     expect(normalizePiMeetingBackend('session')).toBe('session');
@@ -520,7 +520,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('resolves meeting backend selection before runtime fallback', async () => {
-    const { resolvePiMeetingBackend } = await import('./pi-meeting');
+    const { resolvePiMeetingBackend } = await import('../pi/meeting/pi-meeting');
 
     const sessionResolution = resolvePiMeetingBackend(undefined);
     expect(sessionResolution.requestedBackend).toBe('session');
@@ -537,7 +537,7 @@ describe('Pi adapter meeting helpers', () => {
 
 
   test('formats completed collaborating backend metadata from live-smoke path', async () => {
-    const { formatPiMeetingResult } = await import('./pi');
+    const { formatPiMeetingResult } = await import('../pi/core/pi');
 
     const output = formatPiMeetingResult({
       meetingId: 'omo-meet-smoke',
@@ -562,7 +562,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('formats meeting result without leaking transcript by default', async () => {
-    const { formatPiMeetingResult } = await import('./pi');
+    const { formatPiMeetingResult } = await import('../pi/core/pi');
 
     const output = formatPiMeetingResult({
       meetingId: 'test-meeting-1',
@@ -588,7 +588,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('formats meeting transcript only when explicitly present', async () => {
-    const { formatPiMeetingResult } = await import('./pi');
+    const { formatPiMeetingResult } = await import('../pi/core/pi');
 
     const output = formatPiMeetingResult({
       meetingId: 'test-meeting-2',
@@ -627,7 +627,7 @@ describe('Pi adapter meeting helpers', () => {
   });
 
   test('formats failed participant errors into final report output', async () => {
-    const { formatPiMeetingResult } = await import('./pi');
+    const { formatPiMeetingResult } = await import('../pi/core/pi');
 
     const output = formatPiMeetingResult({
       meetingId: 'test-meeting-3',
@@ -652,7 +652,7 @@ describe('Pi adapter meeting helpers', () => {
 
 describe('Pi adapter preset helpers', () => {
   test('parses provider/model IDs', async () => {
-    const { parsePiModelId } = await import('./pi');
+    const { parsePiModelId } = await import('../pi/core/pi');
 
     expect(parsePiModelId('openai/gpt-4o')).toEqual({ provider: 'openai', model: 'gpt-4o' });
     expect(parsePiModelId('dmxapi/gpt-5.5')).toEqual({ provider: 'dmxapi', model: 'gpt-5.5' });
@@ -662,7 +662,7 @@ describe('Pi adapter preset helpers', () => {
   });
 
   test('resolves preset switch plan with orchestrator model and thinking', async () => {
-    const { resolvePresetSwitchPlan } = await import('./pi');
+    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
 
     const plan = resolvePresetSwitchPlan({
       presets: {
@@ -677,7 +677,7 @@ describe('Pi adapter preset helpers', () => {
   });
 
   test('reports missing preset with available names', async () => {
-    const { resolvePresetSwitchPlan } = await import('./pi');
+    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
 
     const plan = resolvePresetSwitchPlan({ presets: { cheap: {} } } as any, 'powerful');
 

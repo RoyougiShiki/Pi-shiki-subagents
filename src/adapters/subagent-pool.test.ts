@@ -223,7 +223,7 @@ describe('AgentPool basic operations', () => {
     expect(entries2[0].id).toBe('persist-agent');
   });
 
-  test('timeout kills the agent and removes it from the pool', async () => {
+  test('timeout does not kill the agent, agent remains in pool', async () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ timeoutMs: 5, createSession: createSession as any });
 
@@ -238,10 +238,10 @@ describe('AgentPool basic operations', () => {
     const result = await spawnPromise;
 
     expect(result.error).toBe('Agent "timeout-agent" timed out');
-    expect(pool.list()).toHaveLength(0);
+    expect(pool.list()).toHaveLength(1);
     expect(await pool.sendPrompt('timeout-agent', 'late')).toEqual({
       response: '',
-      error: 'Agent "timeout-agent" not found in pool',
+      error: 'Agent "timeout-agent" timed out',
     });
   });
 

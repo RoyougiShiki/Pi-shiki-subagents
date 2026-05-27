@@ -53,7 +53,7 @@ import {
 } from '../utils';
 import { initLogger, log } from '../utils/logger';
 import { SubagentDepthTracker } from '../utils/subagent-depth';
-import { collapseSystemInPlace } from '../utils/system-collapse';
+import { collapseSystemInPlace } from './system-collapse';
 
 /**
  * Best-effort log to opencode's app logger.

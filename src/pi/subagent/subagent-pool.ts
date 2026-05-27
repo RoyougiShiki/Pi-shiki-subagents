@@ -18,6 +18,24 @@ import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery
 import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
 
+// ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
+// These functions read/write process.env.OMO_* which is a global. Concurrent
+// calls would race on these values. The mutex serializes them.
+let spawnMutex: Promise<void> = Promise.resolve();
+
+async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
+  let release: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const prev = spawnMutex;
+  spawnMutex = spawnMutex.then(() => wait);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release!();
+  }
+}
+
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
 const REGISTRY_FILENAME = "pool-registry.json";
@@ -89,106 +107,109 @@ export async function runIsolatedTask(
 ): Promise<SingleResult> {
   const startTime = Date.now();
 
-  const prevEnv = {
-    OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
-    OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
-    OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
-    OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
-    OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
-  };
-  process.env.OMO_SUB_AGENT = "1";
-  process.env.OMO_AGENT_NAME = opts.agent.name;
-  if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
-  process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
-  if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
+  return withSpawnMutex(async () => {
+    // Set env vars for the sub-agent session setup
+    const prevEnv = {
+      OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
+      OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
+      OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
+      OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
+      OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
+    };
+    process.env.OMO_SUB_AGENT = "1";
+    process.env.OMO_AGENT_NAME = opts.agent.name;
+    if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
+    process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
+    if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
 
-  let session: AgentSession | undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+    let session: AgentSession | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
-  try {
-    const created = await createAgentSession({
-      cwd: opts.cwd,
-      sessionManager: SessionManager.inMemory(),
-    });
-    session = created.session;
+    try {
+      const created = await createAgentSession({
+        cwd: opts.cwd,
+        sessionManager: SessionManager.inMemory(),
+      });
+      session = created.session;
 
-    let response = "";
-    let model = "";
-    let input = 0, output = 0, cost = 0, turns = 0;
-    const collectedMessages: any[] = [];
+      let response = "";
+      let model = "";
+      let input = 0, output = 0, cost = 0, turns = 0;
+      const collectedMessages: any[] = [];
 
-    session.subscribe((event: any) => {
-      if (event.type === "message_end" && event.message?.role === "assistant") {
-        const text = extractText(event.message.content);
-        if (text) response = text;
-        collectedMessages.push(event.message);
-        const u = event.message.usage;
-        if (u) {
-          input = u.input || 0;
-          output = u.output || 0;
-          cost = u.cost?.total ?? u.cost ?? 0;
-          turns = 1;
+      session.subscribe((event: any) => {
+        if (event.type === "message_end" && event.message?.role === "assistant") {
+          const text = extractText(event.message.content);
+          if (text) response = text;
+          collectedMessages.push(event.message);
+          const u = event.message.usage;
+          if (u) {
+            input = u.input || 0;
+            output = u.output || 0;
+            cost = u.cost?.total ?? u.cost ?? 0;
+            turns = 1;
+          }
+          const m = event.message.model || event.message.api;
+          if (m) model = m;
         }
-        const m = event.message.model || event.message.api;
-        if (m) model = m;
+        if (event.type === "session" && event.model) model = event.model;
+        opts.onMessage?.(event);
+      });
+
+      const taskText = opts.agent.systemPrompt
+        ? `${opts.agent.systemPrompt}\n\n## Task\n${opts.task}`
+        : opts.task;
+      const promptPromise = session.prompt(taskText);
+      const abortPromise = opts.signal
+        ? new Promise<never>((_, reject) => {
+            if (opts.signal!.aborted) reject(new Error("Aborted"));
+            opts.signal!.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+          })
+        : null;
+      const timeoutPromise = opts.timeoutMs
+        ? new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => reject(new Error("Sub-agent task timed out")), opts.timeoutMs);
+          })
+        : null;
+
+      const racing = [promptPromise];
+      if (abortPromise) racing.push(abortPromise);
+      if (timeoutPromise) racing.push(timeoutPromise);
+      await Promise.race(racing);
+
+      return {
+        agent: opts.agent.name,
+        task: opts.task,
+        exitCode: 0,
+        response: response || "(no output)",
+        messages: collectedMessages,
+        usage: { input, output, cost, turns },
+        model: model || undefined,
+        durationMs: Date.now() - startTime,
+      };
+    } catch (err: any) {
+      return {
+        agent: opts.agent.name,
+        task: opts.task,
+        exitCode: 1,
+        response: `Sub-agent failed: ${err.message}`,
+        messages: [],
+        usage: { input: 0, output: 0, cost: 0, turns: 0 },
+        errorMessage: err.message,
+        durationMs: Date.now() - startTime,
+      };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (session) {
+        try { await session.abort(); } catch {}
+        session.dispose();
       }
-      if (event.type === "session" && event.model) model = event.model;
-      opts.onMessage?.(event);
-    });
-
-    const taskText = opts.agent.systemPrompt
-      ? `${opts.agent.systemPrompt}\n\n## Task\n${opts.task}`
-      : opts.task;
-    const promptPromise = session.prompt(taskText);
-    const abortPromise = opts.signal
-      ? new Promise<never>((_, reject) => {
-          if (opts.signal!.aborted) reject(new Error("Aborted"));
-          opts.signal!.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
-        })
-      : null;
-    const timeoutPromise = opts.timeoutMs
-      ? new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("Sub-agent task timed out")), opts.timeoutMs);
-        })
-      : null;
-
-    const racing = [promptPromise];
-    if (abortPromise) racing.push(abortPromise);
-    if (timeoutPromise) racing.push(timeoutPromise);
-    await Promise.race(racing);
-
-    return {
-      agent: opts.agent.name,
-      task: opts.task,
-      exitCode: 0,
-      response: response || "(no output)",
-      messages: collectedMessages,
-      usage: { input, output, cost, turns },
-      model: model || undefined,
-      durationMs: Date.now() - startTime,
-    };
-  } catch (err: any) {
-    return {
-      agent: opts.agent.name,
-      task: opts.task,
-      exitCode: 1,
-      response: `Sub-agent failed: ${err.message}`,
-      messages: [],
-      usage: { input: 0, output: 0, cost: 0, turns: 0 },
-      errorMessage: err.message,
-      durationMs: Date.now() - startTime,
-    };
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    if (session) {
-      try { await session.abort(); } catch {}
-      session.dispose();
+      for (const [key, val] of Object.entries(prevEnv)) {
+        if (val === undefined) delete process.env[key];
+        else process.env[key] = val;
+      }
     }
-    for (const [key, val] of Object.entries(prevEnv)) {
-      if (val === undefined) delete process.env[key];
-      else process.env[key] = val;
-    }
-  }
+  });
 }
 
 // ─── Pool manager (SDK-based) ─────────────────────────────────────────────
@@ -232,7 +253,7 @@ export class AgentPool {
   private readonly resolveModel: ((modelId: string) => any | undefined) | undefined;
 
   constructor(options: AgentPoolOptions = {}) {
-    this.timeoutMs = options.timeoutMs ?? 300_000;
+    this.timeoutMs = options.timeoutMs ?? 600_000;
     this.sessionDir = options.sessionDir ?? SESSION_DIR;
     this.createSession = options.createSession ?? createAgentSession;
     this.resolveModel = options.resolveModel;
@@ -254,120 +275,123 @@ export class AgentPool {
       return { response: "", error: `Agent "${opts.id}" already exists in pool` };
     }
 
-    const prevEnv = {
-      OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
-      OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
-      OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
-      OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
-      OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
-      OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
-    };
-    process.env.OMO_SUB_AGENT = "1";
-    process.env.OMO_AGENT_NAME = opts.agent.name;
-    if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
-    process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
-    if (opts.stageResultPath) process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
-    if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
-
-    // Resolve model from active preset
-    const presetModelStr = opts.agent ? getPresetModelForAgent(opts.agent.name) || opts.model : opts.model;
-    const resolvedModel = presetModelStr && this.resolveModel ? this.resolveModel(presetModelStr) : undefined;
-
-    let session: AgentSession | undefined;
-
-    try {
-      const created = await this.createSession({
-        cwd: opts.cwd,
-        sessionManager: SessionManager.inMemory(),
-        model: resolvedModel,
-      });
-      session = created.session;
-
-      // Apply tool filtering per agent roles from JSON config
-      try {
-        const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
-        const agentCfg = raw.agents?.[opts.agent.name];
-        const groups = raw._tool_groups ?? {};
-        if (agentCfg?.roles && Object.keys(groups).length > 0) {
-          const toolNames = new Set<string>();
-          for (const role of agentCfg.roles) {
-            const group = groups[role];
-            if (group) group.forEach((t: string) => toolNames.add(t));
-          }
-          (session as any).setActiveToolsByName([...toolNames]);
-        }
-      } catch {}
-
-      const sessAny = session as any;
-      const sessionModel = sessAny.model ? `${sessAny.model.provider}/${sessAny.model.id}` : undefined;
-
-      const entry: PoolEntry = {
-        id: opts.id,
-        name: opts.name,
-        agentName: opts.agent.name,
-        session,
-        status: "starting",
-        startedAt: Date.now(),
-        messageCount: 0,
-        model: sessionModel || opts.model || "default",
-        lastResponse: "",
-        busy: false,
+    // Serialize spawn calls via mutex to prevent process.env.OMO_* races
+    return withSpawnMutex(async () => {
+      const prevEnv = {
+        OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
+        OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
+        OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
+        OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
+        OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
+        OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
       };
+      process.env.OMO_SUB_AGENT = "1";
+      process.env.OMO_AGENT_NAME = opts.agent.name;
+      if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
+      process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
+      if (opts.stageResultPath) process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
+      if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
 
-      this.agents.set(opts.id, entry);
+      // Resolve model from active preset
+      const presetModelStr = opts.agent ? getPresetModelForAgent(opts.agent.name) || opts.model : opts.model;
+      const resolvedModel = presetModelStr && this.resolveModel ? this.resolveModel(presetModelStr) : undefined;
 
-      const unsubscribe = session.subscribe((event: any) => {
-        if (event.type === "turn_start") {
-          entry.status = "streaming";
-        }
-        if (event.type === "agent_end") {
-          entry.status = "idle";
-          entry.messageCount++;
-          const msgs = event.messages ?? [];
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            const m = msgs[i];
-            if (m.role === "assistant") {
-              const text = extractText(m.content);
-              if (text) { entry.lastResponse = text; break; }
+      let session: AgentSession | undefined;
+
+      try {
+        const created = await this.createSession({
+          cwd: opts.cwd,
+          sessionManager: SessionManager.inMemory(),
+          model: resolvedModel,
+        });
+        session = created.session;
+
+        // Apply tool filtering per agent roles from JSON config
+        try {
+          const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+          const agentCfg = raw.agents?.[opts.agent.name];
+          const groups = raw._tool_groups ?? {};
+          if (agentCfg?.roles && Object.keys(groups).length > 0) {
+            const toolNames = new Set<string>();
+            for (const role of agentCfg.roles) {
+              const group = groups[role];
+              if (group) group.forEach((t: string) => toolNames.add(t));
+            }
+            (session as any).setActiveToolsByName([...toolNames]);
+          }
+        } catch {}
+
+        const sessAny = session as any;
+        const sessionModel = sessAny.model ? `${sessAny.model.provider}/${sessAny.model.id}` : undefined;
+
+        const entry: PoolEntry = {
+          id: opts.id,
+          name: opts.name,
+          agentName: opts.agent.name,
+          session,
+          status: "starting",
+          startedAt: Date.now(),
+          messageCount: 0,
+          model: sessionModel || opts.model || "default",
+          lastResponse: "",
+          busy: false,
+        };
+
+        this.agents.set(opts.id, entry);
+
+        const unsubscribe = session.subscribe((event: any) => {
+          if (event.type === "turn_start") {
+            entry.status = "streaming";
+          }
+          if (event.type === "agent_end") {
+            entry.status = "idle";
+            entry.messageCount++;
+            const msgs = event.messages ?? [];
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const m = msgs[i];
+              if (m.role === "assistant") {
+                const text = extractText(m.content);
+                if (text) { entry.lastResponse = text; break; }
+              }
             }
           }
+        });
+        (entry as any)._unsubscribe = unsubscribe;
+
+        this.saveToRegistry({
+          id: opts.id,
+          name: opts.name,
+          agentName: opts.agent.name,
+          task: opts.task,
+          model: opts.model,
+          cwd: opts.cwd,
+          parentAgent: opts.parentAgent,
+          depth: opts.depth,
+          allowedSubagents: opts.allowedSubagents,
+          stageResultPath: opts.stageResultPath,
+          spawnedAt: Date.now(),
+        });
+
+        const taskText = opts.agent.systemPrompt
+          ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
+          : opts.task;
+
+        const result = await this.sendPrompt(opts.id, taskText);
+        return result;
+      } catch (err: any) {
+        if (session) {
+          try { await session.abort(); } catch {}
+          session.dispose();
         }
-      });
-      (entry as any)._unsubscribe = unsubscribe;
-
-      this.saveToRegistry({
-        id: opts.id,
-        name: opts.name,
-        agentName: opts.agent.name,
-        task: opts.task,
-        model: opts.model,
-        cwd: opts.cwd,
-        parentAgent: opts.parentAgent,
-        depth: opts.depth,
-        allowedSubagents: opts.allowedSubagents,
-        stageResultPath: opts.stageResultPath,
-        spawnedAt: Date.now(),
-      });
-
-      const taskText = opts.agent.systemPrompt
-        ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
-        : opts.task;
-
-      const result = await this.sendPrompt(opts.id, taskText);
-      return result;
-    } catch (err: any) {
-      if (session) {
-        try { await session.abort(); } catch {}
-        session.dispose();
+        this.agents.delete(opts.id);
+        return { response: "", error: `Failed to spawn sub-agent: ${err.message}` };
+      } finally {
+        for (const [key, val] of Object.entries(prevEnv)) {
+          if (val === undefined) delete process.env[key];
+          else process.env[key] = val;
+        }
       }
-      this.agents.delete(opts.id);
-      return { response: "", error: `Failed to spawn sub-agent: ${err.message}` };
-    } finally {
-      for (const [key, val] of Object.entries(prevEnv)) {
-        if (val === undefined) delete process.env[key];
-        else process.env[key] = val;
-      }
-    }
+    });
   }
 
   async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
@@ -398,12 +422,14 @@ export class AgentPool {
           new Promise<never>((_, reject) => {
             timeoutTimer = setTimeout(() => {
               reject(new Error(`Agent "${id}" timed out`));
-              this.kill(id).catch(() => {});
             }, this.timeoutMs);
           }),
         ]);
       } finally {
-        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = undefined;
+        }
       }
 
       const messages = (sess.messages ?? []) as any[];
@@ -596,11 +622,14 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (!agentCfg) {
             return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
           }
-          pool.spawn({
+          const spawnResult = await pool.spawn({
             id: params.id, name: params.id, agent: agentCfg,
             task: params.task, model: params.model || agentCfg.model,
             cwd, parentAgent: callerAgent, depth: callerDepth + 1, allowedSubagents,
-          }).catch((err) => { console.error(`[omo-subagent] Spawn ${params.id} failed:`, err); });
+          });
+          if (spawnResult.error) {
+            return { content: [{ type: "text", text: `✗ Spawn failed: ${spawnResult.error}` }], details: {}, isError: true };
+          }
           return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Use pool:send to interact.` }], details: {} };
         }
 
@@ -644,13 +673,16 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (!record) return { content: [{ type: "text", text: `Saved session "${params.id}" not found` }], details: {}, isError: true };
           const agentCfg = agents.find((a) => a.name === record.agentName);
           if (!agentCfg) return { content: [{ type: "text", text: `Agent "${record.agentName}" not found. Cannot resume.` }], details: {}, isError: true };
-          pool.spawn({
+          const resumeResult = await pool.spawn({
             id: record.id, name: record.name, agent: agentCfg,
             task: record.task, model: params.model || agentCfg.model,
             cwd: record.cwd || cwd, parentAgent: process.env.OMO_AGENT_NAME,
             depth: (Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0) + 1,
             allowedSubagents: parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS),
-          }).catch((err) => { console.error(`[omo-subagent] Resume ${params.id} failed:`, err); });
+          });
+          if (resumeResult.error) {
+            return { content: [{ type: "text", text: `✗ Resume failed: ${resumeResult.error}` }], details: {}, isError: true };
+          }
           return { content: [{ type: "text", text: `✓ Agent "${record.id}" (${record.agentName}) resumed with task context.` }], details: {} };
         }
       }

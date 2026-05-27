@@ -9,7 +9,6 @@ describe('default workflows and agent tool matrix', () => {
     expect(names).toEqual([
       'standard-dev',
       'quick-fix',
-      'review-only',
       'research-only',
     ]);
 

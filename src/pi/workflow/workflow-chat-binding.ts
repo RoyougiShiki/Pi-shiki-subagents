@@ -54,12 +54,10 @@ export function bindWorkflowChatBridge(args: {
     if (event.type === 'transition_approval') {
       args.hub.updateChatStatus(event.poolId, { state: 'done' });
       args.setStatus?.('workflow-stage', `Approval required: ${event.agent}`);
-      console.log(`[wf-test] transition_approval event: agent=${event.agent}, nextStage=${event.nextStage}`);
       try {
         args.sendAgentMessage?.(`Workflow stage ${event.agent} completed. Approval required before continuing to ${event.nextStage ?? 'next stage'}.`);
-        console.log(`[wf-test] sendAgentMessage called ok`);
       } catch (e) {
-        console.error(`[wf-test] sendAgentMessage failed:`, e);
+        console.error(`[chat-binding] sendAgentMessage failed:`, e);
       }
     }
 

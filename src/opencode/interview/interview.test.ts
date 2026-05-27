@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { createServer } from 'node:http';
 import * as path from 'node:path';
-import { InterviewConfigSchema } from '../config/schema';
+import { InterviewConfigSchema } from '../../config/schema';
 import { createInterviewServer } from './server';
 import { createInterviewService as createRealInterviewService } from './service';
 import type { InterviewAnswer } from './types';

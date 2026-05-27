@@ -8,7 +8,7 @@
  */
 
 import type { PluginInput } from '@opencode-ai/plugin';
-import { log } from './logger';
+import { log } from '../../utils/logger';
 
 type OpencodeClient = PluginInput['client'];
 

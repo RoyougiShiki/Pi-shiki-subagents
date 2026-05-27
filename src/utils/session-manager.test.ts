@@ -8,27 +8,27 @@ describe('SessionManager', () => {
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-1',
-      agentType: 'explorer',
+      agentType: 'search',
       label: 'first thread',
     });
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-2',
-      agentType: 'explorer',
+      agentType: 'search',
       label: 'second thread',
     });
-    manager.markUsed('parent-1', 'explorer', 'task-1');
+    manager.markUsed('parent-1', 'search', 'task-1');
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-3',
-      agentType: 'explorer',
+      agentType: 'search',
       label: 'third thread',
     });
 
     const prompt = manager.formatForPrompt('parent-1');
-    expect(prompt).toContain('exp-1 first thread');
-    expect(prompt).toContain('exp-3 third thread');
-    expect(prompt).not.toContain('exp-2 second thread');
+    expect(prompt).toContain('sea-1 first thread');
+    expect(prompt).toContain('sea-3 third thread');
+    expect(prompt).not.toContain('sea-2 second thread');
   });
 
   test('clears parent-scoped sessions', () => {
@@ -52,7 +52,7 @@ describe('SessionManager', () => {
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-1',
-      agentType: 'explorer',
+      agentType: 'fixer',
       label: 'session manager',
     });
     manager.addContext('task-1', [
@@ -65,9 +65,9 @@ describe('SessionManager', () => {
     ]);
 
     const prompt = manager.formatForPrompt('parent-1');
-    expect(prompt).toContain('exp-1 session manager');
+    expect(prompt).toContain('fix-1 session manager');
     expect(prompt).toContain(
-      'Context read by exp-1: src/utils/env.ts (12 lines), src/index.ts (42 lines)',
+      'Context read by fix-1: src/utils/env.ts (12 lines), src/index.ts (42 lines)',
     );
   });
 
@@ -77,7 +77,7 @@ describe('SessionManager', () => {
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-1',
-      agentType: 'explorer',
+      agentType: 'observer',
       label: 'large context',
     });
     manager.addContext(
@@ -104,7 +104,7 @@ describe('SessionManager', () => {
     manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-1',
-      agentType: 'explorer',
+      agentType: 'oracle',
       label: 'custom thresholds',
     });
     manager.addContext('task-1', [
@@ -129,7 +129,7 @@ describe('SessionManager', () => {
     const remembered = manager.remember({
       parentSessionId: 'parent-1',
       taskId: 'task-1',
-      agentType: 'explorer',
+      agentType: 'council',
       label: 'bounded context',
     });
     manager.addContext(
@@ -156,7 +156,7 @@ describe('deriveTaskSessionLabel', () => {
       deriveTaskSessionLabel({
         description: 'config schema lookup',
         prompt: 'ignored prompt line',
-        agentType: 'explorer',
+        agentType: 'oracle',
       }),
     ).toBe('config schema lookup');
   });
@@ -165,14 +165,14 @@ describe('deriveTaskSessionLabel', () => {
     expect(
       deriveTaskSessionLabel({
         prompt: '\n  inspect task resumption support  \nmore context',
-        agentType: 'explorer',
+        agentType: 'search',
       }),
     ).toBe('inspect task resumption support');
 
     expect(
       deriveTaskSessionLabel({
-        agentType: 'fixer',
+        agentType: 'oracle',
       }),
-    ).toBe('recent fixer task');
+    ).toBe('recent oracle task');
   });
 });

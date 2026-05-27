@@ -19,11 +19,11 @@ describe('getAgentOverride', () => {
   test('reads override from legacy alias when mapped', () => {
     const config = {
       agents: {
-        explore: { model: 'openai/gpt-5.4-mini' },
+        'frontend-ui-ux-engineer': { model: 'openai/gpt-5.4-mini' },
       },
     } as PluginConfig;
 
-    const override = getAgentOverride(config, 'explorer');
+    const override = getAgentOverride(config, 'designer');
 
     expect(override).toBeDefined();
     expect(override?.model).toBe('openai/gpt-5.4-mini');
@@ -44,8 +44,8 @@ describe('getCustomAgentNames', () => {
   test('returns only unknown non-alias agent keys', () => {
     const config = {
       agents: {
-        explorer: { model: 'openai/gpt-5.4-mini' },
-        explore: { model: 'openai/gpt-5.4-mini' },
+        oracle: { model: 'openai/gpt-5.5' },
+        'frontend-ui-ux-engineer': { model: 'openai/gpt-5.4-mini' },
         janitor: { model: 'openai/gpt-5.4-mini' },
       },
     } as PluginConfig;
@@ -56,8 +56,8 @@ describe('getCustomAgentNames', () => {
   test('returns an empty list when no custom agents exist', () => {
     const config = {
       agents: {
-        explorer: { model: 'openai/gpt-5.4-mini' },
         oracle: { model: 'openai/gpt-5.5' },
+        designer: { model: 'openai/gpt-5.6' },
       },
     } as PluginConfig;
 

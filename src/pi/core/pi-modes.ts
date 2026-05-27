@@ -204,7 +204,6 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
     }
     console.error(`[omo-modes] applyAgentTools("${name}") roles=${JSON.stringify(agent.roles)} tools=[${tools.join(",")}] active=[${active.join(",")}]`);
     pi.setActiveTools(active);
-    saveAgent(name);
   } catch (e) {
     console.error(`[omo-modes] applyAgentTools("${name}") error:`, e);
     return false;
@@ -218,7 +217,6 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
     try {
       const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
       pi.setActiveTools([...new Set(all)]);
-      saveAgent(name);
       return true;
     } catch { return false; }
   }
@@ -303,6 +301,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
       if (trimmed) {
         if (trimmed === "fallback") {
           applyMode(pi, "fallback");
+          saveAgent("fallback");
           ctx.ui.setStatus("mode", "Mode: fallback");
           try { _onModeChange?.("fallback"); } catch {}
           return;
@@ -314,6 +313,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
         const agent = getAgent(trimmed);
         if (agent && (agent.type === "mode" || agent.type === "both")) {
           applyMode(pi, trimmed);
+          saveAgent(trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
           try { _onModeChange?.(trimmed); } catch {}
         } else {
@@ -333,6 +333,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
       applyMode(pi, picked);
+      saveAgent(picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
       try { _onModeChange?.(picked); } catch {}
     },
@@ -348,15 +349,14 @@ function registerModeHooks(pi: ExtensionAPI): void {
       if (saved && getAgent(saved)) {
         _agentDefs = null;
         _toolGroups = null;
-        applyMode(pi, saved);
-        return;
+        if (applyMode(pi, saved)) return;
       }
     }
 
     _agentDefs = null;
     _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
-    if (process.env.OMO_SUB_AGENT === "1" && subagentName) {
+    if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_PARENT_AGENT_NAME && subagentName) {
       console.error(`[omo-modes] session_start sub-agent: ${subagentName}`);
       const ok = applyAgentTools(pi, subagentName, true);
       console.error(`[omo-modes] applyAgentTools result: ${ok}`);
@@ -378,16 +378,16 @@ function registerModeHooks(pi: ExtensionAPI): void {
 
 export default function (pi: ExtensionAPI) {
   // Sub-agent tool filtering
-    if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
+  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
     const agentName = process.env.OMO_AGENT_NAME;
     try {
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      if (all.length > 0) {
-        const agent = getAgent(agentName);
-        if (agent) {
+      const agent = getAgent(agentName);
+      if (agent && (agent.type === "mode" || agent.type === "both")) {
+        const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+        if (all.length > 0) {
           const toolList = resolveAgentTools(agent);
           if (toolList.length > 0) {
-            const allow = new Set([...toolList]);
+            const allow = new Set([...toolList, "switch_mode"]);
             const active = all.filter((n: string) => allow.has(n));
             if (active.length > 0) pi.setActiveTools(active);
           }
@@ -428,6 +428,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
       applyMode(pi, name);
+      saveAgent(name);
       try { _onModeChange?.(name); } catch {}
       return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };
     },

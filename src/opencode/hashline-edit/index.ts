@@ -15,7 +15,7 @@ import {
   generateHashlineTag,
   HashlineMismatchError,
   validateHashlineRef,
-} from '../../utils/hashline';
+} from './hashline';
 import { log } from '../../utils/logger';
 
 const HASHLINE_RE = /^[0-9]+#[A-Z]{2}\|/;

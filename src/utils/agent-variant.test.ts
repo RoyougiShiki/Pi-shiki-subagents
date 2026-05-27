@@ -144,14 +144,14 @@ describe('resolveRuntimeAgentName', () => {
     expect(resolveRuntimeAgentName(config, '  @advisor  ')).toBe('oracle');
   });
 
-  test('resolves displayName configured via legacy alias key', () => {
+  test('resolves displayName configured on custom agent', () => {
     const config = {
       agents: {
-        explore: { displayName: 'researcher' },
+        'my-custom': { displayName: 'researcher' },
       },
     } as PluginConfig;
 
-    expect(resolveRuntimeAgentName(config, 'researcher')).toBe('explorer');
+    expect(resolveRuntimeAgentName(config, 'researcher')).toBe('my-custom');
   });
 
   test('returns normalized name when no displayName match exists', () => {

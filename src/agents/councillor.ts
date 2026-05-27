@@ -58,7 +58,7 @@ export function createCouncillorAgent(
   );
 
   return {
-    name: "",
+    name: "councillor",
     description:
       'Read-only council advisor. Examines codebase and provides independent analysis. Spawned internally by the council system.',
     config: {

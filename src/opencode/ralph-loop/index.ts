@@ -13,7 +13,7 @@ import {
   HOOK_NAME,
   type RalphLoopState,
   type StartLoopOptions,
-} from '../../utils/ralph-loop';
+} from './ralph-loop';
 
 // ---------------------------------------------------------------------------
 // Types

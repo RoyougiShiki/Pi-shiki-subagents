@@ -631,10 +631,24 @@ export function resolvePresetSwitchPlan(
 
 // ─── Orchestrator System Prompt Builder ────────────────────────────────────
 
+/** Load agent definitions from agents-default.json (built-in defaults). */
+function loadAgentDefinitions(): Record<string, { type?: string; label?: string; delegates?: string[]; roles?: string[] }> {
+  try {
+    const defaultsPath = path.join(__dirname, "..", "..", "adapters", "agents-default.json");
+    const raw = JSON.parse(fs.readFileSync(defaultsPath, "utf-8"));
+    // Strip internal keys starting with _
+    const result: Record<string, any> = {};
+    for (const [key, val] of Object.entries(raw)) {
+      if (!key.startsWith("_")) result[key] = val as any;
+    }
+    return result;
+  } catch { return {}; }
+}
+
 function buildPiOrchestratorPrompt(
   disabledAgents: string[],
-  _config: OmniMoConfig | null,
-  _capabilities: PiDelegationCapabilities,
+  config: OmniMoConfig | null,
+  capabilities: PiDelegationCapabilities,
 ): string {
 
   const constPath = path.join(homedir(), ".pi", "agent", "constitution.md");
@@ -642,7 +656,49 @@ function buildPiOrchestratorPrompt(
   try { if (fs.existsSync(constPath)) constText = fs.readFileSync(constPath, "utf-8").trim(); } catch {}
   if (!constText) constText = `<CONSTITUTION>\n(未找到 constitution.md)\n</CONSTITUTION>`;
 
-    return constText || `<CONSTITUTION>\n(未找到 constitution.md)\n</CONSTITUTION>`;
+  const agentDefs = loadAgentDefinitions();
+  const disabledSet = new Set(disabledAgents);
+
+  // Build available-agents section from AGENT_PROMPTS + agent defs
+  const agentLines: string[] = [];
+  for (const [name, info] of Object.entries(AGENT_PROMPTS)) {
+    if (disabledSet.has(name)) continue;
+    const def = agentDefs[name];
+    const typeLabel = def?.type === "mode" ? "(模式)" : def?.type === "subagent" ? "(子代理)" : "";
+    const label = def?.label || info.description || name;
+    const delegates = def?.delegates?.length ? ` → 可委托: ${[...new Set(def.delegates)].join(", ")}` : "";
+    agentLines.push(`  @${name} ${typeLabel} — ${label}${delegates}`);
+  }
+
+  const capabilitiesNotes: string[] = [];
+  if (capabilities.hasPiAgents) capabilitiesNotes.push("- pi-agents 可用: 支持 task/agent tool");
+  if (capabilities.hasSubagent) capabilitiesNotes.push("- omo_subagent 可用: 支持 pool 模式子代理");
+  if (capabilities.hasAgentMessage) capabilitiesNotes.push("- agent_message 可用: 支持后台 agent 通信");
+
+  const parts: string[] = [constText];
+
+  if (agentLines.length > 0) {
+    parts.push(`\n<AvailableAgents>\n${agentLines.join("\n")}\n</AvailableAgents>`);
+  }
+
+  if (disabledSet.size > 0) {
+    parts.push(`\n<DisabledAgents>\n  以下 agents 已被禁用: ${[...disabledSet].join(", ")}. 不要尝试委托或引用它们。\n</DisabledAgents>`);
+  }
+
+  if (capabilitiesNotes.length > 0) {
+    parts.push(`\n<Capabilities>\n${capabilitiesNotes.join("\n")}\n</Capabilities>`);
+  }
+
+  // Workflow hints from config
+  if (config?.workflows?.list && config.workflows.list.length > 0) {
+    const wfLines = config.workflows.list.map(w => {
+      const stages = w.stages.map(s => (s as any).agent || "(choice)").join(" → ");
+      return `  • ${w.name}: ${w.description} [${stages}]`;
+    });
+    parts.push(`\n<Workflows>\n可用 workflow:\n${wfLines.join("\n")}\n</Workflows>`);
+  }
+
+  return parts.join("\n\n");
 }
 
 // ─── Tool implementations ──────────────────────────────────────────────────

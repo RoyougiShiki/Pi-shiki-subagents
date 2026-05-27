@@ -6,16 +6,16 @@ describe('displayName', () => {
   test('stores displayName on agent when configured', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: 'researcher' },
+        search: { displayName: 'researcher' },
       },
     };
 
     const agents = createAgents(config);
-    const explorer = agents.find((a) => a.name === 'explorer');
-    expect(explorer?.displayName).toBe('researcher');
+    const search = agents.find((a) => a.name === 'search');
+    expect(search?.displayName).toBe('researcher');
 
     const sdkConfigs = getAgentConfigs(config);
-    expect((sdkConfigs.explorer as { displayName?: string }).displayName).toBe(
+    expect((sdkConfigs.search as { displayName?: string }).displayName).toBe(
       'researcher',
     );
   });
@@ -23,7 +23,7 @@ describe('displayName', () => {
   test('injects configured displayName into orchestrator prompt mentions', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: 'researcher' },
+        search: { displayName: 'researcher' },
       },
     };
 
@@ -32,13 +32,13 @@ describe('displayName', () => {
     const prompt = orchestrator?.config.prompt ?? '';
 
     expect(prompt).toContain('@researcher');
-    expect(prompt).not.toMatch(/@explorer\b/);
+    expect(prompt).not.toMatch(/@search\b/);
   });
 
   test('normalizes @-prefixed displayName in prompt injection', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: '@researcher' },
+        search: { displayName: '@researcher' },
       },
     };
 
@@ -48,13 +48,13 @@ describe('displayName', () => {
 
     expect(prompt).toContain('@researcher');
     expect(prompt).not.toContain('@@researcher');
-    expect(prompt).not.toMatch(/@explorer\b/);
+    expect(prompt).not.toMatch(/@search\b/);
   });
 
   test('normalizes whitespace-padded displayName in prompt injection', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: '  researcher  ' },
+        search: { displayName: '  researcher  ' },
       },
     };
 
@@ -64,14 +64,14 @@ describe('displayName', () => {
 
     expect(prompt).toContain('@researcher');
     expect(prompt).not.toContain('@ researcher ');
-    expect(prompt).not.toMatch(/@explorer\b/);
+    expect(prompt).not.toMatch(/@search\b/);
   });
 
   test('throws when duplicate displayName is assigned', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: 'helper' },
-        librarian: { displayName: 'helper' },
+        search: { displayName: 'helper' },
+        oracle: { displayName: 'helper' },
       },
     };
 
@@ -83,8 +83,8 @@ describe('displayName', () => {
   test('throws when normalized duplicate displayName is assigned', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: 'advisor' },
-        librarian: { displayName: ' @advisor ' },
+        search: { displayName: 'advisor' },
+        oracle: { displayName: ' @advisor ' },
       },
     };
 
@@ -96,7 +96,7 @@ describe('displayName', () => {
   test('throws when displayName conflicts with internal agent name', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: 'oracle' },
+        search: { displayName: 'oracle' },
       },
     };
 
@@ -108,7 +108,7 @@ describe('displayName', () => {
   test('throws when normalized displayName conflicts with internal agent name', () => {
     const config: PluginConfig = {
       agents: {
-        explorer: { displayName: ' @oracle ' },
+        search: { displayName: ' @oracle ' },
       },
     };
 
@@ -129,17 +129,17 @@ describe('displayName', () => {
     );
   });
 
-  test('resolves legacy alias for explorer displayName override', () => {
+  test('resolves legacy alias for designer displayName override', () => {
     const config: PluginConfig = {
       agents: {
-        explore: { displayName: 'researcher' },
+        'frontend-ui-ux-engineer': { displayName: 'architect' },
       },
     };
 
     const agents = createAgents(config);
-    const explorer = agents.find((a) => a.name === 'explorer');
+    const designer = agents.find((a) => a.name === 'designer');
 
-    expect(explorer?.displayName).toBe('researcher');
+    expect(designer?.displayName).toBe('architect');
   });
 
   test('uses displayName as host-facing registry key with hidden internal alias', () => {

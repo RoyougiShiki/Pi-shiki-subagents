@@ -264,6 +264,8 @@ export class WorkflowManager {
   }
 
   private async runSingleStage(workflowName: string, node: StageNode, input: string, nextStage?: string): Promise<string> {
+    // Reset consecutive tool miss counter for each new stage
+    this.consecutiveToolMisses = 0;
     const agentConfig = this.resolveAgentFn(this.cwd, node.agent);
     const stageId = this.makeStageId(workflowName, node);
     const poolId = `wf-${stageId}-${Date.now()}`;

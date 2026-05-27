@@ -11,7 +11,7 @@ import { tool } from '@opencode-ai/plugin/tool';
 import {
   type BackgroundTask,
   SlimBackgroundManager,
-} from '../../utils/background-task';
+} from './background-task';
 import { log } from '../../utils/logger';
 
 const HOOK_NAME = 'background-task';
