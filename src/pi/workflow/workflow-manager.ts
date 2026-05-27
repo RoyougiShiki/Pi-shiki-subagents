@@ -368,12 +368,24 @@ export class WorkflowManager {
       this.stageError(poolId, stageId, node.agent, result.error);
     }
 
-    // Use the subagent's text response directly — no stage_complete tool needed
-    output = {
-      status: "complete",
-      summary: result.response,
-      context: result.response,
-    };
+    // Check if subagent called stage_ask_user (slot populated)
+    const askResult = this.readStageResult();
+    this.clearStageResult();
+    if (askResult.result?.type === "ask_user") {
+      output = {
+        status: "needs_user",
+        summary: askResult.result.summary,
+        context: result.response,
+        openQuestions: [{ question: askResult.result.question, options: askResult.result.options }],
+      };
+    } else {
+      // Use the subagent's text response directly
+      output = {
+        status: "complete",
+        summary: result.response,
+        context: result.response,
+      };
+    }
     if (output.status === "needs_user") {
       // Clean up stale waiting_user events for this stage before pushing new one
       this.pendingEvents = this.pendingEvents.filter(
