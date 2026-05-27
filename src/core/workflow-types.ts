@@ -37,7 +37,6 @@ export interface StageNode {
   description?: string;
   task?: string;
   outputSchema?: string;
-  keepAlive?: boolean;
   allowedSubagents?: string[];
   /** Auto-review: stage output is reviewed by this agent before transition. */
   review?: {

@@ -173,7 +173,7 @@ export function registerWorkflowCommands(
       const [cmd, ...rest] = args.trim().split(/\s+/);
       if (cmd === "list") {
         const list = workflowsConfig.list.map(w => {
-          const stages = w.stages.map(s => (s as any).agent || "(choice)").join(" → ");
+          const stages = w.stages.map(s => (s as any).agent).join(" → ");
           return `  • ${w.name}: ${w.description}\n    阶段: ${stages}`;
         }).join("\n");
         ctx.ui.notify(`可用 Workflows:\n${list}`, "info");

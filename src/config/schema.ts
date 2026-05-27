@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
 import { CouncilConfigSchema } from './council-schema';
-import type { WorkflowNode, ChoiceNode, WorkflowDefinition } from '../core/workflow-types';
+import type { WorkflowNode, WorkflowDefinition } from '../core/workflow-types';
 
 const FALLBACK_AGENT_NAMES = [
   'orchestrator',
@@ -218,7 +218,6 @@ export const StageNodeSchema = z.object({
   description: z.string().optional(),
   task: z.string().optional(),
   outputSchema: z.string().optional(),
-  keepAlive: z.boolean().optional(),
   allowedSubagents: z.array(z.string()).optional(),
   review: ReviewConfigSchema.optional(),
 });

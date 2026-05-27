@@ -41,7 +41,6 @@ export interface WorkflowPool {
 
 export interface WorkflowManagerOptions {
   cwd?: string;
-  keepStageAgents?: boolean;
   pool?: WorkflowPool;
   resolveAgent?: (cwd: string, name: string) => AgentConfig | undefined;
 }
@@ -125,7 +124,6 @@ export class WorkflowManager {
   private lastError: string | null = null;
   private lastEvent: StageEvent | null = null;
   private readonly cwd: string;
-  private readonly keepStageAgents: boolean;
   private abortedByUser = false;
   private consecutiveToolMisses = 0;
   private readonly pool: WorkflowPool;
@@ -133,7 +131,6 @@ export class WorkflowManager {
 
   constructor(options: WorkflowManagerOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
-    this.keepStageAgents = options.keepStageAgents ?? false;
     this.pool = options.pool ?? getPool();
     this.resolveAgentFn = options.resolveAgent ?? resolveAgent;
   }
@@ -282,7 +279,7 @@ export class WorkflowManager {
 
     if (result.error) {
       this.emit({ type: "error", agent: node.agent, stageId, poolId, error: result.error });
-      if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+      this.pool.kill(poolId);
       throw new Error(result.error);
     }
 
@@ -296,7 +293,7 @@ export class WorkflowManager {
       if (retryResult.error) {
         const error = retryResult.error;
         this.emit({ type: "error", agent: node.agent, stageId, poolId, error });
-        if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+        this.pool.kill(poolId);
         throw new Error(error);
       }
       const retryStageResult = this.readStageResult(stageResultPath);
@@ -304,7 +301,7 @@ export class WorkflowManager {
       if (!retryStageResult.result) {
         const error = retryStageResult.error ?? "Stage did not call stage_complete or stage_ask_user";
         this.emit({ type: "error", agent: node.agent, stageId, poolId, error });
-        if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+        this.pool.kill(poolId);
         throw new Error(error);
       }
       output = stageResultToStageOutput(retryStageResult.result);
@@ -329,7 +326,7 @@ export class WorkflowManager {
       if (!this.abortedByUser) {
         this.emit({ type: "error", agent: node.agent, stageId, poolId, error: output.summary });
       }
-      if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+      this.pool.kill(poolId);
       throw new Error(output.summary);
     }
 
@@ -399,7 +396,7 @@ export class WorkflowManager {
     } else {
       this.emit({ type: "workflow_complete", workflow: workflowName });
     }
-    if (!node.keepAlive && !this.keepStageAgents) this.pool.kill(poolId);
+    this.pool.kill(poolId);
     if (this.currentStage?.poolId === poolId) this.currentStage = null;
     return output.context;
   }
