@@ -885,6 +885,17 @@ function createToolImplementations(config: OmniMoConfig | null) {
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
+  // Clean up sub-agent env vars to prevent stale values from a previous
+  // session leaking through extension reload. These are set by subagent-pool
+  // during spawn() and normally restored in the finally block, but a reload
+  // can interrupt that, leaving them dangling.
+  const OMO_ENV_VARS = [
+    "OMO_SUB_AGENT", "OMO_AGENT_NAME", "OMO_PARENT_AGENT_NAME",
+    "OMO_SUBAGENT_DEPTH", "OMO_STAGE_RESULT_PATH",
+    "OMO_ALLOWED_SUBAGENTS", "OMO_AGENT_ID",
+  ];
+  for (const v of OMO_ENV_VARS) delete process.env[v];
+
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 

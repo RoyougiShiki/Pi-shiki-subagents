@@ -356,7 +356,16 @@ function registerModeHooks(pi: ExtensionAPI): void {
     _agentDefs = null;
     _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
-    if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_PARENT_AGENT_NAME && subagentName) {
+    // Guard: only enter sub-agent path when OMO_SUB_AGENT is set, the
+    // target agent exists in definitions, AND we are in a spawn context
+    // (OMO_PARENT_AGENT_NAME present).  Without this guard, stale env vars
+    // left over from a previous spawn (e.g. after extension reload) would
+    // apply the wrong tool set to the main session.
+    const isSubAgentSpawn = process.env.OMO_SUB_AGENT === "1"
+      && process.env.OMO_PARENT_AGENT_NAME
+      && subagentName
+      && getAgent(subagentName);
+    if (isSubAgentSpawn) {
       console.error(`[omo-modes] session_start sub-agent: ${subagentName}`);
       const ok = applyAgentTools(pi, subagentName, true);
       console.error(`[omo-modes] applyAgentTools result: ${ok}`);
