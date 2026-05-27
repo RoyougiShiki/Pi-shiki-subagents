@@ -23,16 +23,54 @@ import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters
 // calls would race on these values. The mutex serializes them.
 let spawnMutex: Promise<void> = Promise.resolve();
 
+const MUTEX_TIMEOUT_MS = 30_000;
+
 async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
   let release: () => void;
   const wait = new Promise<void>((resolve) => { release = resolve; });
   const prev = spawnMutex;
   spawnMutex = spawnMutex.then(() => wait);
-  await prev;
+  await Promise.race([
+    prev,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Spawn mutex timeout")), MUTEX_TIMEOUT_MS),
+    ),
+  ]);
   try {
     return await fn();
   } finally {
     release!();
+  }
+}
+
+// ── Agent env helpers (unified save/restore to keep 3 env lists in sync) ──
+
+interface AgentEnv {
+  OMO_SUB_AGENT: string | undefined;
+  OMO_AGENT_NAME: string | undefined;
+  OMO_PARENT_AGENT_NAME: string | undefined;
+  OMO_SUBAGENT_DEPTH: string | undefined;
+  OMO_STAGE_RESULT_PATH: string | undefined;
+  OMO_ALLOWED_SUBAGENTS: string | undefined;
+  OMO_AGENT_ID: string | undefined;
+}
+
+function saveAgentEnv(): AgentEnv {
+  return {
+    OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
+    OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
+    OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
+    OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
+    OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
+    OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
+    OMO_AGENT_ID: process.env.OMO_AGENT_ID,
+  };
+}
+
+function restoreAgentEnv(saved: AgentEnv): void {
+  for (const [key, val] of Object.entries(saved)) {
+    if (val === undefined) delete process.env[key];
+    else process.env[key] = val;
   }
 }
 
@@ -109,13 +147,7 @@ export async function runIsolatedTask(
 
   return withSpawnMutex(async () => {
     // Set env vars for the sub-agent session setup
-    const prevEnv = {
-      OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
-      OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
-      OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
-      OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
-      OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
-    };
+    const prevEnv = saveAgentEnv();
     process.env.OMO_SUB_AGENT = "1";
     process.env.OMO_AGENT_NAME = opts.agent.name;
     if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
@@ -204,10 +236,7 @@ export async function runIsolatedTask(
         try { await session.abort(); } catch {}
         session.dispose();
       }
-      for (const [key, val] of Object.entries(prevEnv)) {
-        if (val === undefined) delete process.env[key];
-        else process.env[key] = val;
-      }
+      restoreAgentEnv(prevEnv);
     }
   });
 }
@@ -277,15 +306,7 @@ export class AgentPool {
 
     // Serialize spawn calls via mutex to prevent process.env.OMO_* races
     return withSpawnMutex(async () => {
-      const prevEnv = {
-        OMO_SUB_AGENT: process.env.OMO_SUB_AGENT,
-        OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
-        OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
-        OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
-        OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
-        OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
-        OMO_AGENT_ID: process.env.OMO_AGENT_ID,
-      };
+      const prevEnv = saveAgentEnv();
       process.env.OMO_SUB_AGENT = "1";
       process.env.OMO_AGENT_NAME = opts.agent.name;
       if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
@@ -321,7 +342,9 @@ export class AgentPool {
             }
             (session as any).setActiveToolsByName([...toolNames]);
           }
-        } catch {}
+        } catch (err) {
+          console.warn(`[pool] Tool filtering failed for "${opts.agent.name}":`, err);
+        }
 
         const sessAny = session as any;
         const sessionModel = sessAny.model ? `${sessAny.model.provider}/${sessAny.model.id}` : undefined;
@@ -388,10 +411,7 @@ export class AgentPool {
         this.agents.delete(opts.id);
         return { response: "", error: `Failed to spawn sub-agent: ${err.message}` };
       } finally {
-        for (const [key, val] of Object.entries(prevEnv)) {
-          if (val === undefined) delete process.env[key];
-          else process.env[key] = val;
-        }
+        restoreAgentEnv(prevEnv);
       }
     });
   }
