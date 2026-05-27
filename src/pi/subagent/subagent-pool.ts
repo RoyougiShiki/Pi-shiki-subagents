@@ -391,15 +391,20 @@ export class AgentPool {
         }
       }
 
-      await Promise.race([
-        sess.prompt(message),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error(`Agent "${id}" timed out`));
-            this.kill(id).catch(() => {});
-          }, this.timeoutMs);
-        }),
-      ]);
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          sess.prompt(message),
+          new Promise<never>((_, reject) => {
+            timeoutTimer = setTimeout(() => {
+              reject(new Error(`Agent "${id}" timed out`));
+              this.kill(id).catch(() => {});
+            }, this.timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+      }
 
       const messages = (sess.messages ?? []) as any[];
       for (let i = messages.length - 1; i >= 0; i--) {
