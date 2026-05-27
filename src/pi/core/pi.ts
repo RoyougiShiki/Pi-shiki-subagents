@@ -540,7 +540,11 @@ export function getPiAgentsDirForSync(): string {
 }
 
 export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {
-  if (!poolId?.trim()) return false;
+  if (!poolId?.trim()) {
+    console.warn('[workflow] stage_complete called but poolId is empty');
+    return false;
+  }
+  console.warn(`[workflow] stage_complete called for ${poolId}`);
   setStageResult(poolId, result);
   return true;
 }

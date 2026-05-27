@@ -356,6 +356,12 @@ export class WorkflowManager {
     const stageResult = this.readStageResult(poolId);
     this.clearStageResult(poolId);
     if (!stageResult.result) {
+      // Read the subagent's last response to see what it replied
+      const stageEntry = getPool().list().find(a => a.id === poolId);
+      if (stageEntry?.lastResponse) {
+        const preview = stageEntry.lastResponse.slice(0, 200);
+        console.warn(`[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`);
+      }
       // Retry up to 10 times: some LLMs may need multiple reminders
       // before they correctly call stage_complete / stage_ask_user.
       const RETRY_LIMIT = 10;
