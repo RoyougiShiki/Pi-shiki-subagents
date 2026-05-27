@@ -52,7 +52,7 @@ import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
 import { WorkflowManager } from "../workflow/workflow-manager";
-import { setStageResult } from "../workflow/stage-result-store";
+import { getCurrentPoolId, setStageResult } from "../workflow/stage-result-store";
 import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
 import { registerWorkflowCommands } from "../workflow/workflow-commands";
 import { WorkflowsConfig } from "../../core/workflow-types";
@@ -540,11 +540,7 @@ export function getPiAgentsDirForSync(): string {
 }
 
 export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {
-  if (!poolId?.trim()) {
-    console.warn('[workflow] stage_complete called but OMO_AGENT_ID is missing');
-    return false;
-  }
-  console.warn(`[workflow] stage_complete recorded for ${poolId}`);
+  if (!poolId?.trim()) return false;
   setStageResult(poolId, result);
   return true;
 }
@@ -1089,7 +1085,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const ok = writeWorkflowStageResult(result, process.env.OMO_AGENT_ID);
+      const poolId = process.env.OMO_AGENT_ID || getCurrentPoolId();
+      const ok = writeWorkflowStageResult(result, poolId);
       return ok
         ? { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } }
         : { content: [{ type: "text", text: "Missing OMO_AGENT_ID" }], details: { ok: false }, isError: true };
@@ -1123,7 +1120,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         evidence: (params as any).evidence,
         artifacts: (params as any).artifacts,
       };
-      const ok = writeWorkflowStageResult(result, process.env.OMO_AGENT_ID);
+      const askPoolId = process.env.OMO_AGENT_ID || getCurrentPoolId();
+      const ok = writeWorkflowStageResult(result, askPoolId);
       return ok
         ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
         : { content: [{ type: "text", text: "Missing OMO_AGENT_ID" }], details: { ok: false }, isError: true };

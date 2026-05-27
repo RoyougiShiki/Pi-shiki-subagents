@@ -17,6 +17,7 @@ import { createAgentSession, SessionManager, type AgentSession } from "@earendil
 import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
 import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
+import { setCurrentPoolId } from "../workflow/stage-result-store";
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
 // These functions read/write process.env.OMO_* which is a global. Concurrent
@@ -380,6 +381,7 @@ export class AgentPool {
         };
 
         this.agents.set(opts.id, entry);
+        setCurrentPoolId(opts.id);
 
         const unsubscribe = session.subscribe((event: any) => {
           if (event.type === "turn_start") {
