@@ -1148,9 +1148,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     clearStatus: (key) => _sessionCtx?.ui.setStatus(key, ''),
     sendAgentMessage: (content) => {
       try {
-        pi.sendUserMessage(content, { deliverAs: 'followUp' });
+        pi.sendMessage({ customType: 'workflow_event', content, display: true }, { deliverAs: 'followUp', triggerTurn: true });
       } catch (e) {
-        console.warn('[workflow] sendAgentMessage failed:', e);
+        console.warn('[workflow] sendAgentMessage failed (stale ctx after reload?):', e);
       }
     },
   });
