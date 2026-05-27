@@ -1094,7 +1094,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const poolId = process.env.OMO_AGENT_ID || getCurrentPoolId();
+      const omoId = process.env.OMO_AGENT_ID;
+      const curId = getCurrentPoolId();
+      const poolId = omoId || curId;
+      debugLog(`[workflow] stage_complete: OMO_AGENT_ID=${omoId ?? '(empty)'} getCurrentPoolId=${curId ?? '(empty)'} using=${poolId ?? '(empty)'}`);
       const ok = writeWorkflowStageResult(result, poolId);
       return ok
         ? { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } }
