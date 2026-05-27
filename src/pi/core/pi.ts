@@ -911,24 +911,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       });
     } catch {}
 
-    // Apply tool filtering for sub-agents based on JSON config roles → _tool_groups
-    if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
-      try {
-        const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-        const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        const agentCfg = raw.agents?.[process.env.OMO_AGENT_NAME];
-        const groups = raw._tool_groups ?? {};
-        if (agentCfg?.roles && Object.keys(groups).length > 0) {
-          const tools = new Set<string>();
-          for (const role of agentCfg.roles) {
-            const group = groups[role];
-            if (group) group.forEach((t: string) => tools.add(t));
-          }
-          const active = pi.getAllTools().filter((t: any) => tools.has(t.name)).map((t: any) => t.name);
-          pi.setActiveTools(active);
-        }
-      } catch {}
-    }
   });
 
   // ── Inject orchestrator system prompt ───────────────────────────────
@@ -936,6 +918,25 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
     if (event.systemPromptOptions?.appendSystemPrompt === "__OMO_SUB_AGENT__" || process.env.OMO_SUB_AGENT === "1") {
+      // Filter tools per agent roles before returning
+      if (process.env.OMO_AGENT_NAME) {
+        try {
+          const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+          const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+          const agentCfg = raw.agents?.[process.env.OMO_AGENT_NAME];
+          const groups = raw._tool_groups ?? {};
+          if (agentCfg?.roles && Object.keys(groups).length > 0) {
+            const toolNames = new Set<string>();
+            for (const role of agentCfg.roles) {
+              const group = groups[role];
+              if (group) group.forEach((t: string) => toolNames.add(t));
+            }
+            const allTools = pi.getAllTools();
+            const active = allTools.filter((t: any) => toolNames.has(t.name)).map((t: any) => t.name);
+            pi.setActiveTools(active);
+          }
+        } catch {}
+      }
       return { systemPrompt: event.systemPrompt };
     }
 
