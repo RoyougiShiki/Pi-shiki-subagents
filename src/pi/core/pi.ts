@@ -913,9 +913,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     // Apply tool filtering for sub-agents
     if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
+      console.error(`[pi] session_start sub-agent: ${process.env.OMO_AGENT_NAME}`);
       try {
-        applyAgentTools(pi, process.env.OMO_AGENT_NAME, true);
-      } catch {}
+        const ok = applyAgentTools(pi, process.env.OMO_AGENT_NAME, true);
+        console.error(`[pi] applyAgentTools result: ${ok}`);
+      } catch (e) {
+        console.error(`[pi] applyAgentTools error:`, e);
+      }
     }
   });
 
