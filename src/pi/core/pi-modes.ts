@@ -144,18 +144,44 @@ function getHiddenAgents(): string[] {
 
 function saveAgent(name: string): void {
   try {
+    // Persist to both per-session (for session-specific memory) and global
+    // (for fallback after reload / new session with no saved mode yet).
+    if (_currentSessionFile) {
+      saveSessionMode(_currentSessionFile, name);
+    }
     saveLastMode(name);
   } catch {}
+}
+
+function saveSessionMode(sessionFile: string, mode: string): void {
+  try {
+    let map: Record<string, string> = {};
+    try { map = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8")); } catch {}
+    map[sessionFile] = mode;
+    fs.writeFileSync(SESSION_MODE_MAP_PATH, JSON.stringify(map, null, 2) + "\n", "utf-8");
+  } catch {}
+}
+
+function loadSessionMode(sessionFile: string): string | undefined {
+  try {
+    const map: Record<string, string> = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8"));
+    return map[sessionFile];
+  } catch { return undefined; }
 }
 
 // ── Session mode persistence ───────────────────────────────────────────
 
 export function loadActiveMode(): string {
   try {
-    // 1) Try global lastMode from config file (survives reload & session switches)
+    // 1) Per-session mode (switching sessions keeps each session's mode)
+    if (_currentSessionFile) {
+      const saved = loadSessionMode(_currentSessionFile);
+      if (saved && getAgent(saved)) return saved;
+    }
+    // 2) Global lastMode (survives reload when the resumed session has none)
     const globalMode = loadLastMode();
     if (globalMode && getAgent(globalMode)) return globalMode;
-    // 2) Fallback to first public agent
+    // 3) Fallback
     const publics = getPublicAgents();
     return publics.length > 0 ? publics[0] : "coordinator";
   } catch {
@@ -342,17 +368,16 @@ function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
 
+    _agentDefs = null;
+    _toolGroups = null;
+
     if (event.reason === "resume") {
-      const saved = loadLastMode();
+      // On resume: try per-session first, then global lastMode
+      const saved = loadActiveMode();
       if (saved && getAgent(saved)) {
-        _agentDefs = null;
-        _toolGroups = null;
         if (applyMode(pi, saved)) return;
       }
     }
-
-    _agentDefs = null;
-    _toolGroups = null;
     const subagentName = process.env.OMO_AGENT_NAME;
     // Guard: only enter sub-agent path when OMO_SUB_AGENT is set, the
     // target agent exists in definitions, AND we are in a spawn context
@@ -376,7 +401,10 @@ function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
       const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
-      if (sf) saveLastMode(loadActiveMode());
+      if (sf) {
+        saveSessionMode(sf, loadActiveMode());
+        saveLastMode(loadActiveMode());
+      }
     } catch {}
   });
 }
