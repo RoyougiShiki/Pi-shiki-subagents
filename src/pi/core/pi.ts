@@ -29,6 +29,7 @@ import { Type } from "typebox";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
 import type { WorkflowStageToolResult, StageResultComplete, StageResultAskUser } from "../../core/workflow-types";
@@ -541,7 +542,7 @@ export function getPiAgentsDirForSync(): string {
 
 const debugLog = (msg: string) => {
   console.warn(msg);
-  try { require('node:fs').appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
+  try { appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
 };
 
 export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {

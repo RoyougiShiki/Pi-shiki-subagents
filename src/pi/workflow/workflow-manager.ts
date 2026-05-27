@@ -9,6 +9,7 @@ import {
 import { getPool } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
 import { getStageResult, deleteStageResult } from "./stage-result-store";
+import { appendFileSync } from "node:fs";
 
 /** 编排 Agent 名称，与 pi mode 系统定义的 coordinator 保持一致 */
 const PARENT_AGENT_NAME = "coordinator";
@@ -362,7 +363,7 @@ export class WorkflowManager {
         const preview = stageEntry.lastResponse.slice(0, 200);
         const msg = `[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`;
         console.warn(msg);
-        try { require('node:fs').appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
+        try { appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
       }
       // Retry up to 10 times: some LLMs may need multiple reminders
       // before they correctly call stage_complete / stage_ask_user.
