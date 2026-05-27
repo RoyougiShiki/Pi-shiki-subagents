@@ -52,7 +52,7 @@ import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
 import { WorkflowManager } from "../workflow/workflow-manager";
-import { getCurrentPoolId, setStageResult } from "../workflow/stage-result-store";
+import { poolIdStorage, setStageResult } from "../workflow/stage-result-store";
 import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
 import { registerWorkflowCommands } from "../workflow/workflow-commands";
 import { WorkflowsConfig } from "../../core/workflow-types";
@@ -1060,7 +1060,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     label: "Request Completion",
     description: "workflow stage 子代理申请完成许可时调用,请求主 agent 批准。",
     parameters: Type.Object({
-      poolId: Type.String({ description: "当前 stage 的 poolId（必须传，否则结果存不进系统）" }),
       summary: Type.String({ description: "简短阶段总结" }),
       context: Type.String({ description: "传给下一阶段的上下文" }),
       evidence: Type.Optional(Type.Array(Type.Object({
@@ -1088,9 +1087,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const poolId = params.poolId;
+      const poolId = poolIdStorage.getStore();
       if (!poolId) {
-        return { content: [{ type: "text", text: "stage_complete missing required poolId parameter" }], details: { ok: false }, isError: true };
+        return { content: [{ type: "text", text: "stage_complete: no poolId in async context" }], details: { ok: false }, isError: true };
       }
       const ok = writeWorkflowStageResult(result, poolId);
       return { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } };
@@ -1124,7 +1123,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         evidence: (params as any).evidence,
         artifacts: (params as any).artifacts,
       };
-      const askPoolId = process.env.OMO_AGENT_ID || getCurrentPoolId();
+      const askPoolId = poolIdStorage.getStore() || process.env.OMO_AGENT_ID;
       const ok = writeWorkflowStageResult(result, askPoolId);
       return ok
         ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }

@@ -183,13 +183,11 @@ export class WorkflowManager {
     return currentInput;
   }
 
-  private buildStageTask(node: StageNode, input: string, poolId: string): string {
+  private buildStageTask(node: StageNode, input: string): string {
     const parts = [
       "You are running as one stage in a workflow. When done, call stage_complete.",
       "If you need to ask the user something, call stage_ask_user.",
       "Do NOT just reply with text. You must use stage_complete or stage_ask_user.",
-      `Your stage poolId is: ${poolId}`,
-      `When calling stage_complete, pass poolId: "${poolId}" as a parameter.`,
     ];
     if (node.description) parts.push(`Stage description:\n${node.description}`);
     if (node.task) parts.push(`Stage task:\n${node.task}`);
@@ -313,7 +311,7 @@ export class WorkflowManager {
       id: poolId,
       name: stageId,
       agent: agentConfig,
-      task: this.buildStageTask(node, input, poolId),
+      task: this.buildStageTask(node, input),
       model: agentConfig.model,
       cwd: this.cwd,
       parentAgent: PARENT_AGENT_NAME,

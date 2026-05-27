@@ -17,7 +17,7 @@ import { createAgentSession, SessionManager, type AgentSession } from "@earendil
 import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
 import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
-import { setCurrentPoolId } from "../workflow/stage-result-store";
+import { poolIdStorage } from "../workflow/stage-result-store";
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
 // These functions read/write process.env.OMO_* which is a global. Concurrent
@@ -381,7 +381,6 @@ export class AgentPool {
         };
 
         this.agents.set(opts.id, entry);
-        setCurrentPoolId(opts.id);
 
         const unsubscribe = session.subscribe((event: any) => {
           if (event.type === "turn_start") {
@@ -461,7 +460,7 @@ export class AgentPool {
       let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
-          sess.prompt(message),
+          poolIdStorage.run(entry.id, () => sess.prompt(message)),
           new Promise<never>((_, reject) => {
             timeoutTimer = setTimeout(() => {
               reject(new Error(`Agent "${id}" timed out`));
