@@ -965,6 +965,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     ensureAgentFiles();
 
+    // Wire pool error events → chat notification
+    getPool().onEvent((event) => {
+      if (event.type === "error") {
+        try {
+          ctx.ui.notify(`[pool] ${event.agentName}: ${event.error}`, "warning");
+        } catch {}
+      }
+    });
+
     // Wire mode change → status bar
     try {
       const initialMode = loadActiveMode() || "coordinator";

@@ -274,18 +274,35 @@ export interface AgentPoolOptions {
   resolveModel?: (modelId: string) => any | undefined;
 }
 
+export interface PoolEvent {
+  type: "error";
+  poolId: string;
+  agentName: string;
+  error: string;
+}
+
 export class AgentPool {
   private agents = new Map<string, PoolEntry>();
   private readonly timeoutMs: number;
   private readonly sessionDir: string;
   private readonly createSession: typeof createAgentSession;
   private readonly resolveModel: ((modelId: string) => any | undefined) | undefined;
+  private eventListeners: Array<(event: PoolEvent) => void> = [];
 
   constructor(options: AgentPoolOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 600_000;
     this.sessionDir = options.sessionDir ?? SESSION_DIR;
     this.createSession = options.createSession ?? createAgentSession;
     this.resolveModel = options.resolveModel;
+  }
+
+  onEvent(cb: (event: PoolEvent) => void): () => void {
+    this.eventListeners.push(cb);
+    return () => { this.eventListeners = this.eventListeners.filter(e => e !== cb); };
+  }
+
+  private emit(event: PoolEvent): void {
+    for (const cb of this.eventListeners) cb(event);
   }
 
   async spawn(opts: {
@@ -408,8 +425,10 @@ export class AgentPool {
           try { await session.abort(); } catch {}
           session.dispose();
         }
+        const spawnError = `Failed to spawn sub-agent: ${err.message}`;
+        this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: spawnError });
         this.agents.delete(opts.id);
-        return { response: "", error: `Failed to spawn sub-agent: ${err.message}` };
+        return { response: "", error: spawnError };
       } finally {
         restoreAgentEnv(prevEnv);
       }
@@ -467,7 +486,9 @@ export class AgentPool {
       }
       return { response: entry.lastResponse };
     } catch (err: any) {
-      return { response: entry.lastResponse, error: err.message };
+      const errorMsg = err.message ?? String(err);
+      this.emit({ type: "error", poolId: id, agentName: entry.agentName, error: errorMsg });
+      return { response: entry.lastResponse, error: errorMsg };
     } finally {
       entry.busy = false;
     }
