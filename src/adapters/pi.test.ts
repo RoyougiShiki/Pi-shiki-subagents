@@ -100,11 +100,9 @@ describe('Pi adapter agent prompt sync', () => {
     const { writeWorkflowStageResult } = await import('../pi/core/pi');
     const { getStageResult } = await import('../pi/workflow/stage-result-store');
 
-    const poolId = 'test-pool-123';
-    const ok = writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' }, poolId);
+    writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' });
 
-    expect(ok).toBe(true);
-    expect(getStageResult(poolId)).toEqual({ type: 'complete', summary: 'done', context: 'ctx' });
+    expect(getStageResult()).toEqual({ type: 'complete', summary: 'done', context: 'ctx' });
   });
 
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {

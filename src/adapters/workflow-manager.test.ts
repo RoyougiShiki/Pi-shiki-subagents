@@ -38,8 +38,8 @@ class FakePool implements WorkflowPool {
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
     const stageResult = this.spawnStageResults.shift();
-    if (stageResult && opts.id) {
-      setStageResult(opts.id, stageResult);
+    if (stageResult) {
+      setStageResult(stageResult);
     }
     const next = this.spawnResponses.shift();
     if (!next) throw new Error('No fake spawn response queued');
@@ -49,9 +49,8 @@ class FakePool implements WorkflowPool {
   async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
     this.sendCalls.push({ id, message });
     const stageResult = this.sendStageResults.shift();
-    const call = this.spawnCalls.find((call) => call.id === id);
-    if (stageResult && call?.id) {
-      setStageResult(call.id, stageResult);
+    if (stageResult) {
+      setStageResult(stageResult);
     }
     const next = this.sendResponses.shift();
     if (!next) throw new Error('No fake send response queued');
@@ -330,7 +329,7 @@ describe('WorkflowManager', () => {
     const run = manager.runWorkflow(wf, 'input');
     await new Promise((resolve) => setTimeout(resolve, 0));
     const result = await manager.sendUserMessage('too early');
-    setStageResult(pool.spawnCalls[0].id, { type: 'complete', summary: 'done', context: 'ctx' });
+    setStageResult({ type: 'complete', summary: 'done', context: 'ctx' });
     hold.resolve({ response: 'stage_complete recorded' });
     await run;
 

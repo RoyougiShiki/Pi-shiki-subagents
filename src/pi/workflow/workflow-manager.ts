@@ -8,8 +8,7 @@ import {
 } from "../../core/workflow-types";
 import { getPool } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
-import { getStageResult, deleteStageResult } from "./stage-result-store";
-import { appendFileSync } from "node:fs";
+import { getStageResult, clearStageResult } from "./stage-result-store";
 
 /** 编排 Agent 名称，与 pi mode 系统定义的 coordinator 保持一致 */
 const PARENT_AGENT_NAME = "coordinator";
@@ -202,12 +201,12 @@ export class WorkflowManager {
     return `${workflowName}-${explicit}`.replace(/[^a-zA-Z0-9_.-]+/g, "-");
   }
 
-  private clearStageResult(poolId: string): void {
-    deleteStageResult(poolId);
+  private clearStageResult(): void {
+    clearStageResult();
   }
 
-  private readStageResult(poolId: string): { result?: WorkflowStageToolResult; error?: string } {
-    const result = getStageResult(poolId);
+  private readStageResult(): { result?: WorkflowStageToolResult; error?: string } {
+    const result = getStageResult();
     if (!result) {
       return { error: "Stage did not call stage_complete or stage_ask_user" };
     }
@@ -354,8 +353,8 @@ export class WorkflowManager {
       this.stageError(poolId, stageId, node.agent, result.error);
     }
 
-    const stageResult = this.readStageResult(poolId);
-    this.clearStageResult(poolId);
+    const stageResult = this.readStageResult();
+    this.clearStageResult();
     if (!stageResult.result) {
       // Read the subagent's last response to see what it replied
       const stageEntry = getPool().list().find(a => a.id === poolId);
@@ -363,7 +362,6 @@ export class WorkflowManager {
         const preview = stageEntry.lastResponse.slice(0, 200);
         const msg = `[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`;
         console.warn(msg);
-        try { appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
       }
       // Retry up to 10 times: some LLMs may need multiple reminders
       // before they correctly call stage_complete / stage_ask_user.
@@ -375,8 +373,8 @@ export class WorkflowManager {
         if (retryResult.error) {
           this.stageError(poolId, stageId, node.agent, retryResult.error);
         }
-        const retryStageResult = this.readStageResult(poolId);
-        this.clearStageResult(poolId);
+        const retryStageResult = this.readStageResult();
+        this.clearStageResult();
         if (retryStageResult.result) {
           lastOutput = retryStageResult.result;
           break;
@@ -485,20 +483,20 @@ export class WorkflowManager {
     if (!this.stageWaitResolver) {
       return { response: "", error: "Current workflow stage is not waiting for user input" };
     }
-    this.clearStageResult(stage.stageResultPath);
+    this.clearStageResult();
     const result = await this.pool.sendPrompt(stage.poolId, text);
     if (result.error) return result;
 
-    const stageResult = this.readStageResult(stage.stageResultPath);
-    this.clearStageResult(stage.stageResultPath);
+    const stageResult = this.readStageResult();
+    this.clearStageResult();
     if (!stageResult.result) {
       // First miss: send system reminder via prompt with [System] prefix
       const retryMsg = "[System] You ended your turn without calling a stage tool. Continue working, or use the tool to ask a question or complete the stage.";
-      this.clearStageResult(stage.stageResultPath);
+      this.clearStageResult();
       const retryResult = await this.pool.sendPrompt(stage.poolId, retryMsg).catch(() => ({ response: "", error: "send failed" }));
       // Check if agent called a tool after reminder
-      const retryStageResult = this.readStageResult(stage.stageResultPath);
-      this.clearStageResult(stage.stageResultPath);
+      const retryStageResult = this.readStageResult();
+      this.clearStageResult();
       if (retryStageResult.result) {
         this.consecutiveToolMisses = 0;
         const retryOutput = stageResultToStageOutput(retryStageResult.result);

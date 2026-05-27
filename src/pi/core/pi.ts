@@ -52,7 +52,7 @@ import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
 import { WorkflowManager } from "../workflow/workflow-manager";
-import { getCurrentPoolId, setStageResult } from "../workflow/stage-result-store";
+import { setStageResult } from "../workflow/stage-result-store";
 import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
 import { registerWorkflowCommands } from "../workflow/workflow-commands";
 import { WorkflowsConfig } from "../../core/workflow-types";
@@ -541,10 +541,8 @@ export function getPiAgentsDirForSync(): string {
 
 
 
-export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {
-  if (!poolId?.trim()) return false;
-  setStageResult(poolId, result);
-  return true;
+export function writeWorkflowStageResult(result: WorkflowStageToolResult): void {
+  setStageResult(result);
 }
 
 export function ensureAgentFiles(): void {
@@ -1087,11 +1085,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const poolId = getCurrentPoolId();
-      if (!poolId) {
-        return { content: [{ type: "text", text: "stage_complete: poolId not set" }], details: { ok: false }, isError: true };
-      }
-      const ok = writeWorkflowStageResult(result, poolId);
+      writeWorkflowStageResult(result);
       return { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } };
     },
   });
@@ -1123,11 +1117,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         evidence: (params as any).evidence,
         artifacts: (params as any).artifacts,
       };
-      const askPoolId = getCurrentPoolId();
-      const ok = writeWorkflowStageResult(result, askPoolId);
-      return ok
-        ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
-        : { content: [{ type: "text", text: "Missing OMO_AGENT_ID" }], details: { ok: false }, isError: true };
+      writeWorkflowStageResult(result);
+      return { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } };
     },
   });
 
