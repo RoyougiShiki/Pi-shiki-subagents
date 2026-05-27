@@ -1,7 +1,8 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { AGENT_PROMPTS } from "./pi-agents";
 import type { OmniMoConfig, PiCouncilParticipantConfig } from "../core/pi";
+import { getPool } from "../subagent/subagent-pool";
+import type { AgentConfig } from "../../adapters/agent-discovery";
 
 // ─── Pi Council helpers ───────────────────────────────────────────────────
 
@@ -124,71 +125,44 @@ export async function runPiCouncilParticipant(args: {
   ctx: ExtensionContext;
   timeoutMs: number;
 }): Promise<PiCouncilRunResult> {
-  const { participant, question, ctx, timeoutMs } = args;
-  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const { participant, question } = args;
+  const pool = getPool();
+  const poolId = `council-${participant.name}-${Date.now()}`;
 
-  try {
-    const model = resolvePiModel(ctx, participant.model);
-    if (participant.model && !model) {
-      return {
-        name: participant.name,
-        agent: participant.agent,
-        model: participant.model,
-        status: "failed",
-        error: `Model not found: ${participant.model}`,
-      };
-    }
+  const agentConfig: AgentConfig = {
+    name: participant.agent,
+    description: participant.name,
+    systemPrompt: `${AGENT_PROMPTS[participant.agent]?.prompt ?? ""}`,
+    model: participant.model ?? "openai/gpt-4o-mini",
+  };
 
-    const created = await (createAgentSession as any)({
-      cwd: ctx.cwd,
-      model,
-      thinkingLevel: "low",
-      tools: ["read", "bash", "grep", "find", "ls"],
-      sessionManager: SessionManager.inMemory(),
-      appendSystemPrompt: "__OMO_SUB_AGENT__",
-    });
-    session = created.session;
-    if (!session) {
-      return { name: participant.name, agent: participant.agent, status: "failed" as const, error: "Failed to create agent session" };
-    }
+  const result = await pool.spawn({
+    id: poolId,
+    name: participant.name,
+    agent: agentConfig,
+    task: formatPiCouncilPrompt(question, participant),
+    cwd: args.ctx.cwd,
+    parentAgent: "coordinator",
+    depth: 1,
+  });
 
-    const prompt = `${AGENT_PROMPTS[participant.agent]?.prompt ?? ""}\n\n${formatPiCouncilPrompt(question, participant)}`;
-    const promptPromise = session.prompt(prompt, { source: "extension" });
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error("Council participant timed out")), timeoutMs);
-    });
-
-    await Promise.race([promptPromise, timeoutPromise]);
-    const text = extractAssistantTextFromMessages((session as any).state?.messages ?? (session as any).messages ?? []);
-
+  if (result.error) {
     return {
       name: participant.name,
       agent: participant.agent,
       model: participant.model,
-      status: "completed",
-      result: text || "(completed with no text output)",
+      status: result.error.toLowerCase().includes("timed out") ? "timed_out" : "failed",
+      error: result.error,
     };
-  } catch (err: any) {
-    const message = err?.message ?? String(err);
-    return {
-      name: participant.name,
-      agent: participant.agent,
-      model: participant.model,
-      status: message.includes("timed out") ? "timed_out" : "failed",
-      error: message,
-    };
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    if (session) {
-      try {
-        await session.abort();
-      } catch {
-        // ignore
-      }
-      session.dispose();
-    }
   }
+
+  return {
+    name: participant.name,
+    agent: participant.agent,
+    model: participant.model,
+    status: "completed",
+    result: result.response || "(completed with no text output)",
+  };
 }
 
 export function formatPiCouncilResults(
