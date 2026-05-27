@@ -365,6 +365,7 @@ export class WorkflowManager {
       const retryStageResult = this.readStageResult(poolId);
       this.clearStageResult(poolId);
       if (!retryStageResult.result) {
+        console.warn(`[workflow] Stage "${node.agent}" responded without calling stage_complete or stage_ask_user`);
         this.stageError(poolId, stageId, node.agent, retryStageResult.error ?? "Stage did not call stage_complete or stage_ask_user");
       }
       output = stageResultToStageOutput(retryStageResult.result);
