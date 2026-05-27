@@ -1137,7 +1137,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     notify: (message, level = 'info') => _sessionCtx?.ui.notify(message, level),
     setStatus: (key, value) => _sessionCtx?.ui.setStatus(key, value),
     clearStatus: (key) => _sessionCtx?.ui.setStatus(key, ''),
-    sendAgentMessage: (content) => pi.sendMessage({ customType: 'workflow_event', content, display: true }, { deliverAs: 'followUp', triggerTurn: true }),
+    sendAgentMessage: (content) => {
+      try {
+        pi.sendMessage({ customType: 'workflow_event', content, display: true }, { deliverAs: 'followUp', triggerTurn: true });
+      } catch (e) {
+        console.warn('[workflow] sendAgentMessage failed (stale ctx after reload?):', e);
+      }
+    },
   });
 
   // ── Tool activation & description tools (always available) ─────────

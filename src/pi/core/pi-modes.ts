@@ -144,12 +144,9 @@ function getHiddenAgents(): string[] {
 
 function saveAgent(name: string): void {
   try {
-    // Persist to both per-session (for session-specific memory) and global
-    // (for fallback after reload / new session with no saved mode yet).
     if (_currentSessionFile) {
       saveSessionMode(_currentSessionFile, name);
     }
-    saveLastMode(name);
   } catch {}
 }
 
@@ -173,37 +170,15 @@ function loadSessionMode(sessionFile: string): string | undefined {
 
 export function loadActiveMode(): string {
   try {
-    // 1) Per-session mode (switching sessions keeps each session's mode)
     if (_currentSessionFile) {
       const saved = loadSessionMode(_currentSessionFile);
       if (saved && getAgent(saved)) return saved;
     }
-    // 2) Global lastMode (survives reload when the resumed session has none)
-    const globalMode = loadLastMode();
-    if (globalMode && getAgent(globalMode)) return globalMode;
-    // 3) Fallback
     const publics = getPublicAgents();
     return publics.length > 0 ? publics[0] : "coordinator";
   } catch {
     return "coordinator";
   }
-}
-
-function saveLastMode(mode: string): void {
-  try {
-    const configPath = getConfigPath();
-    let raw: Record<string, any> = {};
-    try { raw = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch {}
-    raw.lastMode = mode;
-    fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
-  } catch {}
-}
-
-function loadLastMode(): string | undefined {
-  try {
-    const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-    return raw.lastMode;
-  } catch { return undefined; }
 }
 
 function getActiveMode(): string {
@@ -372,7 +347,6 @@ function registerModeHooks(pi: ExtensionAPI): void {
     _toolGroups = null;
 
     if (event.reason === "resume") {
-      // On resume: try per-session first, then global lastMode
       const saved = loadActiveMode();
       if (saved && getAgent(saved)) {
         if (applyMode(pi, saved)) return;
@@ -403,7 +377,6 @@ function registerModeHooks(pi: ExtensionAPI): void {
       const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
       if (sf) {
         saveSessionMode(sf, loadActiveMode());
-        saveLastMode(loadActiveMode());
       }
     } catch {}
   });
