@@ -360,7 +360,9 @@ export class WorkflowManager {
       const stageEntry = getPool().list().find(a => a.id === poolId);
       if (stageEntry?.lastResponse) {
         const preview = stageEntry.lastResponse.slice(0, 200);
-        console.warn(`[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`);
+        const msg = `[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`;
+        console.warn(msg);
+        try { require('node:fs').appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
       }
       // Retry up to 10 times: some LLMs may need multiple reminders
       // before they correctly call stage_complete / stage_ask_user.

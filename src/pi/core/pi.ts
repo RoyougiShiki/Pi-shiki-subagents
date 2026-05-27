@@ -539,12 +539,17 @@ export function getPiAgentsDirForSync(): string {
   return path.join(path.dirname(getAgentDir()), "agents");
 }
 
+const debugLog = (msg: string) => {
+  console.warn(msg);
+  try { require('node:fs').appendFileSync('/tmp/omo-debug.log', msg + '\n'); } catch {}
+};
+
 export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {
   if (!poolId?.trim()) {
-    console.warn('[workflow] stage_complete called but poolId is empty');
+    debugLog('[workflow] stage_complete called but poolId is empty');
     return false;
   }
-  console.warn(`[workflow] stage_complete called for ${poolId}`);
+  debugLog(`[workflow] stage_complete called for ${poolId}`);
   setStageResult(poolId, result);
   return true;
 }
