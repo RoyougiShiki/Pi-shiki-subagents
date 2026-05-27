@@ -211,15 +211,20 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
 }
 
 function applyMode(pi: ExtensionAPI, name: string): boolean {
+  let ok: boolean;
   if (name === "fallback") {
-    // Fallback: all tools available, deduplicated
     try {
       const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
       pi.setActiveTools([...new Set(all)]);
-      return true;
+      ok = true;
     } catch { return false; }
+  } else {
+    ok = applyAgentTools(pi, name, false);
   }
-  return applyAgentTools(pi, name, false);
+  if (ok) {
+    try { _onModeChange?.(name); } catch {}
+  }
+  return ok;
 }
 
 export function getModeInstructions(name: string): string | undefined {
