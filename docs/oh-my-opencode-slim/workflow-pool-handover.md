@@ -114,7 +114,7 @@ Level 3: 禁止
 ```text
 coordinator → worker → fixer
 coordinator → worker → oracle
-coordinator → thinker-analysis → explorer
+coordinator → thinker → explorer
 ```
 
 禁止示例：
@@ -290,8 +290,7 @@ coordinator → oracle → explorer
 ```json
 {
   "coordinator": [],
-  "thinker-clarify": ["explorer", "librarian", "observer"],
-  "thinker-analysis": ["explorer", "librarian", "observer", "oracle"],
+  "thinker": ["explorer", "librarian", "observer", "oracle"],
   "designer": ["explorer", "librarian", "observer", "oracle"],
   "worker": ["fixer", "oracle"],
   "implementer": ["fixer", "oracle"],

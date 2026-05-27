@@ -9,7 +9,6 @@ describe('default workflows and agent tool matrix', () => {
     expect(names).toEqual([
       'standard-dev',
       'quick-fix',
-      'batch-dev',
       'review-only',
       'research-only',
     ]);
@@ -42,9 +41,11 @@ describe('default workflows and agent tool matrix', () => {
       'list_workflows',
       'select_branch',
       'workflow_status',
+      'continue_workflow',
       'send_stage_message',
       'abort_workflow',
       'retry_stage',
+      'reject_transition',
       'ask_user_question',
     ]);
 

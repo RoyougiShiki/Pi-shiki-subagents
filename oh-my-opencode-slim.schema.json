@@ -523,18 +523,12 @@
           "default": [
             {
               "name": "standard-dev",
-              "description": "标准开发流程：澄清 → 分析 → 计划 → 标准实施",
+              "description": "标准开发流程：澄清与分析 → 计划 → 标准实施",
               "stages": [
                 {
-                  "id": "clarify",
-                  "agent": "thinker-clarify",
-                  "description": "澄清用户需求",
-                  "outputSchema": "clarify"
-                },
-                {
-                  "id": "analysis",
-                  "agent": "thinker-analysis",
-                  "description": "分析影响范围、方案和风险",
+                  "id": "thinker",
+                  "agent": "thinker",
+                  "description": "澄清需求并分析影响范围、方案和风险",
                   "outputSchema": "analysis"
                 },
                 {
@@ -553,12 +547,12 @@
             },
             {
               "name": "quick-fix",
-              "description": "快速修复流程：分析 → 快速实施",
+              "description": "快速修复流程：分析与澄清 → 快速实施",
               "stages": [
                 {
-                  "id": "analysis",
-                  "agent": "thinker-analysis",
-                  "description": "确认小范围修复边界",
+                  "id": "thinker",
+                  "agent": "thinker",
+                  "description": "确认修复范围和边界",
                   "outputSchema": "analysis"
                 },
                 {
@@ -571,11 +565,11 @@
             },
             {
               "name": "batch-dev",
-              "description": "批量开发流程：分析 → 计划 → 批次执行",
+              "description": "批量开发流程：分析与澄清 → 计划 → 批次执行",
               "stages": [
                 {
-                  "id": "analysis",
-                  "agent": "thinker-analysis",
+                  "id": "thinker",
+                  "agent": "thinker",
                   "description": "识别可批量处理的独立任务",
                   "outputSchema": "analysis"
                 },
@@ -595,11 +589,11 @@
             },
             {
               "name": "review-only",
-              "description": "只读审查流程：分析 → oracle 审查",
+              "description": "只读审查流程：分析与澄清 → oracle 审查",
               "stages": [
                 {
-                  "id": "analysis",
-                  "agent": "thinker-analysis",
+                  "id": "thinker",
+                  "agent": "thinker",
                   "description": "整理审查目标和上下文",
                   "outputSchema": "analysis"
                 },
@@ -613,18 +607,12 @@
             },
             {
               "name": "research-only",
-              "description": "研究流程：澄清 → 分析",
+              "description": "研究流程：澄清与分析",
               "stages": [
                 {
-                  "id": "clarify",
-                  "agent": "thinker-clarify",
-                  "description": "澄清研究问题",
-                  "outputSchema": "clarify"
-                },
-                {
-                  "id": "analysis",
-                  "agent": "thinker-analysis",
-                  "description": "只读研究并给出结论",
+                  "id": "thinker",
+                  "agent": "thinker",
+                  "description": "澄清研究问题并做只读研究与结论",
                   "outputSchema": "analysis"
                 }
               ]

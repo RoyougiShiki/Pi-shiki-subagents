@@ -17,21 +17,7 @@
     "next": [],
     "label": "工作流协调器"
   },
-  "thinker-clarify": {
-    "type": "subagent",
-    "delegates": [
-      "search",
-      "search",
-      "observer"
-    ],
-    "label": "需求澄清",
-    "roles": [
-      "流程",
-      "管理",
-      "检索"
-    ]
-  },
-  "thinker-analysis": {
+  "thinker": {
     "type": "subagent",
     "delegates": [
       "search",
@@ -39,7 +25,7 @@
       "observer",
       "oracle"
     ],
-    "label": "需求分析",
+    "label": "需求分析与澄清",
     "roles": [
       "流程",
       "管理",

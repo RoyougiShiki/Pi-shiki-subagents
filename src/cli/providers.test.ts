@@ -24,8 +24,7 @@ describe('providers', () => {
     expect((config.presets as any)['性能模式']).toBeDefined();
 
     const economy = (config.presets as any)['省钱模式'];
-    expect(economy['thinker-clarify'].model).toBe('<YOUR_MODEL>');
-    expect(economy['thinker-analysis'].model).toBe('<YOUR_MODEL>');
+    expect(economy.thinker.model).toBe('<YOUR_MODEL>');
     expect(economy.worker.model).toBe('<YOUR_MODEL>');
     expect(economy.oracle.model).toBe('<YOUR_MODEL>');
   });

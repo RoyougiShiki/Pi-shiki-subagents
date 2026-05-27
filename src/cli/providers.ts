@@ -45,8 +45,7 @@ export function generateLiteConfig(
     preset: '省钱模式',
     presets: {
       '省钱模式': {
-        'thinker-clarify': { model: '<YOUR_MODEL>' },
-        'thinker-analysis': { model: '<YOUR_MODEL>' },
+        thinker: { model: '<YOUR_MODEL>' },
         worker: { model: '<YOUR_MODEL>' },
         dispatcher: { model: '<YOUR_MODEL>' },
         search: { model: '<YOUR_MODEL>' },
@@ -57,8 +56,7 @@ export function generateLiteConfig(
         council: { model: '<YOUR_MODEL>' },
       },
       '性能模式': {
-        'thinker-clarify': { model: '<YOUR_MODEL>' },
-        'thinker-analysis': { model: '<YOUR_MODEL>' },
+        thinker: { model: '<YOUR_MODEL>' },
         worker: { model: '<YOUR_MODEL>' },
         dispatcher: { model: '<YOUR_MODEL>' },
         search: { model: '<YOUR_MODEL>' },

@@ -68,8 +68,7 @@
 | Agent | 类型 | 工具 |
 |-------|------|------|
 | coordinator | mode | workflow 控制工具 + ask_user_question |
-| thinker-clarify | subagent | stage_complete, stage_ask_user, read, grep, find, ls, omo_subagent |
-| thinker-analysis | subagent | 同上 + context_mode_ctx_search, codebase_memory_*, omo_council |
+| thinker | subagent | stage_complete, stage_ask_user, read, grep, find, ls, omo_subagent, context_mode_ctx_search, codebase_memory_*, omo_council |
 | designer | subagent | 同上 + write, edit, omo_council |
 | worker | subagent | stage_complete, stage_ask_user, todo, omo_subagent, read, grep, find, ls |
 | implementer | subagent | stage_complete, stage_ask_user, read, todo, omo_subagent |
@@ -81,7 +80,7 @@
 - `bun test src/adapters/` → 84 pass, 0 fail
 - `bun run typecheck` → PASS
 - `bun run build:plugin` → PASS
-- 人工 E2E：research-only 完整链路（clarify → analysis）通过
+- 人工 E2E：research-only 完整链路（thinker）通过
 
 ## Checkpoint
 
@@ -93,4 +92,4 @@
 ## 待处理
 
 - P4：清理 recovery 临时文件，合并回 handover
-- 剩余 P3 检查：thinker-analysis 的 context_mode_ctx_search 是否需要
+- 剩余 P3 检查：thinker 的 context_mode_ctx_search 是否需要
