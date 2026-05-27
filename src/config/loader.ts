@@ -1,7 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { stripJsonComments } from '../cli/config-io';
-import { getConfigSearchDirs } from '../cli/paths';
+import { homedir } from 'node:os';
 import { type PluginConfig, PluginConfigSchema } from './schema';
 
 const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
@@ -78,6 +77,29 @@ function findConfigPathInDirs(
   }
 
   return null;
+}
+
+// ── Local helpers (moved from cli/ to break circular dependency) ──
+
+function stripJsonComments(json: string): string {
+  const commentPattern = /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g;
+  const trailingCommaPattern = /\\"|"(?:\\"|[^"])*"|(,)(\s*[}\]])/g;
+  return json
+    .replace(commentPattern, (match, commentGroup) =>
+      commentGroup ? '' : match,
+    )
+    .replace(trailingCommaPattern, (match, comma, closing) =>
+      comma ? closing : match,
+    );
+}
+
+function getConfigSearchDirs(): string[] {
+  const customDir = process.env.OPENCODE_CONFIG_DIR?.trim();
+  const defaultDir = process.env.XDG_CONFIG_HOME
+    ? path.join(process.env.XDG_CONFIG_HOME, 'opencode')
+    : path.join(homedir(), '.config', 'opencode');
+  const dirs = [customDir || undefined, defaultDir].filter(Boolean) as string[];
+  return [...new Set(dirs)];
 }
 
 /**
