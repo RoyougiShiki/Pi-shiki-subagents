@@ -52,7 +52,7 @@ import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
 import { WorkflowManager } from "../workflow/workflow-manager";
-import { poolIdStorage, setStageResult } from "../workflow/stage-result-store";
+import { getCurrentPoolId, setStageResult } from "../workflow/stage-result-store";
 import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
 import { registerWorkflowCommands } from "../workflow/workflow-commands";
 import { WorkflowsConfig } from "../../core/workflow-types";
@@ -1087,9 +1087,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const poolId = poolIdStorage.getStore();
+      const poolId = getCurrentPoolId();
       if (!poolId) {
-        return { content: [{ type: "text", text: "stage_complete: no poolId in async context" }], details: { ok: false }, isError: true };
+        return { content: [{ type: "text", text: "stage_complete: poolId not set" }], details: { ok: false }, isError: true };
       }
       const ok = writeWorkflowStageResult(result, poolId);
       return { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } };
@@ -1123,7 +1123,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         evidence: (params as any).evidence,
         artifacts: (params as any).artifacts,
       };
-      const askPoolId = poolIdStorage.getStore() || process.env.OMO_AGENT_ID;
+      const askPoolId = getCurrentPoolId();
       const ok = writeWorkflowStageResult(result, askPoolId);
       return ok
         ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
