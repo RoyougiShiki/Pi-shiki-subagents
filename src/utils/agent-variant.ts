@@ -4,7 +4,7 @@ import {
   getCustomAgentNames,
   type PluginConfig,
 } from '../config';
-import { log } from './logger';
+import { log } from '../utils/logger';
 
 /**
  * Normalizes an agent name by trimming whitespace and removing the optional @ prefix.
