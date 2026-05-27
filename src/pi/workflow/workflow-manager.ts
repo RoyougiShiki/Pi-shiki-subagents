@@ -269,11 +269,38 @@ export class WorkflowManager {
 
     const result = await resultPromise;
 
+    let output: StageOutput;
+
     if (result.error) {
+      // Timeout: notify orchestrator instead of crashing
+      if (result.error.toLowerCase().includes("timed out")) {
+        const timeoutOutput: StageOutput = {
+          status: "needs_user",
+          summary: `Stage "${node.agent}" timed out (${(this.pool as any).timeoutMs ? ((this.pool as any).timeoutMs / 60000).toFixed(0) : 10}min)`,
+          context: input,
+          openQuestions: [{
+            question: `Stage "${node.agent}" has been running for ${(this.pool as any).timeoutMs ? ((this.pool as any).timeoutMs / 60000).toFixed(0) : 10} minutes without completing. What should I do?`,
+            options: ["Retry the stage", "Abort the workflow"],
+          }],
+        };
+        this.pendingEvents = this.pendingEvents.filter(
+          (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
+        );
+        this.pendingEvents.push({ type: "waiting_user", agent: node.agent, stageId, poolId, output: timeoutOutput });
+        this.emit({ type: "waiting_user", agent: node.agent, stageId, poolId, output: timeoutOutput });
+        output = await this.waitForUserCompletion();
+        if (output.status === "failed") {
+          this.pool.kill(poolId);
+          throw new Error(output.summary);
+        }
+        // User chose to continue: retry the stage
+        this.pool.kill(poolId);
+        this.currentStage = null;
+        return await this.runSingleStage(workflowName, node, input, nextStage);
+      }
       this.stageError(poolId, stageId, node.agent, result.error);
     }
 
-    let output: StageOutput;
     const stageResult = this.readStageResult(poolId);
     this.clearStageResult(poolId);
     if (!stageResult.result) {
