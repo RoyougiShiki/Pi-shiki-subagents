@@ -1,6 +1,5 @@
 import {
   type WorkflowNode,
-  type ChoiceNode,
   type StageNode,
   type StageOutput,
   type StageEvent,
@@ -12,10 +11,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { getPool } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
-
-function isChoiceNode(node: WorkflowNode): node is ChoiceNode {
-  return (node as any).type === "choice";
-}
 
 interface CurrentStage {
   workflowName: string;
@@ -115,15 +110,12 @@ function stageResultToStageOutput(result: WorkflowStageToolResult): StageOutput 
 
 /**
  * 通用 workflow 管理器。
- * 不硬编码任何具体流程；WorkflowDefinition 决定阶段顺序和分支。
+ * WorkflowDefinition 决定阶段顺序。
  */
 export class WorkflowManager {
   private events: Array<(event: StageEvent) => void> = [];
   private running = false;
   private workflowName: string | null = null;
-  private choiceResolver: ((branchIndex: number) => void) | null = null;
-  private choiceRejecter: ((error: Error) => void) | null = null;
-  private choicePending: { prompt: string; branches: Array<{ label: string; description: string }> } | null = null;
   private stageWaitResolver: ((output: StageOutput) => void) | null = null;
   private transitionResolver: ((approved: boolean) => void) | null = null;
   private transitionPending: { output: StageOutput; nextStage?: string; stage: CurrentStage; approved?: boolean; rejectMessage?: string } | null = null;
@@ -174,9 +166,6 @@ export class WorkflowManager {
       this.running = false;
       this.workflowName = null;
       this.currentStage = null;
-      this.choicePending = null;
-      this.choiceResolver = null;
-      this.choiceRejecter = null;
       this.stageWaitResolver = null;
       this.transitionResolver = null;
       this.transitionPending = null;
@@ -192,14 +181,9 @@ export class WorkflowManager {
     for (let index = 0; index < stages.length; index += 1) {
       const node = stages[index]!;
       if (!this.running) return currentInput;
-      if (isChoiceNode(node)) {
-        const chosen = await this.awaitChoice(node);
-        currentInput = await this.runStages(workflowName, chosen.stages, currentInput);
-      } else {
-        const nextNode = stages[index + 1];
-        const nextStage = nextNode ? (isChoiceNode(nextNode) ? "(choice)" : nextNode.agent) : undefined;
-        currentInput = await this.runSingleStage(workflowName, node, currentInput, nextStage);
-      }
+      const nextNode = stages[index + 1];
+      const nextStage = nextNode ? nextNode.agent : undefined;
+      currentInput = await this.runSingleStage(workflowName, node, currentInput, nextStage);
     }
     return currentInput;
   }
@@ -420,34 +404,6 @@ export class WorkflowManager {
     return output.context;
   }
 
-  private awaitChoice(node: ChoiceNode): Promise<{ stages: WorkflowNode[] }> {
-    const choice = {
-      prompt: node.prompt ?? "请选择",
-      branches: node.branches.map(b => ({ label: b.label, description: b.description })),
-    };
-    this.choicePending = choice;
-    this.emit({ type: "choice", ...choice });
-
-    return new Promise((resolve, reject) => {
-      this.choiceRejecter = reject;
-      this.choiceResolver = (branchIndex: number) => {
-        const branch = node.branches[branchIndex];
-        if (!branch) return;
-        this.choicePending = null;
-        this.choiceRejecter = null;
-        resolve(branch);
-      };
-    });
-  }
-
-  selectBranch(branchIndex: number): boolean {
-    if (!this.choiceResolver || !this.choicePending) return false;
-    if (branchIndex < 0 || branchIndex >= this.choicePending.branches.length) return false;
-    this.choiceResolver(branchIndex);
-    this.choiceResolver = null;
-    return true;
-  }
-
   continueWorkflow(): boolean {
     if (!this.transitionResolver || !this.transitionPending) return false;
     const stage = this.transitionPending.stage;
@@ -560,7 +516,6 @@ export class WorkflowManager {
     running: boolean;
     workflow: string | null;
     stage: CurrentStage | null;
-    choice: { prompt: string; branches: Array<{ label: string; description: string }> } | null;
     transition: { nextStage?: string; output: StageOutput; stageId: string; poolId: string } | null;
     pendingEvents: StageEvent[];
     lastError: string | null;
@@ -570,7 +525,6 @@ export class WorkflowManager {
       running: this.running,
       workflow: this.workflowName,
       stage: this.currentStage,
-      choice: this.choicePending,
       transition: this.transitionPending ? {
         nextStage: this.transitionPending.nextStage,
         output: this.transitionPending.output,
@@ -608,11 +562,6 @@ export class WorkflowManager {
     this.abortedByUser = true;
     const poolId = this.currentStage?.poolId;
     if (poolId) this.pool.kill(poolId);
-    if (this.choiceRejecter) {
-      const reject = this.choiceRejecter;
-      this.choiceRejecter = null;
-      reject(new Error("Workflow aborted"));
-    }
     if (this.stageWaitResolver) {
       const resolve = this.stageWaitResolver;
       this.stageWaitResolver = null;
@@ -627,8 +576,6 @@ export class WorkflowManager {
     this.running = false;
     this.workflowName = null;
     this.currentStage = null;
-    this.choicePending = null;
-    this.choiceResolver = null;
     this.pendingEvents = [];
   }
 }

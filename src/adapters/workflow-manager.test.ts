@@ -354,29 +354,4 @@ describe('WorkflowManager', () => {
     expect(pool.spawnCalls[0].allowedSubagents).toEqual(['oracle']);
   });
 
-  test('invalid choice selection returns false and abort settles workflow', async () => {
-    const pool = new FakePool();
-    const manager = makeManager(pool);
-    const wf: WorkflowDefinition = {
-      name: 'wf',
-      description: 'test workflow',
-      stages: [
-        {
-          id: 'choose',
-          type: 'choice',
-          branches: [
-            { label: 'A', description: 'branch A', stages: [{ id: 'a', agent: 'worker' }] },
-          ],
-        },
-      ],
-    };
-
-    const run = manager.runWorkflow(wf, 'input');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(manager.selectBranch(2)).toBe(false);
-    manager.abort();
-    await expect(run).rejects.toThrow('Workflow aborted');
-    expect(manager.selectBranch(0)).toBe(false);
-  });
 });

@@ -57,27 +57,6 @@ export function registerWorkflowCommands(
     },
   });
 
-  // ── select_branch ──
-  pi.registerTool({
-    name: "select_branch",
-    label: "Select Branch",
-    description: "选择 workflow choice 节点的分支",
-    parameters: Type.Object({
-      index: Type.Number({ description: "分支索引（从 0 开始）" }),
-    }),
-    async execute(_toolCallId, params) {
-      const ok = manager.selectBranch(params.index);
-      if (!ok) return {
-        content: [{ type: "text", text: "当前没有等待选择的分支" }],
-        isError: true, details: {},
-      };
-      return {
-        content: [{ type: "text", text: `已选择分支 ${params.index}` }],
-        details: { selectedIndex: params.index },
-      };
-    },
-  });
-
   // ── workflow_status ──
   pi.registerTool({
     name: "workflow_status",

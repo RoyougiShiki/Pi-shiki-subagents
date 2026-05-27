@@ -4,7 +4,6 @@
     "tools": [
       "start_workflow",
       "list_workflows",
-      "select_branch",
       "workflow_status",
       "continue_workflow",
       "send_stage_message",

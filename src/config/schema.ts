@@ -223,21 +223,7 @@ export const StageNodeSchema = z.object({
   review: ReviewConfigSchema.optional(),
 });
 
-export const ChoiceNodeSchema: z.ZodType<ChoiceNode> = z.lazy(() => z.object({
-  id: z.string().optional(),
-  type: z.literal("choice"),
-  prompt: z.string().optional(),
-  branches: z.array(z.object({
-    label: z.string(),
-    description: z.string(),
-    stages: z.array(WorkflowNodeSchema),
-  })),
-}));
-
-export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = z.union([
-  StageNodeSchema,
-  ChoiceNodeSchema,
-]);
+export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = StageNodeSchema;
 
 export const WorkflowDefinitionSchema = z.object({
   name: z.string(),

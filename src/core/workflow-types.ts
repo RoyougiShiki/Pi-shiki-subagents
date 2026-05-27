@@ -46,18 +46,7 @@ export interface StageNode {
   };
 }
 
-export interface ChoiceNode {
-  id?: string;
-  type: "choice";
-  prompt?: string;
-  branches: Array<{
-    label: string;
-    description: string;
-    stages: WorkflowNode[];
-  }>;
-}
-
-export type WorkflowNode = StageNode | ChoiceNode;
+export type WorkflowNode = StageNode;
 
 export interface WorkflowDefinition {
   name: string;
@@ -94,7 +83,7 @@ export type WorkflowStageToolResult = StageResultComplete | StageResultAskUser;
 export type StageEvent =
   | { type: "running"; agent: string; stageId: string; poolId: string }
   | { type: "message"; agent: string; stageId: string; poolId: string; text: string }
-  | { type: "choice"; prompt: string; branches: Array<{ label: string; description: string }> }
+
   | { type: "waiting_user"; agent: string; stageId: string; poolId: string; output: StageOutput }
   | { type: "transition_approval"; agent: string; stageId: string; poolId: string; output: StageOutput; nextStage?: string }
   | { type: "complete"; agent: string; stageId: string; poolId: string; output: StageOutput }

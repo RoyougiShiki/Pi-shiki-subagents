@@ -15,7 +15,6 @@ describe('default workflows and agent tool matrix', () => {
     for (const workflow of DEFAULT_WORKFLOWS) {
       expect(workflow.stages.length).toBeGreaterThan(0);
       for (const stage of workflow.stages) {
-        if ('type' in stage && stage.type === 'choice') continue;
         expect(stage.agent).toBeTruthy();
         expect(stage.description).toBeTruthy();
         expect(stage.outputSchema).toBeTruthy();
@@ -38,7 +37,7 @@ describe('default workflows and agent tool matrix', () => {
     expect(defs.coordinator?.tools).toEqual([
       'start_workflow',
       'list_workflows',
-      'select_branch',
+
       'workflow_status',
       'continue_workflow',
       'send_stage_message',
