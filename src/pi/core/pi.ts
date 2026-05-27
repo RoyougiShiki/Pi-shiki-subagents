@@ -1058,34 +1058,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "stage_complete",
     label: "Request Completion",
-    description: "workflow stage 子代理申请完成许可时调用,请求主 agent 批准。",
+    description: "完成当前工作阶段。当你完成所有工作后，必须调用此工具提交结果，否则工作流无法继续。",
     parameters: Type.Object({
-      summary: Type.String({ description: "简短阶段总结" }),
-      context: Type.String({ description: "传给下一阶段的上下文" }),
-      evidence: Type.Optional(Type.Array(Type.Object({
-        path: Type.Optional(Type.String({ description: "文件路径" })),
-        source: Type.Optional(Type.String({ description: "来源" })),
-        reason: Type.String({ description: "引用理由" }),
-      }), { description: "证据引用" })),
-      artifacts: Type.Optional(Type.Object({
-        files: Type.Optional(Type.Array(Type.String({ description: "文件列表" }))),
-        decisions: Type.Optional(Type.Array(Type.String({ description: "决策记录" }))),
-        risks: Type.Optional(Type.Array(Type.String({ description: "风险点" }))),
-        commands: Type.Optional(Type.Array(Type.String({ description: "可执行命令" }))),
-      }, { description: "产出物" })),
-      suggestedNext: Type.Optional(Type.Object({
-        branch: Type.Optional(Type.String({ description: "建议分支" })),
-        reason: Type.Optional(Type.String({ description: "理由" })),
-      }, { description: "下步建议" })),
+      summary: Type.String({ description: "简短阶段总结（必填）" }),
+      context: Type.String({ description: "传给下一阶段的上下文（必填）" }),
     }),
     async execute(_toolCallId, params) {
       const result: StageResultComplete = {
         type: "complete",
         summary: params.summary,
         context: params.context,
-        evidence: (params as any).evidence,
-        artifacts: (params as any).artifacts,
-        suggestedNext: (params as any).suggestedNext,
       };
       const poolId = poolIdStorage.getStore();
       if (!poolId) {
