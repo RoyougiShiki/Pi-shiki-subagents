@@ -52,6 +52,7 @@ import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
 import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
 import { WorkflowManager } from "../workflow/workflow-manager";
+import { setStageResult } from "../workflow/stage-result-store";
 import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
 import { registerWorkflowCommands } from "../workflow/workflow-commands";
 import { WorkflowsConfig } from "../../core/workflow-types";
@@ -538,15 +539,10 @@ export function getPiAgentsDirForSync(): string {
   return path.join(path.dirname(getAgentDir()), "agents");
 }
 
-export function writeWorkflowStageResult(result: WorkflowStageToolResult, resultPath?: string): boolean {
-  if (!resultPath?.trim()) return false;
-  try {
-    fs.mkdirSync(path.dirname(resultPath), { recursive: true });
-    fs.writeFileSync(resultPath, JSON.stringify(result, null, 2), "utf-8");
-    return true;
-  } catch {
-    return false;
-  }
+export function writeWorkflowStageResult(result: WorkflowStageToolResult, poolId?: string): boolean {
+  if (!poolId?.trim()) return false;
+  setStageResult(poolId, result);
+  return true;
 }
 
 export function ensureAgentFiles(): void {
@@ -1069,10 +1065,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         artifacts: (params as any).artifacts,
         suggestedNext: (params as any).suggestedNext,
       };
-      const ok = writeWorkflowStageResult(result, process.env.OMO_STAGE_RESULT_PATH);
+      const ok = writeWorkflowStageResult(result, process.env.OMO_AGENT_ID);
       return ok
         ? { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } }
-        : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
+        : { content: [{ type: "text", text: "Missing OMO_AGENT_ID" }], details: { ok: false }, isError: true };
     },
   });
 
@@ -1103,10 +1099,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         evidence: (params as any).evidence,
         artifacts: (params as any).artifacts,
       };
-      const ok = writeWorkflowStageResult(result, process.env.OMO_STAGE_RESULT_PATH);
+      const ok = writeWorkflowStageResult(result, process.env.OMO_AGENT_ID);
       return ok
         ? { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } }
-        : { content: [{ type: "text", text: "Missing OMO_STAGE_RESULT_PATH" }], details: { ok: false }, isError: true };
+        : { content: [{ type: "text", text: "Missing OMO_AGENT_ID" }], details: { ok: false }, isError: true };
     },
   });
 

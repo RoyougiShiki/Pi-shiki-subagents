@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import * as fs from 'node:fs';
 import { WorkflowManager, type WorkflowPool } from '../pi/workflow/workflow-manager';
 import type { AgentConfig } from './agent-discovery';
 import type { StageEvent, WorkflowDefinition, WorkflowStageToolResult } from '../core/workflow-types';
+import { setStageResult } from '../pi/workflow/stage-result-store';
 
 function createAgent(name: string): AgentConfig {
   return {
@@ -38,8 +38,8 @@ class FakePool implements WorkflowPool {
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
     const stageResult = this.spawnStageResults.shift();
-    if (stageResult && opts.stageResultPath) {
-      fs.writeFileSync(opts.stageResultPath, JSON.stringify(stageResult), 'utf-8');
+    if (stageResult && opts.id) {
+      setStageResult(opts.id, stageResult);
     }
     const next = this.spawnResponses.shift();
     if (!next) throw new Error('No fake spawn response queued');
@@ -49,9 +49,9 @@ class FakePool implements WorkflowPool {
   async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
     this.sendCalls.push({ id, message });
     const stageResult = this.sendStageResults.shift();
-    const stageResultPath = this.spawnCalls.find((call) => call.id === id)?.stageResultPath;
-    if (stageResult && stageResultPath) {
-      fs.writeFileSync(stageResultPath, JSON.stringify(stageResult), 'utf-8');
+    const call = this.spawnCalls.find((call) => call.id === id);
+    if (stageResult && call?.id) {
+      setStageResult(call.id, stageResult);
     }
     const next = this.sendResponses.shift();
     if (!next) throw new Error('No fake send response queued');
@@ -330,7 +330,7 @@ describe('WorkflowManager', () => {
     const run = manager.runWorkflow(wf, 'input');
     await new Promise((resolve) => setTimeout(resolve, 0));
     const result = await manager.sendUserMessage('too early');
-    fs.writeFileSync(pool.spawnCalls[0].stageResultPath, JSON.stringify({ type: 'complete', summary: 'done', context: 'ctx' }), 'utf-8');
+    setStageResult(pool.spawnCalls[0].id, { type: 'complete', summary: 'done', context: 'ctx' });
     hold.resolve({ response: 'stage_complete recorded' });
     await run;
 

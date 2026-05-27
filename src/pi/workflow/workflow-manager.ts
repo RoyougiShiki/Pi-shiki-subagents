@@ -6,11 +6,9 @@ import {
   type WorkflowDefinition,
   type WorkflowStageToolResult,
 } from "../../core/workflow-types";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { getPool } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
+import { getStageResult, deleteStageResult } from "./stage-result-store";
 
 /** 编排 Agent 名称，与 pi mode 系统定义的 coordinator 保持一致 */
 const PARENT_AGENT_NAME = "coordinator";
@@ -162,7 +160,6 @@ export class WorkflowManager {
       if (!this.lastError) this.lastError = err instanceof Error ? err.message : String(err);
       throw err;
     } finally {
-      const stageResultPath = this.currentStage?.stageResultPath;
       this.running = false;
       this.workflowName = null;
       this.currentStage = null;
@@ -170,9 +167,6 @@ export class WorkflowManager {
       this.transitionResolver = null;
       this.transitionPending = null;
       this.pendingEvents = [];
-      if (stageResultPath) {
-        try { fs.rmSync(stageResultPath, { force: true }); } catch {}
-      }
     }
   }
 
@@ -207,24 +201,16 @@ export class WorkflowManager {
     return `${workflowName}-${explicit}`.replace(/[^a-zA-Z0-9_.-]+/g, "-");
   }
 
-  private createStageResultPath(poolId: string): string {
-    return path.join(os.tmpdir(), `${poolId}.stage-result.json`);
+  private clearStageResult(poolId: string): void {
+    deleteStageResult(poolId);
   }
 
-  private clearStageResult(stageResultPath: string): void {
-    try { fs.rmSync(stageResultPath, { force: true }); } catch {}
-  }
-
-  private readStageResult(stageResultPath: string): { result?: WorkflowStageToolResult; error?: string } {
-    if (!fs.existsSync(stageResultPath)) {
+  private readStageResult(poolId: string): { result?: WorkflowStageToolResult; error?: string } {
+    const result = getStageResult(poolId);
+    if (!result) {
       return { error: "Stage did not call stage_complete or stage_ask_user" };
     }
-    try {
-      const text = fs.readFileSync(stageResultPath, "utf-8");
-      return parseWorkflowStageToolResult(text);
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : "Failed to read stage result file" };
-    }
+    return { result };
   }
 
   private waitForUserCompletion(): Promise<StageOutput> {
@@ -247,6 +233,12 @@ export class WorkflowManager {
     });
   }
 
+  private stageError(poolId: string, stageId: string, agent: string, message: string): never {
+    this.emit({ type: "error", agent, stageId, poolId, error: message });
+    this.pool.kill(poolId);
+    throw new Error(message);
+  }
+
   private async runSingleStage(workflowName: string, node: StageNode, input: string, nextStage?: string): Promise<string> {
     // Reset consecutive tool miss counter for each new stage
     this.consecutiveToolMisses = 0;
@@ -260,9 +252,7 @@ export class WorkflowManager {
       throw new Error(error);
     }
 
-    const stageResultPath = this.createStageResultPath(poolId);
-    try { fs.rmSync(stageResultPath, { force: true }); } catch {}
-    this.currentStage = { workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath };
+    this.currentStage = { workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath: poolId };
 
     const resultPromise = this.pool.spawn({
       id: poolId,
@@ -274,38 +264,29 @@ export class WorkflowManager {
       parentAgent: PARENT_AGENT_NAME,
       depth: 1,
       allowedSubagents: node.allowedSubagents,
-      stageResultPath,
     });
     this.emit({ type: "running", agent: node.agent, stageId, poolId });
 
     const result = await resultPromise;
 
     if (result.error) {
-      this.emit({ type: "error", agent: node.agent, stageId, poolId, error: result.error });
-      this.pool.kill(poolId);
-      throw new Error(result.error);
+      this.stageError(poolId, stageId, node.agent, result.error);
     }
 
     let output: StageOutput;
-    const stageResult = this.readStageResult(stageResultPath);
-    this.clearStageResult(stageResultPath);
+    const stageResult = this.readStageResult(poolId);
+    this.clearStageResult(poolId);
     if (!stageResult.result) {
       // Initial spawn: retry once with reminder
       const retryMsg = "[System] Call stage_complete to finish this stage. Use stage_ask_user if you need input. Do not just reply with text.";
       const retryResult = await this.pool.sendPrompt(poolId, retryMsg);
       if (retryResult.error) {
-        const error = retryResult.error;
-        this.emit({ type: "error", agent: node.agent, stageId, poolId, error });
-        this.pool.kill(poolId);
-        throw new Error(error);
+        this.stageError(poolId, stageId, node.agent, retryResult.error);
       }
-      const retryStageResult = this.readStageResult(stageResultPath);
-      this.clearStageResult(stageResultPath);
+      const retryStageResult = this.readStageResult(poolId);
+      this.clearStageResult(poolId);
       if (!retryStageResult.result) {
-        const error = retryStageResult.error ?? "Stage did not call stage_complete or stage_ask_user";
-        this.emit({ type: "error", agent: node.agent, stageId, poolId, error });
-        this.pool.kill(poolId);
-        throw new Error(error);
+        this.stageError(poolId, stageId, node.agent, retryStageResult.error ?? "Stage did not call stage_complete or stage_ask_user");
       }
       output = stageResultToStageOutput(retryStageResult.result);
     } else {
@@ -327,7 +308,7 @@ export class WorkflowManager {
       );
       // Skip error event for intentional abort (main agent already knows)
       if (!this.abortedByUser) {
-        this.emit({ type: "error", agent: node.agent, stageId, poolId, error: output.summary });
+        this.stageError(poolId, stageId, node.agent, output.summary);
       }
       this.pool.kill(poolId);
       throw new Error(output.summary);
@@ -382,7 +363,7 @@ export class WorkflowManager {
         this.pendingEvents = this.pendingEvents.filter(
           (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
         );
-        const approved = await this.waitForTransitionApproval({ workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath }, output, nextStage);
+        const approved = await this.waitForTransitionApproval({ workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath: poolId }, output, nextStage);
         if (approved || !this.running) break;
         // Rejected: inform agent and loop back to waiting_user
         this.pendingEvents = this.pendingEvents.filter(

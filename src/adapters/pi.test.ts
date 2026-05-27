@@ -96,14 +96,15 @@ describe('Pi adapter agent prompt sync', () => {
     fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
   });
 
-  test('writes workflow stage result IPC file', async () => {
+  test('writes workflow stage result to memory store', async () => {
     const { writeWorkflowStageResult } = await import('../pi/core/pi');
-    const resultPath = path.join(tempDir, 'stage-result.json');
+    const { getStageResult } = await import('../pi/workflow/stage-result-store');
 
-    const ok = writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' }, resultPath);
+    const poolId = 'test-pool-123';
+    const ok = writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' }, poolId);
 
     expect(ok).toBe(true);
-    expect(JSON.parse(fs.readFileSync(resultPath, 'utf-8'))).toEqual({ type: 'complete', summary: 'done', context: 'ctx' });
+    expect(getStageResult(poolId)).toEqual({ type: 'complete', summary: 'done', context: 'ctx' });
   });
 
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {

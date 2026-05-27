@@ -284,6 +284,7 @@ export class AgentPool {
         OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
         OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
         OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
+        OMO_AGENT_ID: process.env.OMO_AGENT_ID,
       };
       process.env.OMO_SUB_AGENT = "1";
       process.env.OMO_AGENT_NAME = opts.agent.name;
@@ -291,6 +292,7 @@ export class AgentPool {
       process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
       if (opts.stageResultPath) process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
       if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
+      process.env.OMO_AGENT_ID = opts.id;
 
       // Resolve model from active preset
       const presetModelStr = opts.agent ? getPresetModelForAgent(opts.agent.name) || opts.model : opts.model;
