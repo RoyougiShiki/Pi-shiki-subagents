@@ -184,14 +184,31 @@ export class WorkflowManager {
 
   private buildStageTask(node: StageNode, input: string): string {
     const parts = [
-      "You are running as one stage in a workflow. When done, call stage_complete.",
-      "If you need to ask the user something, call stage_ask_user.",
-      "Do NOT just reply with text. You must use stage_complete or stage_ask_user.",
+      `Stage: ${node.agent}`,
     ];
-    if (node.description) parts.push(`Stage description:\n${node.description}`);
-    if (node.task) parts.push(`Stage task:\n${node.task}`);
-    if (node.outputSchema) parts.push(`Output schema name: ${node.outputSchema}`);
+    if (node.task) parts.push(`Task:\n${node.task}`);
     parts.push(`Input from previous stage:\n${input}`);
+    parts.push(`When done, include a structured summary at the end of your reply:
+
+## 任务与目标
+（本阶段的原始指令与成功标准）
+
+## 关键决策
+- 主要决策及理由
+- 考虑过但被否决的方案
+
+## 产出清单
+- 文件路径 | 操作（创建/修改/删除） | 变更摘要
+- ...
+
+## 当前状态
+- 完成度：全部完成 / 部分完成
+- 待确认事项：（如有）
+- 建议下一步：（如有）
+
+## 传递给下一阶段
+- 用户偏好、约束条件
+- 需要下一阶段知道的上下文`);
     return parts.join("\n\n");
   }
 
@@ -324,14 +341,13 @@ export class WorkflowManager {
     let output: StageOutput;
 
     if (result.error) {
-      // Timeout: notify orchestrator instead of crashing
       if (result.error.toLowerCase().includes("timed out")) {
         const timeoutOutput: StageOutput = {
           status: "needs_user",
-          summary: `Stage "${node.agent}" timed out (${(this.pool as any).timeoutMs ? ((this.pool as any).timeoutMs / 60000).toFixed(0) : 10}min)`,
+          summary: `Stage "${node.agent}" timed out`,
           context: input,
           openQuestions: [{
-            question: `Stage "${node.agent}" has been running for ${(this.pool as any).timeoutMs ? ((this.pool as any).timeoutMs / 60000).toFixed(0) : 10} minutes without completing. What should I do?`,
+            question: `Stage "${node.agent}" timed out. What should I do?`,
             options: ["Retry the stage", "Abort the workflow"],
           }],
         };
@@ -345,7 +361,6 @@ export class WorkflowManager {
           this.pool.kill(poolId);
           throw new Error(output.summary);
         }
-        // User chose to continue: retry the stage
         this.pool.kill(poolId);
         this.currentStage = null;
         return await this.runSingleStage(workflowName, node, input, nextStage);
@@ -353,41 +368,12 @@ export class WorkflowManager {
       this.stageError(poolId, stageId, node.agent, result.error);
     }
 
-    const stageResult = this.readStageResult();
-    this.clearStageResult();
-    if (!stageResult.result) {
-      // Read the subagent's last response to see what it replied
-      const stageEntry = getPool().list().find(a => a.id === poolId);
-      if (stageEntry?.lastResponse) {
-        const preview = stageEntry.lastResponse.slice(0, 200);
-        const msg = `[workflow] Subagent "${node.agent}" replied (${stageEntry.lastResponse.length} chars): ${preview}`;
-        console.warn(msg);
-      }
-      // Retry up to 10 times: some LLMs may need multiple reminders
-      // before they correctly call stage_complete / stage_ask_user.
-      const RETRY_LIMIT = 10;
-      let lastOutput: WorkflowStageToolResult | undefined;
-      for (let attempt = 1; attempt <= RETRY_LIMIT; attempt++) {
-        const retryMsg = `[System] (attempt ${attempt}/${RETRY_LIMIT}) You must call stage_complete or stage_ask_user to finish this stage. Do NOT just reply with text.`;
-        const retryResult = await this.pool.sendPrompt(poolId, retryMsg);
-        if (retryResult.error) {
-          this.stageError(poolId, stageId, node.agent, retryResult.error);
-        }
-        const retryStageResult = this.readStageResult();
-        this.clearStageResult();
-        if (retryStageResult.result) {
-          lastOutput = retryStageResult.result;
-          break;
-        }
-        if (attempt === RETRY_LIMIT) {
-          console.warn(`[workflow] Stage "${node.agent}" failed to call stage_complete after ${RETRY_LIMIT} attempts`);
-          this.stageError(poolId, stageId, node.agent, "Stage did not call stage_complete or stage_ask_user after " + RETRY_LIMIT + " attempts");
-        }
-      }
-      output = stageResultToStageOutput(lastOutput!);
-    } else {
-      output = stageResultToStageOutput(stageResult.result);
-    }
+    // Use the subagent's text response directly — no stage_complete tool needed
+    output = {
+      status: "complete",
+      summary: result.response,
+      context: result.response,
+    };
     if (output.status === "needs_user") {
       // Clean up stale waiting_user events for this stage before pushing new one
       this.pendingEvents = this.pendingEvents.filter(
