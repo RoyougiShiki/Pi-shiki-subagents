@@ -12,6 +12,9 @@ import * as path from "node:path";
 import { getPool } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
 
+/** 编排 Agent 名称，与 pi mode 系统定义的 coordinator 保持一致 */
+const PARENT_AGENT_NAME = "coordinator";
+
 interface CurrentStage {
   workflowName: string;
   stageId: string;
@@ -268,7 +271,7 @@ export class WorkflowManager {
       task: this.buildStageTask(node, input),
       model: agentConfig.model,
       cwd: this.cwd,
-      parentAgent: "coordinator",
+      parentAgent: PARENT_AGENT_NAME,
       depth: 1,
       allowedSubagents: node.allowedSubagents,
       stageResultPath,
@@ -353,7 +356,7 @@ export class WorkflowManager {
         const reviewResult = await this.pool.spawn({
           id: reviewPoolId, name: `${stageId}-review`,
           agent: reviewAgentCfg, task: reviewTask,
-          cwd: this.cwd, parentAgent: "coordinator", depth: 2,
+          cwd: this.cwd, parentAgent: PARENT_AGENT_NAME, depth: 2,
         });
 
         this.pool.kill(reviewPoolId).catch(() => {});

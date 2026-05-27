@@ -168,28 +168,15 @@ export function registerWorkflowCommands(
 
   // ── /workflow 命令 ──
   pi.registerCommand("workflow", {
-    description: "管理 workflow。用法: /workflow list | /workflow start <name> | /workflow continue",
+    description: "列出可用 workflow。用法: /workflow list",
     handler: async (args, ctx) => {
-      const [cmd, ...rest] = args.trim().split(/\s+/);
+      const [cmd] = args.trim().split(/\s+/);
       if (cmd === "list") {
         const list = workflowsConfig.list.map(w => {
           const stages = w.stages.map(s => (s as any).agent).join(" → ");
           return `  • ${w.name}: ${w.description}\n    阶段: ${stages}`;
         }).join("\n");
         ctx.ui.notify(`可用 Workflows:\n${list}`, "info");
-      } else if (cmd === "start" && rest.length > 0) {
-        if (manager.isRunning()) { ctx.ui.notify("已有 workflow 正在运行", "error"); return; }
-        const wf = workflowsConfig.list.find(w => w.name === rest[0]);
-        if (!wf) { ctx.ui.notify(`Workflow "${rest[0]}" 未找到`, "error"); return; }
-        ctx.ui.notify(`启动: ${wf.name}`, "info");
-        manager.runWorkflow(wf, "").catch((err) => {
-          console.error(`[workflow] ${wf.name} failed:`, err);
-        });
-      } else if (cmd === "continue") {
-        const ok = manager.continueWorkflow();
-        ctx.ui.notify(ok ? "Workflow continuing asynchronously" : "当前没有等待继续的 workflow", ok ? "info" : "error");
-      } else {
-        ctx.ui.notify("用法: /workflow list | /workflow start <name> | /workflow continue", "info");
       }
     },
   });
