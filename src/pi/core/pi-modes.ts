@@ -196,7 +196,6 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
     const toolList = resolveAgentTools(agent);
     const tools = toolList.length > 0 || agent.roles ? toolList : all;
     const allow = new Set([...tools, "switch_mode"]);
-    allow.delete("subagent");
     const active = all.filter((n: string) => allow.has(n));
     const missing = all.filter(t => !allow.has(t));
     if (missing.length > 0) {
