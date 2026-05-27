@@ -283,6 +283,21 @@ export class AgentPool {
       });
       session = created.session;
 
+      // Apply tool filtering per agent roles from JSON config
+      try {
+        const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+        const agentCfg = raw.agents?.[opts.agent.name];
+        const groups = raw._tool_groups ?? {};
+        if (agentCfg?.roles && Object.keys(groups).length > 0) {
+          const toolNames = new Set<string>();
+          for (const role of agentCfg.roles) {
+            const group = groups[role];
+            if (group) group.forEach((t: string) => toolNames.add(t));
+          }
+          (session as any).setActiveToolsByName([...toolNames]);
+        }
+      } catch {}
+
       const sessAny = session as any;
       const sessionModel = sessAny.model ? `${sessAny.model.provider}/${sessAny.model.id}` : undefined;
 
