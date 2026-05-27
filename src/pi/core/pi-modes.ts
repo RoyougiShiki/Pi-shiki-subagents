@@ -144,9 +144,7 @@ function getHiddenAgents(): string[] {
 
 function saveAgent(name: string): void {
   try {
-    if (_currentSessionFile) {
-      saveSessionMode(_currentSessionFile, name);
-    }
+    saveLastMode(name);
   } catch {}
 }
 
@@ -154,10 +152,10 @@ function saveAgent(name: string): void {
 
 export function loadActiveMode(): string {
   try {
-    if (_currentSessionFile) {
-      const saved = loadSessionMode(_currentSessionFile);
-      if (saved && getAgent(saved)) return saved;
-    }
+    // 1) Try global lastMode from config file (survives reload & session switches)
+    const globalMode = loadLastMode();
+    if (globalMode && getAgent(globalMode)) return globalMode;
+    // 2) Fallback to first public agent
     const publics = getPublicAgents();
     return publics.length > 0 ? publics[0] : "coordinator";
   } catch {
@@ -165,19 +163,20 @@ export function loadActiveMode(): string {
   }
 }
 
-function saveSessionMode(sessionFile: string, mode: string): void {
+function saveLastMode(mode: string): void {
   try {
-    let map: Record<string, string> = {};
-    try { map = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8")); } catch {}
-    map[sessionFile] = mode;
-    fs.writeFileSync(SESSION_MODE_MAP_PATH, JSON.stringify(map, null, 2) + "\n", "utf-8");
+    const configPath = getConfigPath();
+    let raw: Record<string, any> = {};
+    try { raw = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch {}
+    raw.lastMode = mode;
+    fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
   } catch {}
 }
 
-function loadSessionMode(sessionFile: string): string | undefined {
+function loadLastMode(): string | undefined {
   try {
-    const map: Record<string, string> = JSON.parse(fs.readFileSync(SESSION_MODE_MAP_PATH, "utf-8"));
-    return map[sessionFile];
+    const raw = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+    return raw.lastMode;
   } catch { return undefined; }
 }
 
@@ -343,8 +342,8 @@ function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
 
-    if (event.reason === "resume" && _currentSessionFile) {
-      const saved = loadSessionMode(_currentSessionFile);
+    if (event.reason === "resume") {
+      const saved = loadLastMode();
       if (saved && getAgent(saved)) {
         _agentDefs = null;
         _toolGroups = null;
@@ -377,7 +376,7 @@ function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
       const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
-      if (sf) saveSessionMode(sf, loadActiveMode());
+      if (sf) saveLastMode(loadActiveMode());
     } catch {}
   });
 }
