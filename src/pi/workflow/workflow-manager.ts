@@ -356,19 +356,28 @@ export class WorkflowManager {
     const stageResult = this.readStageResult(poolId);
     this.clearStageResult(poolId);
     if (!stageResult.result) {
-      // Initial spawn: retry once with reminder
-      const retryMsg = "[System] Call stage_complete to finish this stage. Use stage_ask_user if you need input. Do not just reply with text.";
-      const retryResult = await this.pool.sendPrompt(poolId, retryMsg);
-      if (retryResult.error) {
-        this.stageError(poolId, stageId, node.agent, retryResult.error);
+      // Retry up to 10 times: some LLMs may need multiple reminders
+      // before they correctly call stage_complete / stage_ask_user.
+      const RETRY_LIMIT = 10;
+      let lastOutput: WorkflowStageToolResult | undefined;
+      for (let attempt = 1; attempt <= RETRY_LIMIT; attempt++) {
+        const retryMsg = `[System] (attempt ${attempt}/${RETRY_LIMIT}) You must call stage_complete or stage_ask_user to finish this stage. Do NOT just reply with text.`;
+        const retryResult = await this.pool.sendPrompt(poolId, retryMsg);
+        if (retryResult.error) {
+          this.stageError(poolId, stageId, node.agent, retryResult.error);
+        }
+        const retryStageResult = this.readStageResult(poolId);
+        this.clearStageResult(poolId);
+        if (retryStageResult.result) {
+          lastOutput = retryStageResult.result;
+          break;
+        }
+        if (attempt === RETRY_LIMIT) {
+          console.warn(`[workflow] Stage "${node.agent}" failed to call stage_complete after ${RETRY_LIMIT} attempts`);
+          this.stageError(poolId, stageId, node.agent, "Stage did not call stage_complete or stage_ask_user after " + RETRY_LIMIT + " attempts");
+        }
       }
-      const retryStageResult = this.readStageResult(poolId);
-      this.clearStageResult(poolId);
-      if (!retryStageResult.result) {
-        console.warn(`[workflow] Stage "${node.agent}" responded without calling stage_complete or stage_ask_user`);
-        this.stageError(poolId, stageId, node.agent, retryStageResult.error ?? "Stage did not call stage_complete or stage_ask_user");
-      }
-      output = stageResultToStageOutput(retryStageResult.result);
+      output = stageResultToStageOutput(lastOutput!);
     } else {
       output = stageResultToStageOutput(stageResult.result);
     }

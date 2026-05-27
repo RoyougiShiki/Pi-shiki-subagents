@@ -116,8 +116,8 @@ describe('WorkflowManager', () => {
   test('fails workflow when stage does not call stage tools', async () => {
     const pool = new FakePool();
     pool.spawnResponses.push({ response: 'plain text only' });
-    // Auto-retry: sendPrompt with reminder also fails
-    pool.sendResponses.push({ response: 'still plain text' });
+    // 10 retries until stageError
+    for (let i = 0; i < 10; i++) pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -125,7 +125,7 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('after 10 attempts');
     expect(pool.killCalls).toHaveLength(1);
   });
 
@@ -134,8 +134,8 @@ describe('WorkflowManager', () => {
     const events: StageEvent[] = [];
     pool.spawnStageResults.push(undefined as any);
     pool.spawnResponses.push({ response: 'plain text only' });
-    // Auto-retry: sendPrompt with reminder also fails
-    pool.sendResponses.push({ response: 'still plain text' });
+    // 10 retries until stageError
+    for (let i = 0; i < 10; i++) pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool, events);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -143,10 +143,10 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('after 10 attempts');
 
     expect(events.some((event) => event.type === 'error')).toBe(true);
-    expect(manager.status().lastError).toBe('Stage did not call stage_complete or stage_ask_user');
+    expect(manager.status().lastError).toContain('after 10 attempts');
     expect(manager.status().lastEvent?.type).toBe('error');
     expect(pool.killCalls).toHaveLength(1);
   });
@@ -162,8 +162,8 @@ describe('WorkflowManager', () => {
       undefined,
       { type: 'complete', summary: 'ok', context: 'ctx' },
     );
-    // Auto-retry: sendPrompt with reminder (first run only)
-    pool.sendResponses.push({ response: 'still plain text' });
+    // 10 retries until stageError
+    for (let i = 0; i < 10; i++) pool.sendResponses.push({ response: 'still plain text' });
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {
       name: 'wf',
@@ -171,8 +171,8 @@ describe('WorkflowManager', () => {
       stages: [{ id: 'one', agent: 'worker' }],
     };
 
-    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('Stage did not call stage_complete or stage_ask_user');
-    expect(manager.status().lastError).toBe('Stage did not call stage_complete or stage_ask_user');
+    await expect(manager.runWorkflow(wf, 'input')).rejects.toThrow('after 10 attempts');
+    expect(manager.status().lastError).toContain('after 10 attempts');
 
     await manager.runWorkflow(wf, 'input');
 
