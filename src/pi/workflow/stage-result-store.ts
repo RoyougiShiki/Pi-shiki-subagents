@@ -43,17 +43,7 @@ export const STAGE_OUTPUT_FORMAT = `When done, include a structured summary at t
 ## 传递给下一阶段
 - 用户偏好、约束条件
 - 需要下一阶段知道的上下文
-
----
-
-## 停止条件
-以下情况必须立即停下来等待用户指示：
-- 任务描述存在歧义或不完整
-- 需要用户决策才能继续（如方案选择、范围确认）
-- 遇到预期之外的错误或阻塞
-- 发现任务可能需要偏离原定范围
-
-处理方式：在回复中明确说明停下的原因、当前进度、以及需要用户决定的问题。`;
+`;
 
 export const STAGE_REVIEW_FORMAT = `Output format requirements (check for completeness):
 - ## 任务与目标  — required
@@ -62,7 +52,6 @@ export const STAGE_REVIEW_FORMAT = `Output format requirements (check for comple
 - ## 当前状态  — required, must include 完成度
 - ## 验收证据  — required, missing = REJECT
 - ## 传递给下一阶段  — required
-- ## 停止条件  — check if any unaddressed blockers
 
 Missing any required section → REJECT.
 验收证据 insufficient → REJECT.`;

@@ -189,6 +189,9 @@ export class WorkflowManager {
     if (node.task) parts.push(`Task:\n${node.task}`);
     parts.push(`Input from previous stage:\n${input}`);
     parts.push(STAGE_OUTPUT_FORMAT);
+    parts.push(`## 行为规范
+- 如果任务描述存在歧义、需要用户决策、或遇到预期之外的阻塞，必须停下来等待用户指示，不要自行推测或继续
+- 在回复中明确说明停下的原因、当前进度、以及需要用户决定的问题`);
     return parts.join("\n\n");
   }
 

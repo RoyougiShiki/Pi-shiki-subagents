@@ -55,7 +55,7 @@ export function bindWorkflowChatBridge(args: {
       args.hub.updateChatStatus(event.poolId, { state: 'done' });
       args.setStatus?.('workflow-stage', `Approval required: ${event.agent}`);
       try {
-        const summary = event.output?.summary?.slice(0, 500) || '';
+        const summary = event.output?.summary || '';
         const prefix = `Stage ${event.agent} completed. Approval required before ${event.nextStage ?? 'next stage'}.`;
         args.sendAgentMessage?.(summary ? `${prefix}\n\nResult:\n${summary}` : prefix);
       } catch (e) {
@@ -69,7 +69,7 @@ export function bindWorkflowChatBridge(args: {
 
     if (event.type === 'workflow_complete') {
       args.clearStatus?.('workflow-stage');
-      const summary = event.output?.summary ? event.output.summary.slice(0, 300) : '';
+      const summary = event.output?.summary || '';
       const msg = summary
         ? `Workflow completed: ${event.workflow}\n\nResult:\n${summary}`
         : `Workflow completed: ${event.workflow}`;
