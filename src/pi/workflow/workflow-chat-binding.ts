@@ -67,7 +67,11 @@ export function bindWorkflowChatBridge(args: {
 
     if (event.type === 'workflow_complete') {
       args.clearStatus?.('workflow-stage');
-      args.sendAgentMessage?.(`Workflow completed: ${event.workflow}`);
+      const summary = event.output?.summary ? event.output.summary.slice(0, 300) : '';
+      const msg = summary
+        ? `Workflow completed: ${event.workflow}\n\nResult:\n${summary}`
+        : `Workflow completed: ${event.workflow}`;
+      args.sendAgentMessage?.(msg);
     }
 
     if (event.type === 'error' && event.poolId) {

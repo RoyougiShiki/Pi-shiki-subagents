@@ -86,5 +86,5 @@ export type StageEvent =
   | { type: "waiting_user"; agent: string; stageId: string; poolId: string; output: StageOutput }
   | { type: "transition_approval"; agent: string; stageId: string; poolId: string; output: StageOutput; nextStage?: string }
   | { type: "complete"; agent: string; stageId: string; poolId: string; output: StageOutput }
-  | { type: "workflow_complete"; workflow: string }
+  | { type: "workflow_complete"; workflow: string; output?: StageOutput }
   | { type: "error"; agent: string; stageId?: string; poolId?: string; error: string };

@@ -439,7 +439,7 @@ export class WorkflowManager {
         if (output.status === "failed") break;
       }
     } else {
-      this.emit({ type: "workflow_complete", workflow: workflowName });
+      this.emit({ type: "workflow_complete", workflow: workflowName, output });
     }
     this.pool.kill(poolId);
     if (this.currentStage?.poolId === poolId) this.currentStage = null;
