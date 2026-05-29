@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { WorkflowManager } from "./workflow-manager";
 import { WorkflowsConfig } from "../../core/workflow-types";
+import { getPool } from "../subagent/subagent-pool";
 
 export function registerWorkflowCommands(
   pi: ExtensionAPI,
@@ -84,10 +85,32 @@ export function registerWorkflowCommands(
     label: "Continue Workflow",
     description: "在用户同意后继续当前 workflow 到下一阶段",
     parameters: Type.Object({}),
-    async execute() {
+    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+      // 检查是否有 pending transition
+      const status = manager.status();
+      if (!status.transition) return {
+        content: [{ type: "text", text: "当前没有等待继续的 workflow" }],
+        isError: true, details: {},
+      };
+
+      // 向用户请求确认
+      if (ctx?.ui?.confirm) {
+        const confirmed = await ctx.ui.confirm("继续工作流", "当前阶段已完成，是否继续？");
+        if (!confirmed) {
+          // 取消：收集退回原因并调用 rejectTransition
+          const reason = await ctx.ui.input("请输入退回原因:", "");
+          const reasonText = reason || "用户取消";
+          manager.rejectTransition(reasonText);
+          return {
+            content: [{ type: "text", text: "已取消继续工作流" }],
+            details: { approved: false, rejectReason: reasonText },
+          };
+        }
+      }
+
       const ok = manager.continueWorkflow();
       if (!ok) return {
-        content: [{ type: "text", text: "当前没有等待继续的 workflow" }],
+        content: [{ type: "text", text: "继续工作流失败" }],
         isError: true, details: {},
       };
       return {
@@ -105,12 +128,22 @@ export function registerWorkflowCommands(
     parameters: Type.Object({
       message: Type.String({ description: "要发送给当前 stage 的消息" }),
     }),
-    async execute(_toolCallId, params) {
-      const result = await manager.sendUserMessage(params.message);
-      if (result.error) return {
-        content: [{ type: "text", text: result.error }],
-        isError: true, details: result,
-      };
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const status = manager.status();
+      const poolId = status.stage?.poolId ?? status.transition?.poolId;
+      if (!poolId) {
+        return {
+          content: [{ type: "text", text: "No active workflow stage" }],
+          isError: true, details: {},
+        };
+      }
+      const result = await getPool().sendPrompt(poolId, params.message);
+      if (result.error) {
+        return {
+          content: [{ type: "text", text: result.error }],
+          isError: true, details: result,
+        };
+      }
       return { content: [{ type: "text", text: result.response }], details: result };
     },
   });

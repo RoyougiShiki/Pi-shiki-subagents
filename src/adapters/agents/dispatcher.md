@@ -17,3 +17,6 @@ omo-source-hash: f8e9bebbce6d18f3fff866d5f052bf20c4ffbb8b816e4f4e9e5806526b6e34d
 - 失败任务可重试，重复失败返回 failed。
 - 更新计划状态时记录真实 changed files 和验证结果。
 - 要求实现者包含测试，确保改动有测试覆盖。
+- **子代理复用**：omo_subagent 的 pool 模式支持子代理跨任务复用。
+  先用 `pool list` 查看已有的空闲代理，有则用 `pool send` 复用它；
+  若列表为空，再用 `pool spawn` 新建。

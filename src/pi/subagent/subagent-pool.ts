@@ -31,13 +31,13 @@ async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
   const wait = new Promise<void>((resolve) => { release = resolve; });
   const prev = spawnMutex;
   spawnMutex = spawnMutex.then(() => wait);
-  await Promise.race([
-    prev,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Spawn mutex timeout")), MUTEX_TIMEOUT_MS),
-    ),
-  ]);
   try {
+    await Promise.race([
+      prev,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Spawn mutex timeout")), MUTEX_TIMEOUT_MS),
+      ),
+    ]);
     return await fn();
   } finally {
     release!();
@@ -276,10 +276,11 @@ export interface AgentPoolOptions {
 }
 
 export interface PoolEvent {
-  type: "error";
+  type: "error" | "completed";
   poolId: string;
   agentName: string;
-  error: string;
+  error?: string;
+  response?: string;
 }
 
 export class AgentPool {
@@ -419,8 +420,18 @@ export class AgentPool {
           ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
           : opts.task;
 
-        const result = await this.sendPrompt(opts.id, taskText);
-        return result;
+        // 异步执行，不阻塞主 agent
+        this.sendPrompt(opts.id, taskText).then(result => {
+          if (result.error) {
+            this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: result.error });
+          } else {
+            this.emit({ type: "completed", poolId: opts.id, agentName: opts.agent.name, response: result.response });
+          }
+        }).catch(err => {
+          this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: err.message });
+        });
+
+        return { response: `已启动，ID: ${opts.id}`, error: undefined };
       } catch (err: any) {
         if (session) {
           try { await session.abort(); } catch {}

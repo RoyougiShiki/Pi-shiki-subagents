@@ -57,7 +57,12 @@ export function bindWorkflowChatBridge(args: {
       try {
         const summary = event.output?.summary || '';
         const prefix = `Stage ${event.agent} completed. Approval required before ${event.nextStage ?? 'next stage'}.`;
-        args.sendAgentMessage?.(summary ? `${prefix}\n\nResult:\n${summary}` : prefix);
+        const decisions = event.output?.artifacts?.decisions?.filter(d => d.includes('审查')).join('\n');
+        const risks = event.output?.artifacts?.risks?.map(r => `  - ${r}`).join('\n');
+        let reviewSection = '';
+        if (decisions) reviewSection += `\n\n审查结果:\n${decisions}`;
+        if (risks) reviewSection += `\n\n审查发现问题:\n${risks}`;
+        args.sendAgentMessage?.(`${prefix}${reviewSection}${summary ? `\n\nResult:\n${summary}` : ''}`);
       } catch (e) {
         console.error(`[chat-binding] sendAgentMessage failed:`, e);
       }

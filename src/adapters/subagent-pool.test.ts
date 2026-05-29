@@ -90,28 +90,37 @@ function mockCreateSession() {
   return { session, createSession };
 }
 
+/** Wait for the next pool event (completed or error). */
+function onNextPoolEvent(pool: AgentPool): Promise<any> {
+  return new Promise(resolve => {
+    const unsub = pool.onEvent(event => {
+      unsub();
+      resolve(event);
+    });
+  });
+}
+
 describe('AgentPool basic operations', () => {
   test('spawn creates agent and sends initial prompt', async () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    // Spawn returns immediately with a startup message
+    const spawnResult = await pool.spawn({
       id: 'test-agent',
       name: 'test-agent',
       agent: makeAgent(),
       task: 'do something',
     });
+    expect(spawnResult.response).toContain('已启动');
 
-    // Let the microtask queue process
-    await new Promise(r => setTimeout(r, 10));
-
-    // Simulate agent response
+    // Wait for the async internal sendPrompt to complete
+    const eventPromise = onNextPoolEvent(pool);
     session._simulateResponse('task done');
+    const event = await eventPromise;
 
-    const result = await spawnPromise;
-
-    expect(result.error).toBeUndefined();
-    expect(result.response).toBe('task done');
+    expect(event.type).toBe('completed');
+    expect(event.response).toBe('task done');
     expect(pool.list()).toHaveLength(1);
     expect(pool.list()[0].id).toBe('test-agent');
     expect(pool.list()[0].status).toBe('idle');
@@ -124,17 +133,21 @@ describe('AgentPool basic operations', () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    // Spawn returns immediately
+    const spawnResult = await pool.spawn({
       id: 'agent-send',
       name: 'agent-send',
       agent: makeAgent('thinker'),
       task: 'initial task',
     });
+    expect(spawnResult.response).toContain('已启动');
 
-    await new Promise(r => setTimeout(r, 10));
+    // Resolve the spawn's internal async sendPrompt
+    const initEvent = onNextPoolEvent(pool);
     session._simulateResponse('initial done');
-    await spawnPromise;
+    await initEvent;
 
+    // Now send a follow-up prompt directly
     const sendPromise = pool.sendPrompt('agent-send', 'follow-up');
     await new Promise(r => setTimeout(r, 10));
     session._simulateResponse('follow-up done');
@@ -150,16 +163,17 @@ describe('AgentPool basic operations', () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    await pool.spawn({
       id: 'list-agent',
       name: 'list-agent',
       agent: makeAgent(),
       task: 'task',
     });
 
-    await new Promise(r => setTimeout(r, 10));
+    // Resolve the async prompt to get status='idle'
+    const event = onNextPoolEvent(pool);
     session._simulateResponse('ok');
-    await spawnPromise;
+    await event;
 
     const agents = pool.list();
     expect(agents.length).toBe(1);
@@ -176,16 +190,17 @@ describe('AgentPool basic operations', () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    await pool.spawn({
       id: 'kill-test',
       name: 'kill-test',
       agent: makeAgent(),
       task: 'task',
     });
 
-    await new Promise(r => setTimeout(r, 10));
+    // Resolve the async prompt
+    const event = onNextPoolEvent(pool);
     session._simulateResponse('ok');
-    await spawnPromise;
+    await event;
 
     expect(pool.list()).toHaveLength(1);
     const killed = await pool.kill('kill-test');
@@ -227,17 +242,20 @@ describe('AgentPool basic operations', () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ timeoutMs: 5, createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    // Spawn returns immediately
+    const spawnResult = await pool.spawn({
       id: 'timeout-agent',
       name: 'timeout-agent',
       agent: makeAgent(),
       task: 'initial',
     });
+    expect(spawnResult.response).toContain('已启动');
 
-    // Don't simulate response — let timeout fire
-    const result = await spawnPromise;
+    // Don't simulate response — let timeout fire; listen for the error event
+    const event = await onNextPoolEvent(pool);
 
-    expect(result.error).toBe('Agent "timeout-agent" timed out');
+    expect(event.type).toBe('error');
+    expect(event.error).toContain('timed out');
     expect(pool.list()).toHaveLength(1);
     expect(await pool.sendPrompt('timeout-agent', 'late')).toEqual({
       response: '',
@@ -249,18 +267,24 @@ describe('AgentPool basic operations', () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });
 
-    const spawnPromise = pool.spawn({
+    // Spawn returns immediately
+    const spawnResult = await pool.spawn({
       id: 'kill-agent',
       name: 'kill-agent',
       agent: makeAgent(),
       task: 'initial',
     });
+    expect(spawnResult.response).toContain('已启动');
 
     await new Promise(r => setTimeout(r, 10));
-    await pool.kill('kill-agent');
-    const result = await spawnPromise;
 
-    expect(result.error).toBe('Aborted');
+    // Listen for the error event (from sendPromise rejection)
+    const eventPromise = onNextPoolEvent(pool);
+    await pool.kill('kill-agent');
+    const event = await eventPromise;
+
+    expect(event.type).toBe('error');
+    expect(event.error).toBe('Aborted');
     expect(pool.list()).toHaveLength(0);
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { WorkflowManager, type WorkflowPool } from '../pi/workflow/workflow-manager';
+import type { PoolEvent } from '../pi/subagent/subagent-pool';
 import type { AgentConfig } from './agent-discovery';
 import type { StageEvent, WorkflowDefinition, WorkflowStageToolResult } from '../core/workflow-types';
 import { setStageResult } from '../pi/workflow/stage-result-store';
@@ -35,6 +36,19 @@ class FakePool implements WorkflowPool {
   spawnCalls: any[] = [];
   sendCalls: Array<{ id: string; message: string }> = [];
   killCalls: string[] = [];
+  private eventListeners: Array<(event: PoolEvent) => void> = [];
+
+  onEvent(cb: (event: PoolEvent) => void): () => void {
+    this.eventListeners.push(cb);
+    return () => {
+      this.eventListeners = this.eventListeners.filter(e => e !== cb);
+    };
+  }
+
+  private emit(event: PoolEvent): void {
+    for (const cb of this.eventListeners) cb(event);
+  }
+
   async spawn(opts: any): Promise<{ response: string; error?: string }> {
     this.spawnCalls.push(opts);
     const stageResult = this.spawnStageResults.shift();
@@ -43,7 +57,15 @@ class FakePool implements WorkflowPool {
     }
     const next = this.spawnResponses.shift();
     if (!next) throw new Error('No fake spawn response queued');
-    return next;
+    // 异步发射事件（模拟真实 AgentPool 行为）
+    setTimeout(() => {
+      if (next.error) {
+        this.emit({ type: 'error', poolId: opts.id, agentName: opts.agent?.name ?? '', error: next.error });
+      } else {
+        this.emit({ type: 'completed', poolId: opts.id, agentName: opts.agent?.name ?? '', response: next.response });
+      }
+    }, 0);
+    return { response: '已启动，ID: ' + opts.id, error: undefined };
   }
 
   async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
@@ -149,7 +171,13 @@ describe('WorkflowManager', () => {
     const hold = deferred<{ response: string; error?: string }>();
     pool.spawn = async (opts: any) => {
       pool.spawnCalls.push(opts);
-      return hold.promise;
+      // hold 完成后发射事件（适配事件驱动）
+      hold.promise.then(result => {
+        pool.emit({ type: 'completed', poolId: opts.id, agentName: opts.agent?.name ?? '', response: result.response });
+      }).catch(err => {
+        pool.emit({ type: 'error', poolId: opts.id, agentName: opts.agent?.name ?? '', error: err.message });
+      });
+      return { response: '已启动，ID: ' + opts.id, error: undefined };
     };
     const manager = makeManager(pool);
     const wf: WorkflowDefinition = {

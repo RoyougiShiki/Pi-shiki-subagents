@@ -972,6 +972,19 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`[pool] ${event.agentName}: ${event.error}`, "warning");
         } catch {}
       }
+      if (event.type === "completed") {
+        // 跳过 workflow 管理的子代理（workflow 自己会发 transition_approval 通知）
+        if (event.poolId?.startsWith('wf-')) return;
+        try {
+          pi.sendMessage({
+            customType: "pool_completed",
+            content: event.response
+              ? `[pool] ${event.agentName} 已完成\n\n${event.response}`
+              : `[pool] ${event.agentName} 已完成`,
+            display: true,
+          }, { deliverAs: "followUp", triggerTurn: true });
+        } catch {}
+      }
     });
 
     // Wire mode change → status bar

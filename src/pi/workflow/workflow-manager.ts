@@ -6,7 +6,7 @@ import {
   type WorkflowDefinition,
   type WorkflowStageToolResult,
 } from "../../core/workflow-types";
-import { getPool } from "../subagent/subagent-pool";
+import { getPool, type PoolEvent } from "../subagent/subagent-pool";
 import { resolveAgent, type AgentConfig } from "../../adapters/agent-discovery";
 import { getStageResult, clearStageResult, STAGE_OUTPUT_FORMAT, STAGE_REVIEW_FORMAT } from "./stage-result-store";
 
@@ -38,6 +38,7 @@ export interface WorkflowPool {
   }): Promise<{ response: string; error?: string }>;
   sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }>;
   kill(id: string): Promise<boolean>;
+  onEvent(cb: (event: PoolEvent) => void): () => void;
 }
 
 export interface WorkflowManagerOptions {
@@ -128,6 +129,10 @@ export class WorkflowManager {
   private abortedByUser = false;
   private consecutiveToolMisses = 0;
   private readonly pool: WorkflowPool;
+  private _eventUnsubscribe: (() => void) | null = null;
+  private _eventResolve: ((result: { response: string; error?: string }) => void) | null = null;
+  private _reviewUnsubscribe: (() => void) | null = null;
+  private _lastRejectMessage: string | undefined = undefined;
   private readonly resolveAgentFn: (cwd: string, name: string) => AgentConfig | undefined;
 
   constructor(options: WorkflowManagerOptions = {}) {
@@ -167,7 +172,18 @@ export class WorkflowManager {
       this.transitionResolver = null;
       this.transitionPending = null;
       this.pendingEvents = [];
+      // 确保事件驱动监听被清理
+      if (this._eventUnsubscribe) {
+        this._eventUnsubscribe();
+        this._eventUnsubscribe = null;
+      }
+      this._eventResolve = null;
     }
+    if (this._reviewUnsubscribe) {
+      this._reviewUnsubscribe();
+      this._reviewUnsubscribe = null;
+    }
+    this._lastRejectMessage = undefined;
   }
 
   private async runStages(workflowName: string, stages: WorkflowNode[], input: string): Promise<string> {
@@ -189,9 +205,13 @@ export class WorkflowManager {
     if (node.task) parts.push(`Task:\n${node.task}`);
     parts.push(`Input from previous stage:\n${input}`);
     parts.push(STAGE_OUTPUT_FORMAT);
-    parts.push(`## 行为规范
-- 如果任务描述存在歧义、需要用户决策、或遇到预期之外的阻塞，必须停下来等待用户指示，不要自行推测或继续
-- 在回复中明确说明停下的原因、当前进度、以及需要用户决定的问题`);
+    parts.push(`## 停止条件
+遇到以下情况必须立即停下来等待用户指示，不要自行推测或继续：
+- 任务描述存在歧义
+- 需要用户决策
+- 遇到预期外的阻塞
+
+处理方式：在回复中明确说明停下的原因、当前进度、以及需要用户决定的问题。`);
     return parts.join("\n\n");
   }
 
@@ -254,10 +274,12 @@ export class WorkflowManager {
       return output;
     }
     const reviewPoolId = `${poolId}-review`;
+    const taskDesc = node.task ? `Task:\n${node.task}` : '';
     const reviewTask = [
       `Review stage "${node.agent}" output:`,
       `Summary: ${output.summary}`,
       output.context ? `Context: ${output.context}` : "",
+      taskDesc,
       ...(output.evidence?.length
         ? [`Evidence:\n${output.evidence.map((e: any) => `  - ${e.reason}${e.path ? ` (${e.path})` : ""}`).join("\n")}`]
         : []),
@@ -273,10 +295,30 @@ export class WorkflowManager {
       "Reply APPROVED or REJECTED with reasoning.",
     ].filter(Boolean).join("\n");
 
-    const reviewResult = await this.pool.spawn({
-      id: reviewPoolId, name: `${stageId}-review`,
-      agent: reviewAgentCfg, task: reviewTask,
-      cwd: this.cwd, parentAgent: PARENT_AGENT_NAME, depth: 2,
+    // 事件驱动：不 await spawn 返回值，改为监听 completed/error 事件
+    const reviewResult = await new Promise<{ response: string; error?: string }>((resolve) => {
+      const unsubscribe = this.pool.onEvent((event) => {
+        if (event.poolId === reviewPoolId) {
+          unsubscribe();
+          this._reviewUnsubscribe = null;
+          if (event.type === 'completed') {
+            resolve({ response: event.response ?? '', error: undefined });
+          } else {
+            resolve({ response: '', error: event.error ?? 'Unknown error' });
+          }
+        }
+      });
+      this._reviewUnsubscribe = unsubscribe;
+
+      this.pool.spawn({
+        id: reviewPoolId, name: `${stageId}-review`,
+        agent: reviewAgentCfg, task: reviewTask,
+        cwd: this.cwd, parentAgent: PARENT_AGENT_NAME, depth: 2,
+      }).catch((err: unknown) => {
+        unsubscribe();
+        this._reviewUnsubscribe = null;
+        resolve({ response: '', error: err instanceof Error ? err.message : String(err) });
+      });
     });
     this.pool.kill(reviewPoolId).catch(() => {});
 
@@ -308,20 +350,43 @@ export class WorkflowManager {
 
     this.currentStage = { workflowName, stageId, poolId, agent: node.agent, input, node, stageResultPath: poolId };
 
-    const resultPromise = this.pool.spawn({
-      id: poolId,
-      name: stageId,
-      agent: agentConfig,
-      task: this.buildStageTask(node, input),
-      model: agentConfig.model,
-      cwd: this.cwd,
-      parentAgent: PARENT_AGENT_NAME,
-      depth: 1,
-      allowedSubagents: node.allowedSubagents,
+    // 事件驱动：不 await spawn 的返回值，改为监听 pool 的 completed/error 事件拿到真实输出
+    const result = await new Promise<{ response: string; error?: string }>((resolve) => {
+      const unsubscribe = this.pool.onEvent((event) => {
+        if (event.poolId === poolId) {
+          unsubscribe();
+          this._eventUnsubscribe = null;
+          this._eventResolve = null;
+          if (event.type === 'completed') {
+            resolve({ response: event.response ?? '', error: undefined });
+          } else {
+            resolve({ response: '', error: event.error ?? 'Unknown error' });
+          }
+        }
+      });
+      this._eventUnsubscribe = unsubscribe;
+      this._eventResolve = resolve as (result: { response: string; error?: string }) => void;
+
+      // 启动子代理（不 await，立即返回）
+      this.pool.spawn({
+        id: poolId,
+        name: stageId,
+        agent: agentConfig,
+        task: this.buildStageTask(node, input),
+        model: agentConfig.model,
+        cwd: this.cwd,
+        parentAgent: PARENT_AGENT_NAME,
+        depth: 1,
+        allowedSubagents: node.allowedSubagents,
+      }).catch((err: unknown) => {
+        // spawn 自身失败（极少数情况，如 agent 已存在或测试中 throw），通过 error 路径通知
+        const unsub = this._eventUnsubscribe;
+        if (unsub) { unsub(); this._eventUnsubscribe = null; }
+        const resv = this._eventResolve;
+        if (resv) { this._eventResolve = null; resv({ response: '', error: err instanceof Error ? err.message : String(err) }); }
+      });
     });
     this.emit({ type: "running", agent: node.agent, stageId, poolId });
-
-    const result = await resultPromise;
 
     let output: StageOutput;
 
@@ -416,7 +481,8 @@ export class WorkflowManager {
           (e) => !(e.type === 'waiting_user' && e.poolId === poolId && e.stageId === stageId),
         );
         try {
-          const note = this.transitionPending?.rejectMessage || "Your completion request was rejected. Continue working.";
+          const note = this._lastRejectMessage ?? "Your completion request was rejected. Continue working.";
+          this._lastRejectMessage = undefined;
           this.pool.sendPrompt(poolId, note, 'steer').catch(() => {});
         } catch {}
         this.emit({ type: "complete", agent: node.agent, stageId, poolId, output });
@@ -453,6 +519,7 @@ export class WorkflowManager {
     );
     // Store reject message for the while loop to send to agent
     this.transitionPending.rejectMessage = message;
+    this._lastRejectMessage = message;
     const resolve = this.transitionResolver;
     this.transitionResolver = null;
     this.transitionPending = null;
@@ -564,31 +631,25 @@ export class WorkflowManager {
     };
   }
 
-  private abortStage(stage: CurrentStage): void {
-    // Clean up any pending events for this stage
-    this.pendingEvents = this.pendingEvents.filter(
-      (e) => !('poolId' in e && e.poolId === stage.poolId && (e.type === 'waiting_user' || e.type === 'transition_approval')),
-    );
-    if (this.stageWaitResolver) {
-      const resolve = this.stageWaitResolver;
-      this.stageWaitResolver = null;
-      resolve({ status: "failed", summary: "Stage agent failed", context: "" });
-    }
-    if (this.transitionPending?.stage.poolId === stage.poolId) {
-      this.transitionPending = null;
-      this.transitionResolver = null;
-    }
-    if (this.currentStage?.poolId === stage.poolId) {
-      this.currentStage = null;
-    }
-  }
-
   isRunning(): boolean { return this.running; }
 
   abort(): void {
     this.abortedByUser = true;
     const poolId = this.currentStage?.poolId;
     if (poolId) this.pool.kill(poolId);
+    // 清理事件驱动等待
+    if (this._eventUnsubscribe) {
+      this._eventUnsubscribe();
+      this._eventUnsubscribe = null;
+    }
+    if (this._eventResolve) {
+      this._eventResolve({ response: '', error: 'Workflow aborted' });
+      this._eventResolve = null;
+    }
+    if (this._reviewUnsubscribe) {
+      this._reviewUnsubscribe();
+      this._reviewUnsubscribe = null;
+    }
     if (this.stageWaitResolver) {
       const resolve = this.stageWaitResolver;
       this.stageWaitResolver = null;
