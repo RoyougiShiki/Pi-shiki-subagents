@@ -30,7 +30,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadActiveMode, getModeInstructions, setOnModeChange } from "./pi-modes";
+import { loadActiveMode, getModeInstructions, setOnModeChange, modeRequiresIntentPrefix, getIntentPattern } from "./pi-modes";
 import type { WorkflowStageToolResult, StageResultComplete, StageResultAskUser } from "../../core/workflow-types";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
@@ -47,6 +47,18 @@ export { formatPiCouncilResults, resolvePiCouncilParticipants } from "../meeting
 
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "../meeting/pi-meeting";
 import { registerSubagentTool, getPool, initPoolModelResolver, type PoolAgentInfo } from "../subagent/subagent-pool";
+import {
+  createComplianceState,
+  recordViolation,
+  shouldTriggerReset,
+  markResetStart,
+  markResetEnd,
+  hasIntentPrefix,
+  buildResetInstruction,
+  type ComplianceState,
+  type ViolationRecord,
+} from "../compliance";
+
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
@@ -899,6 +911,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
+  // ── Compliance state (session-level, in-memory) ──────────────────────
+  let complianceState: ComplianceState = createComplianceState();
+  let toolExecutedThisTurn = false; // reset per tool_execution_start
+
   // ── Detect delegation capabilities ─────────────────────────────────
   function getToolNames(): Set<string> {
     try {
@@ -998,6 +1014,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   });
 
+  // ── Compliance: track whether a tool was actually executed this turn ──
+  pi.on("tool_execution_start", async (_event) => {
+    toolExecutedThisTurn = true;
+  });
+
+  pi.on("turn_start", async (_event) => {
+    toolExecutedThisTurn = false;
+  });
+
   // ── Inject orchestrator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
@@ -1041,8 +1066,20 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       ? `<MODE name="${activeMode}">\n${modeInstructions}\n</MODE>`
       : "";
 
+    // ── Inject compliance rule anchors ────────────────────────────────
+    const requiresIntent = modeRequiresIntentPrefix(activeMode);
+    const complianceRules: string[] = [];
+    complianceRules.push("<ComplianceRules>");
+    if (requiresIntent) {
+      complianceRules.push("- ASSISTANT output in coordinator mode MUST begin with `Intent: <type>` on the first non-empty line.");
+    }
+    complianceRules.push("- When instructed to call a tool, you MUST make an actual tool call (not just declare intent).");
+    complianceRules.push("- Violations trigger POLICY_VIOLATION markers and may enter a COMPLIANCE_RESET flow.");
+    complianceRules.push("</ComplianceRules>");
+    const compliancePrompt = complianceRules.join("\n");
+
     return {
-      systemPrompt: [omniPrompt, modePrompt, trimmedPrompt].filter(Boolean).join("\n\n---\n\n"),
+      systemPrompt: [omniPrompt, modePrompt, compliancePrompt, trimmedPrompt].filter(Boolean).join("\n\n---\n\n"),
     };
   });
 
@@ -1056,6 +1093,122 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
   });
 
+  // ── Compliance: tool_call gate ──────────────────────────────────────
+  // Conservative implementation: detects blocked/abandoned patterns,
+  // records violations but only blocks clearly dangerous calls.
+  pi.on("tool_call", async (event, _ctx) => {
+    // No-op for built-in tools with valid input — we only flag patterns
+    // that indicate the model is "promising" a call without executing.
+
+    // Detect tool calls with empty/missing required args as potential
+    // pseudo-tool patterns (model declares intent but doesn't fill params).
+    const toolName = (event as any).toolName;
+    const input = (event as any).input;
+
+    // Only flag if the tool is a known actionable tool with empty params
+    if (
+      toolName &&
+      typeof input === "object" &&
+      input !== null &&
+      Object.keys(input).length === 0 &&
+      ["read", "write", "edit", "bash", "grep", "find", "ls"].includes(toolName)
+    ) {
+      const violation: ViolationRecord = {
+        type: "TOOL_BLOCKED",
+        reason: `Tool "${toolName}" called with empty parameters — likely pseudo-call.`,
+        at: Date.now(),
+      };
+      recordViolation(complianceState, violation);
+      return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
+    }
+
+    // Explicitly blocked tool names / patterns
+    const BLOCKED_PREFIXES = ["sudo ", "rm -rf /", ":(){ :|:& };:"];
+    if (toolName === "bash" && typeof input?.command === "string") {
+      for (const prefix of BLOCKED_PREFIXES) {
+        if (input.command.trim().startsWith(prefix)) {
+          const violation: ViolationRecord = {
+            type: "TOOL_BLOCKED",
+            reason: `Blocked dangerous bash command starting with "${prefix}".`,
+            at: Date.now(),
+          };
+          recordViolation(complianceState, violation);
+          return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
+        }
+      }
+    }
+  });
+
+  // ── Compliance: message_end gate ────────────────────────────────────
+  // Checks the finalized assistant message for Intent: prefix when the
+  // current mode requires it. On violation, injects a correction or
+  // enters the reset flow.
+  pi.on("message_end", async (event, _ctx) => {
+    try {
+      if (event.message.role !== "assistant") return;
+
+      const activeMode = loadActiveMode() || "coordinator";
+      if (!modeRequiresIntentPrefix(activeMode)) return;
+
+      // Extract text content from the assistant message
+      let content = "";
+      const rawContent = event.message.content;
+      if (typeof rawContent === "string") {
+        content = rawContent;
+      } else if (Array.isArray(rawContent)) {
+        content = rawContent
+          .filter((part: any) => part?.type === "text")
+          .map((part: any) => part.text ?? "")
+          .join("");
+      }
+
+      if (!content.trim()) return;
+
+      const hasPrefix = hasIntentPrefix(content);
+
+      // ── In reset: check if the message recovers ────────────────────────
+      if (complianceState.inReset) {
+        // Reset is satisfied if the message now carries Intent: compliance-reset
+        // and has a Valid Intent prefix
+        if (hasPrefix && content.includes("compliance-reset")) {
+          markResetEnd(complianceState);
+        }
+        return;
+      }
+
+      // ── Out of reset: validate Intent prefix ───────────────────────────
+      if (!hasPrefix) {
+        const violation: ViolationRecord = {
+          type: "MISSING_INTENT_PREFIX",
+          reason: `Assistant message in "${activeMode}" mode is missing Intent: prefix.`,
+          at: Date.now(),
+        };
+        recordViolation(complianceState, violation);
+
+        if (shouldTriggerReset(complianceState)) {
+          markResetStart(complianceState);
+
+          // Replace the assistant message with a structured correction.
+          // Keep original content shape to avoid session serialization mismatch.
+          const resetMsg = buildResetInstruction(violation);
+          const nextContent = Array.isArray(rawContent)
+            ? [{ type: "text", text: resetMsg }]
+            : resetMsg;
+
+          return {
+            message: {
+              ...event.message,
+              content: nextContent,
+            },
+          };
+        }
+      }
+    } catch (err) {
+      // Fail-open: never let compliance checks crash the session flow.
+      console.warn("[compliance] message_end gate failed:", err);
+      return;
+    }
+  });
 
 
   // ── Register custom tools ───────────────────────────────────────────

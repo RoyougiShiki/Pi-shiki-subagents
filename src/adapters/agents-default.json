@@ -14,7 +14,9 @@
     ],
     "delegates": [],
     "next": [],
-    "label": "工作流协调器"
+    "label": "工作流协调器",
+    "requiresIntentPrefix": true,
+    "intentPattern": "^Intent:\\s*\\S"
   },
   "thinker": {
     "type": "subagent",

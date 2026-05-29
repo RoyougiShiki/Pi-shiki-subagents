@@ -30,6 +30,10 @@ interface AgentDefinition {
   next?: string[];
   instructions?: string;
   hidden?: boolean;
+  /** If true, assistant output must start with Intent: prefix (enforced at message_end). */
+  requiresIntentPrefix?: boolean;
+  /** Regex pattern string to validate the Intent prefix line. */
+  intentPattern?: string;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────────────────
@@ -103,6 +107,26 @@ function loadAgentDefinitions(): Record<string, AgentDefinition> {
 
 function getAgent(name: string): AgentDefinition | undefined {
   return loadAgentDefinitions()[name];
+}
+
+/**
+ * Returns whether the given mode requires an Intent: prefix on assistant output.
+ * Falls back to false when the agent definition is missing.
+ */
+export function modeRequiresIntentPrefix(name: string): boolean {
+  const agent = getAgent(name);
+  return agent?.requiresIntentPrefix ?? false;
+}
+
+/**
+ * Returns the Intent regex pattern for a mode, or the default pattern.
+ */
+export function getIntentPattern(name: string): RegExp {
+  const agent = getAgent(name);
+  if (agent?.intentPattern) {
+    try { return new RegExp(agent.intentPattern); } catch { /* fall through */ }
+  }
+  return /^Intent:\s*\S/;
 }
 
 function ensureToolGroups(): Record<string, string[]> {
