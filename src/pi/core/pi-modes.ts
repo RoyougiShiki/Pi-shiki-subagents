@@ -237,7 +237,7 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
   try {
     const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
     // Empty tools = allow all (used by fallback agent)
-    const toolList = resolveAgentTools(agent);
+    const toolList = resolveConfiguredTools(agent);
     const tools = toolList.length > 0 || agent.roles ? toolList : all;
     const baseAllow = new Set(tools);
     if (!allowSubagentType) baseAllow.add("switch_mode");
@@ -292,7 +292,17 @@ function loadToolGroups(): Record<string, string[]> {
   return ensureToolGroups();
 }
 
-function resolveAgentTools(agent: AgentDefinition): string[] {
+/**
+ * 从 agent 配置解析工具列表（仅用于配置阶段，不参与 runtime gate）。
+ * 
+ * 解析逻辑：
+ * - 有 roles → 从 _tool_groups 合并
+ * - 有 tools → 直接返回
+ * - 都没有 → 返回空数组（表示不限制）
+ * 
+ * @see tool-scope-manager.ts — runtime 决策唯一来源
+ */
+function resolveConfiguredTools(agent: AgentDefinition): string[] {
   if (agent.roles && agent.roles.length > 0) {
     const groups = loadToolGroups();
     if (Object.keys(groups).length === 0) {
@@ -360,7 +370,7 @@ export function validateModeAllowlist(allTools: string[]): string | null {
   const agent = getAgent(name);
   if (!agent) return `Mode "${name}" not found in agent definitions`;
 
-  const tools = resolveAgentTools(agent);
+  const tools = resolveConfiguredTools(agent);
   if (tools.length === 0 && !agent.roles) {
     return `Mode "${name}" has empty allowedTools`;
   }
