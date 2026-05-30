@@ -36,12 +36,7 @@ import { checkClarification, shouldBlockForClarification } from "../policy/clari
 import { checkApproval, requiresApproval } from "../policy/approval-policy";
 import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence } from "../policy/runtime-audit";
-import {
-  createPipelineState,
-  loadCheckpoint,
-  type PipelineConfig,
-  type PipelineState,
-} from "./pipeline-state";
+// pipeline-state 已从执行决策链路移除
 
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
@@ -906,21 +901,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   let toolExecutedThisTurn = false; // reset per tool_execution_start
 
   // ── Pipeline state (session-level, 替代 WorkflowManager) ─────────────
-  let pipelineState: PipelineState = createPipelineState();
-  let pipelineConfig: PipelineConfig = { default: "", steps: [] };
-  let _sessionId = "";
-  let _pipelineMissingWarned = false;
-  // 从 workflows 配置中推导 pipeline 步骤
-  if (config?.workflows?.list && config.workflows.list.length > 0) {
-    const wf = config.workflows.list[0];
-    pipelineConfig = {
-      default: wf.name || "",
-      steps: ((wf as any).stages || []).map((s: any, i: number) => ({
-        agent: s.agent || s,
-        stageId: s.stageId || `step-${i}`,
-      })),
-    };
-  }
+
 
   // ── Detect delegation capabilities ─────────────────────────────────
   function getToolNames(): Set<string> {
@@ -981,21 +962,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       setAuditEnabled(true);
     }
 
-    // Pipeline checkpoint 恢复
-    try {
-      const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
-      if (sf) {
-        const sid = sf.replace(/[^a-zA-Z0-9_-]/g, "_");
-        _sessionId = sid;
-        const restored = loadCheckpoint(sid);
-        if (restored) {
-          pipelineState = restored.state;
-          console.error(`[pipeline] restored checkpoint: step=${restored.checkpoint.currentStep}, status=${restored.checkpoint.status}`);
-        }
-      }
-    } catch (e) {
-      console.warn("[pipeline] checkpoint restore failed:", e);
-    }
+    // 注意：pipeline checkpoint 恢复已从执行决策链路移除。
 
     // Wire model resolver so pool sub-agents get preset models
     initPoolModelResolver((modelId) => {

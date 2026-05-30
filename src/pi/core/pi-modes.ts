@@ -20,7 +20,7 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
 import { DEFAULT_WORKFLOWS } from "../../config/schema";
-import { setToolScope } from "../policy/tool-scope-manager";
+import { setToolScope, getToolScope } from "../policy/tool-scope-manager";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -346,7 +346,8 @@ export function emitModeSwitched(
   toMode: string,
   triggerTurn = true,
 ): void {
-  const tools = getCurrentModeToolList();
+  const snapshot = getToolScope();
+  const tools = snapshot ? [...snapshot.tools] : [];
   const preview = tools.slice(0, 12).join(", ");
   const more = tools.length > 12 ? ` ...(+${tools.length - 12})` : "";
   const toolLine = tools.length > 0
