@@ -19,6 +19,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
+import { DEFAULT_WORKFLOWS } from "../../config/schema";
+import { setToolScope } from "../policy/tool-scope-manager";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,10 @@ interface AgentDefinition {
   requiresIntentPrefix?: boolean;
   /** Regex pattern string to validate the Intent prefix line. */
   intentPattern?: string;
+  /** If true, this mode must be activated via /mode command, not switch_mode tool. */
+  requiresUserCommand?: boolean;
+  /** If true, this mode drives a pipeline (step validation + approval gate). */
+  pipelineMode?: boolean;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────────────────
@@ -105,7 +111,7 @@ function loadAgentDefinitions(): Record<string, AgentDefinition> {
   return _agentDefs;
 }
 
-function getAgent(name: string): AgentDefinition | undefined {
+export function getAgent(name: string): AgentDefinition | undefined {
   return loadAgentDefinitions()[name];
 }
 
@@ -190,6 +196,21 @@ function loadSessionMode(sessionFile: string): string | undefined {
   } catch { return undefined; }
 }
 
+// ── 唯一的最终兜底常量 ──────────────────────────────────────────────
+const FALLBACK_MODE = "fallback";
+
+/**
+ * 从配置中读取第一个 type:mode 的 agent 名字。
+ * 失败时返回最终兜底常量。
+ */
+export function getFirstModeAgent(): string {
+  try {
+    const publics = getPublicAgents();
+    if (publics.length > 0) return publics[0];
+  } catch {}
+  return FALLBACK_MODE;
+}
+
 // ── Session mode persistence ───────────────────────────────────────────
 
 export function loadActiveMode(): string {
@@ -198,10 +219,9 @@ export function loadActiveMode(): string {
       const saved = loadSessionMode(_currentSessionFile);
       if (saved && getAgent(saved)) return saved;
     }
-    const publics = getPublicAgents();
-    return publics.length > 0 ? publics[0] : "coordinator";
+    return getFirstModeAgent();
   } catch {
-    return "coordinator";
+    return FALLBACK_MODE;
   }
 }
 
@@ -219,14 +239,18 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
     // Empty tools = allow all (used by fallback agent)
     const toolList = resolveAgentTools(agent);
     const tools = toolList.length > 0 || agent.roles ? toolList : all;
-    const allow = new Set([...tools, "switch_mode"]);
-    const active = all.filter((n: string) => allow.has(n));
-    const missing = all.filter(t => !allow.has(t));
-    if (missing.length > 0) {
-      console.error(`[omo-modes] applyMode("${name}") tools=${tools.length}, all=${all.length}, active=${active.length}, missing=${missing.length}: ${missing.slice(0,10).join(",")}...`);
-    }
-    console.error(`[omo-modes] applyAgentTools("${name}") roles=${JSON.stringify(agent.roles)} tools=[${tools.join(",")}] active=[${active.join(",")}]`);
+    const baseAllow = new Set(tools);
+    if (!allowSubagentType) baseAllow.add("switch_mode");
+    const active = all.filter((n: string) => baseAllow.has(n));
     pi.setActiveTools(active);
+
+    // ── 写入工具真值快照（单一决策源）──────────────────────────────────
+    setToolScope(
+      active,
+      allowSubagentType ? "subagent" : "mode",
+      name,
+      { roles: agent.roles, tools: agent.tools }
+    );
   } catch (e) {
     console.error(`[omo-modes] applyAgentTools("${name}") error:`, e);
     return false;
@@ -235,24 +259,44 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
 }
 
 function applyMode(pi: ExtensionAPI, name: string): boolean {
-  let ok: boolean;
-  if (name === "fallback") {
-    try {
-      const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-      pi.setActiveTools([...new Set(all)]);
-      ok = true;
-    } catch { return false; }
-  } else {
-    ok = applyAgentTools(pi, name, false);
+  // 1) turnExecutionContext 重置（pre-switch hook）
+  try { _onBeforeModeChange?.(name); } catch {}
+
+  // 2) allowedTools 更新
+  const ok = applyAgentTools(pi, name, false);
+  if (!ok) {
+    console.error(`[omo-modes] applyMode("${name}") FAILED`);
+    return false;
   }
-  if (ok) {
-    try { _onModeChange?.(name); } catch {}
-  }
+
+  // 3) currentMode 已通过 saveAgent() 持久化
+  // 4) 记录 mode-change 事件（供观测）
+  try { _onModeChange?.(name); } catch {}
   return ok;
 }
 
 export function getModeInstructions(name: string): string | undefined {
   return getAgent(name)?.instructions;
+}
+
+/**
+ * 当前模式是否走 pipeline 编排（有步骤校验 + 审批 gate）。
+ */
+export function isCurrentModePipeline(): boolean {
+  const name = loadActiveMode();
+  const agent = getAgent(name);
+  return agent?.pipelineMode === true;
+}
+
+/**
+ * 获取当前模式的白名单工具集（不含 switch_mode，由调用方统一添加）。
+ * 返回空数组表示当前模式无工具限制。
+ */
+export function getCurrentModeToolList(): string[] {
+  const name = loadActiveMode();
+  const agent = getAgent(name);
+  if (!agent) return [];
+  return resolveAgentTools(agent);
 }
 
 function loadToolGroups(): Record<string, string[]> {
@@ -276,8 +320,17 @@ function resolveAgentTools(agent: AgentDefinition): string[] {
   return agent.tools || [];
 }
 
-// ── Mode change callback (wired by composition root) ─────────────────
+// ── Mode change callbacks (wired by composition root) ────────────────
 let _onModeChange: ((mode: string) => void) | null = null;
+let _onBeforeModeChange: ((mode: string) => void) | null = null;
+
+/**
+ * Register a callback invoked before every mode switch.
+ * Used by pi.ts to reset turn execution context.
+ */
+export function setOnBeforeModeChange(cb: (mode: string) => void): void {
+  _onBeforeModeChange = cb;
+}
 
 /**
  * Register a callback invoked after every mode switch.
@@ -287,15 +340,80 @@ export function setOnModeChange(cb: (mode: string) => void): void {
   _onModeChange = cb;
 }
 
+export function emitModeSwitched(
+  pi: ExtensionAPI,
+  fromMode: string,
+  toMode: string,
+  triggerTurn = true,
+): void {
+  const tools = getCurrentModeToolList();
+  const preview = tools.slice(0, 12).join(", ");
+  const more = tools.length > 12 ? ` ...(+${tools.length - 12})` : "";
+  const toolLine = tools.length > 0
+    ? `\n[tools:${tools.length}] ${preview}${more}`
+    : "\n[tools] all (no explicit allowlist)";
+
+  pi.sendMessage({
+    customType: "mode_switched",
+    content: `[mode] ${fromMode} -> ${toMode}${toolLine}`,
+    display: true,
+  }, { deliverAs: "followUp", triggerTurn });
+}
+
+/**
+ * 首轮健康检查：验证当前 mode 的 allowlist 是否合法。
+ * 检查：allowedTools 为空 / 有重复 / 含未知工具名。
+ * 返回错误信息，无错误返回 null。
+ */
+export function validateModeAllowlist(allTools: string[]): string | null {
+  const name = loadActiveMode();
+  const agent = getAgent(name);
+  if (!agent) return `Mode "${name}" not found in agent definitions`;
+
+  const tools = resolveAgentTools(agent);
+  if (tools.length === 0 && !agent.roles) {
+    return `Mode "${name}" has empty allowedTools`;
+  }
+
+  const seen = new Set<string>();
+  const dupes: string[] = [];
+  const unknown: string[] = [];
+  const allSet = new Set(allTools);
+
+  for (const t of tools) {
+    if (seen.has(t)) dupes.push(t);
+    seen.add(t);
+    if (!allSet.has(t)) unknown.push(t);
+  }
+
+  if (dupes.length > 0) return `Mode "${name}" allowedTools has duplicates: ${dupes.join(", ")}`;
+  if (unknown.length > 0) return `Mode "${name}" allowedTools contains unknown tools: ${unknown.join(", ")}`;
+  return null;
+}
+
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 function registerModeCommands(pi: ExtensionAPI): void {
-  // Auto-populate oh-my-opencode-slim.json with agents from defaults if empty
+  // Auto-populate oh-my-opencode-slim.json with defaults when missing
   try {
     const configPath = getConfigPath();
     const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    let changed = false;
+
     if (!raw.agents && fs.existsSync(DEFAULTS_PATH)) {
       raw.agents = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+      changed = true;
+    }
+
+    if (!raw.workflows || !Array.isArray(raw.workflows?.list) || raw.workflows.list.length === 0) {
+      raw.workflows = {
+        default: "standard-dev",
+        list: DEFAULT_WORKFLOWS,
+      };
+      changed = true;
+    }
+
+    if (changed) {
       fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
     }
   } catch {}
@@ -327,23 +445,19 @@ function registerModeCommands(pi: ExtensionAPI): void {
       const allNames = getAllAgentNames();
 
       if (trimmed) {
-        if (trimmed === "fallback") {
-          applyMode(pi, "fallback");
-          saveAgent("fallback");
-          ctx.ui.setStatus("mode", "Mode: fallback");
-          try { _onModeChange?.("fallback"); } catch {}
-          return;
-        }
         if (!allNames.includes(trimmed)) {
           ctx.ui.notify(`未知模式: "${trimmed}"。`, "error");
           return;
         }
         const agent = getAgent(trimmed);
         if (agent && (agent.type === "mode" || agent.type === "both")) {
+          const from = loadActiveMode();
           applyMode(pi, trimmed);
           saveAgent(trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
-          try { _onModeChange?.(trimmed); } catch {}
+          try {
+            emitModeSwitched(pi, from, trimmed, true);
+          } catch {}
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
         }
@@ -360,10 +474,13 @@ function registerModeCommands(pi: ExtensionAPI): void {
       if (!selected) return;
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
+      const from = loadActiveMode();
       applyMode(pi, picked);
       saveAgent(picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
-      try { _onModeChange?.(picked); } catch {}
+      try {
+        emitModeSwitched(pi, from, picked, true);
+      } catch {}
     },
   });
 }
@@ -392,10 +509,8 @@ function registerModeHooks(pi: ExtensionAPI): void {
       && subagentName
       && getAgent(subagentName);
     if (isSubAgentSpawn) {
-      console.error(`[omo-modes] session_start sub-agent: ${subagentName}`);
-      const ok = applyAgentTools(pi, subagentName, true);
-      console.error(`[omo-modes] applyAgentTools result: ${ok}`);
-      if (ok) return;
+      // Sub-agent tool boundary is enforced in pi.ts/before_agent_start as single source of truth.
+      return;
     }
     const mode = loadActiveMode();
     applyMode(pi, mode);
@@ -414,40 +529,21 @@ function registerModeHooks(pi: ExtensionAPI): void {
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  // Sub-agent tool filtering
-  if (process.env.OMO_SUB_AGENT === "1" && process.env.OMO_AGENT_NAME) {
-    const agentName = process.env.OMO_AGENT_NAME;
-    try {
-      const agent = getAgent(agentName);
-      if (agent && (agent.type === "mode" || agent.type === "both")) {
-        const all = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-        if (all.length > 0) {
-          const toolList = resolveAgentTools(agent);
-          if (toolList.length > 0) {
-            const allow = new Set([...toolList, "switch_mode"]);
-            const active = all.filter((n: string) => allow.has(n));
-            if (active.length > 0) pi.setActiveTools(active);
-          }
-        }
-      }
-    } catch {}
-  }
-
-
   registerModeCommands(pi);
   registerModeHooks(pi);
 
   pi.registerTool({
     name: "switch_mode",
     label: "Switch Mode",
-    description: `Switch to the next agent/mode in the workflow chain. Can return to the first. Only call after the user explicitly confirms.`,
+    description: `请求切换到指定模式。需要用户确认后才真正生效。`,
     parameters: Type.Object({
-      mode: Type.String({ description: "Target agent/mode name" }),
+      mode: Type.String({ description: "目标模式名称" }),
     }),
     async execute(_toolCallId: string, params: { mode: string }) {
       const name = params.mode?.trim().toLowerCase();
-      if (name === "fallback") {
-        return { content: [{ type: "text" as const, text: `请使用 /mode 命令切换到 fallback。` }], isError: true, details: {} as any };
+      const targetAgent = name ? getAgent(name) : undefined;
+      if (targetAgent?.requiresUserCommand) {
+        return { content: [{ type: "text" as const, text: `请使用 /mode 命令切换到 ${name}。` }], isError: true, details: {} as any };
       }
       if (!name || !getAgent(name)) {
         return { content: [{ type: "text" as const, text: `不存在该 agent。` }], isError: true, details: {} as any };
@@ -457,17 +553,18 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
       // Check if current mode allows switching to target mode
-      const currentMode = getActiveMode() || "coordinator";
+      const currentMode = getActiveMode();
       const currentAgent = getAgent(currentMode);
       if (currentAgent?.next && Array.isArray(currentAgent.next)) {
         if (currentAgent.next.length === 0 || !currentAgent.next.includes(name)) {
           return { content: [{ type: "text" as const, text: `当前模式 "${currentMode}" 不允许切换到 "${name}"。` }], isError: true, details: {} as any };
         }
       }
+
+      // 审批已统一到 tool_call gate 中处理，此处不再弹确认框
       applyMode(pi, name);
       saveAgent(name);
-      try { _onModeChange?.(name); } catch {}
-      return { content: [{ type: "text" as const, text: `切换到: ${name}` }], details: { mode: name } };
+      return { content: [{ type: "text" as const, text: `已切换到: ${name}` }], details: { mode: name } };
     },
   });
 }

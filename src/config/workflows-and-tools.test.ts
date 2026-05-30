@@ -30,21 +30,16 @@ describe('default workflows and agent tool matrix', () => {
     );
   });
 
-  test('agents-default.json keeps coordinator on workflow controls and leaf agents without omo_subagent', () => {
+  test('agents-default.json keeps coordinator on mode-control tools and leaf agents without omo_subagent', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
     const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { tools?: string[] }>;
 
     expect(defs.coordinator?.tools).toEqual([
-      'start_workflow',
-      'list_workflows',
-
-      'workflow_status',
-      'continue_workflow',
-      'send_stage_message',
-      'abort_workflow',
-      'retry_stage',
-      'reject_transition',
       'ask_user_question',
+      'todo',
+      'switch_mode',
+      'omo_subagent',
+      'omo_council',
     ]);
 
     for (const leaf of ['oracle', 'fixer', 'explorer', 'librarian', 'observer']) {

@@ -30,8 +30,19 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadActiveMode, getModeInstructions, setOnModeChange, modeRequiresIntentPrefix, getIntentPattern } from "./pi-modes";
-import type { WorkflowStageToolResult, StageResultComplete, StageResultAskUser } from "../../core/workflow-types";
+import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent } from "./pi-modes";
+import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
+import { checkClarification, shouldBlockForClarification } from "../policy/clarification-policy";
+import { checkApproval, requiresApproval } from "../policy/approval-policy";
+import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
+import { setAuditEnabled, auditClarification, auditApproval, auditEvidence } from "../policy/runtime-audit";
+import {
+  createPipelineState,
+  loadCheckpoint,
+  type PipelineConfig,
+  type PipelineState,
+} from "./pipeline-state";
+
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 import {
   formatPiCouncilResults,
@@ -50,11 +61,6 @@ import { registerSubagentTool, getPool, initPoolModelResolver, type PoolAgentInf
 import {
   createComplianceState,
   recordViolation,
-  shouldTriggerReset,
-  markResetStart,
-  markResetEnd,
-  hasIntentPrefix,
-  buildResetInstruction,
   type ComplianceState,
   type ViolationRecord,
 } from "../compliance";
@@ -62,14 +68,11 @@ import {
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
 import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
-import { runPrivateChat, runGroupChat, autoOpenChat } from "../subagent/pi-chat-bridge";
-import { WorkflowManager } from "../workflow/workflow-manager";
-import { setStageResult } from "../workflow/stage-result-store";
-import { bindWorkflowChatBridge } from "../workflow/workflow-chat-binding";
-import { registerWorkflowCommands } from "../workflow/workflow-commands";
-import { WorkflowsConfig } from "../../core/workflow-types";
-import { DEFAULT_WORKFLOWS } from "../../config/schema";
+import { runPrivateChat, runGroupChat } from "../subagent/pi-chat-bridge";
+
+import type { WorkflowsConfig } from "../../core/workflow-types";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
+import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -157,18 +160,18 @@ function trimToolDescriptions(prompt: string, config: Record<string, any>): stri
     }
 
     if (inTools) {
-      // Tool line: "- name: description"
-      const match = line.match(/^\s*- (\w+):\s*/);
+      // Tool line: "- tool_name: description" (allow indentation + underscore names)
+      const match = line.match(/^\s*-\s+([A-Za-z0-9_]+):\s*/);
       if (match) {
-        const name = match[1];
+        const name = match[1]!;
         const desc = line.slice(match[0].length);
 
         if (hide.has(name)) {
-          out.push("  - " + name);
+          // Hidden tools must be removed from visible list to avoid prompt leakage.
         } else {
           const maxLen = truncCfg[name] ?? defaultTrunc;
           if (maxLen > 0 && desc.length > maxLen) {
-            out.push("  - " + name + ": " + desc.slice(0, maxLen) + "...");
+            out.push(`  - ${name}: ${desc.slice(0, maxLen)}...`);
           } else {
             out.push(line);
           }
@@ -176,8 +179,8 @@ function trimToolDescriptions(prompt: string, config: Record<string, any>): stri
         continue;
       }
 
-      // Empty line or non-tool line: end of tools section
-      if (line.trim() === "" || !line.startsWith("- ")) {
+      // Empty line or non-bullet line: end of tools section
+      if (line.trim() === "" || !/^\s*-\s+/.test(line)) {
         inTools = false;
         out.push(line);
         continue;
@@ -553,10 +556,6 @@ export function getPiAgentsDirForSync(): string {
 
 
 
-export function writeWorkflowStageResult(result: WorkflowStageToolResult): void {
-  setStageResult(result);
-}
-
 export function ensureAgentFiles(): void {
   const agentsDir = getPiAgentsDirForSync();
   const defaultAgentsDir = path.join(__dirname, "..", "..", "adapters", "agents");
@@ -695,15 +694,6 @@ function buildPiOrchestratorPrompt(
 
   if (capabilitiesNotes.length > 0) {
     parts.push(`\n<Capabilities>\n${capabilitiesNotes.join("\n")}\n</Capabilities>`);
-  }
-
-  // Workflow hints from config
-  if (config?.workflows?.list && config.workflows.list.length > 0) {
-    const wfLines = config.workflows.list.map(w => {
-      const stages = w.stages.map(s => (s as any).agent || "(choice)").join(" → ");
-      return `  • ${w.name}: ${w.description} [${stages}]`;
-    });
-    parts.push(`\n<Workflows>\n可用 workflow:\n${wfLines.join("\n")}\n</Workflows>`);
   }
 
   return parts.join("\n\n");
@@ -915,6 +905,23 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   let complianceState: ComplianceState = createComplianceState();
   let toolExecutedThisTurn = false; // reset per tool_execution_start
 
+  // ── Pipeline state (session-level, 替代 WorkflowManager) ─────────────
+  let pipelineState: PipelineState = createPipelineState();
+  let pipelineConfig: PipelineConfig = { default: "", steps: [] };
+  let _sessionId = "";
+  let _pipelineMissingWarned = false;
+  // 从 workflows 配置中推导 pipeline 步骤
+  if (config?.workflows?.list && config.workflows.list.length > 0) {
+    const wf = config.workflows.list[0];
+    pipelineConfig = {
+      default: wf.name || "",
+      steps: ((wf as any).stages || []).map((s: any, i: number) => ({
+        agent: s.agent || s,
+        stageId: s.stageId || `step-${i}`,
+      })),
+    };
+  }
+
   // ── Detect delegation capabilities ─────────────────────────────────
   function getToolNames(): Set<string> {
     try {
@@ -969,8 +976,26 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Mapping file path (user-local, not in repo) ──────────────────────
   // ── Generate agent files on first load ──────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
-    // Capture ctx for WorkflowManager chat overlay
-    _sessionCtx = ctx;
+    // 启用审计（可通过环境变量控制）
+    if (process.env.OMO_AUDIT === "1" || process.env.OMO_DEBUG_TOOLS === "1") {
+      setAuditEnabled(true);
+    }
+
+    // Pipeline checkpoint 恢复
+    try {
+      const sf = (ctx as any)?.sessionManager?.getSessionFile?.();
+      if (sf) {
+        const sid = sf.replace(/[^a-zA-Z0-9_-]/g, "_");
+        _sessionId = sid;
+        const restored = loadCheckpoint(sid);
+        if (restored) {
+          pipelineState = restored.state;
+          console.error(`[pipeline] restored checkpoint: step=${restored.checkpoint.currentStep}, status=${restored.checkpoint.status}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[pipeline] checkpoint restore failed:", e);
+    }
 
     // Wire model resolver so pool sub-agents get preset models
     initPoolModelResolver((modelId) => {
@@ -989,28 +1014,47 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         } catch {}
       }
       if (event.type === "completed") {
-        // 跳过 workflow 管理的子代理（workflow 自己会发 transition_approval 通知）
-        if (event.poolId?.startsWith('wf-')) return;
         try {
           pi.sendMessage({
             customType: "pool_completed",
             content: event.response
-              ? `[pool] ${event.agentName} 已完成\n\n${event.response}`
-              : `[pool] ${event.agentName} 已完成`,
+              ? `[pool] ${event.agentName} 已完成\n\n${event.response}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`
+              : `[pool] ${event.agentName} 已完成\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`,
             display: true,
           }, { deliverAs: "followUp", triggerTurn: true });
         } catch {}
       }
     });
 
-    // Wire mode change → status bar
+    // Wire mode change → status bar + immediate switch notification
     try {
-      const initialMode = loadActiveMode() || "coordinator";
+      const initialMode = loadActiveMode();
+      let currentMode = initialMode;
       ctx.ui.setStatus("mode", `Mode: ${initialMode}`);
+      setOnBeforeModeChange(() => {
+        toolExecutedThisTurn = false;
+      });
       setOnModeChange((newMode: string) => {
+        const prevMode = currentMode;
+        currentMode = newMode;
         ctx.ui.setStatus("mode", `Mode: ${newMode}`);
+        try {
+          emitModeSwitched(pi, prevMode, newMode, true);
+        } catch {}
       });
     } catch {}
+
+    // 首轮健康检查：验证 allowlist 合法性
+    try {
+      const allTools = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
+      const err = validateModeAllowlist(allTools);
+      if (err) {
+        ctx.ui.notify(`[mode] 健康检查失败: ${err}`, "error");
+        console.error(`[omo-modes] health-check: ${err}`);
+      }
+    } catch (e) {
+      console.warn("[omo-modes] health-check error:", e);
+    }
 
   });
 
@@ -1031,20 +1075,69 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       // Filter tools per agent roles before returning
       if (process.env.OMO_AGENT_NAME) {
         try {
-          const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-          const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-          const agentCfg = raw.agents?.[process.env.OMO_AGENT_NAME];
-          const groups = raw._tool_groups ?? {};
-          if (agentCfg?.roles && Object.keys(groups).length > 0) {
-            const toolNames = new Set<string>();
-            for (const role of agentCfg.roles) {
-              const group = groups[role];
-              if (group) group.forEach((t: string) => toolNames.add(t));
+          const agentName = process.env.OMO_AGENT_NAME;
+          const runtimeDefs = loadRuntimeAgentDefinitions(process.cwd());
+          const agentCfg = runtimeDefs[agentName] ?? getAgent(agentName);
+          const allTools = pi.getAllTools();
+          const allToolNames = allTools.map((t: any) => t.name).filter(Boolean);
+
+          let allowed = new Set<string>();
+          if (agentCfg) {
+            const groups = (() => {
+              try {
+                const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+                const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+                return raw._tool_groups ?? {};
+              } catch {
+                return {} as Record<string, string[]>;
+              }
+            })();
+
+            if (Array.isArray((agentCfg as any).tools) && (agentCfg as any).tools.length > 0) {
+              allowed = new Set((agentCfg as any).tools);
+            } else if (Array.isArray((agentCfg as any).roles) && (agentCfg as any).roles.length > 0 && Object.keys(groups).length > 0) {
+              for (const role of (agentCfg as any).roles) {
+                const group = (groups as Record<string, string[]>)[role];
+                if (Array.isArray(group)) group.forEach((t: string) => allowed.add(t));
+              }
             }
-            const allTools = pi.getAllTools();
-            const active = allTools.filter((t: any) => toolNames.has(t.name)).map((t: any) => t.name);
-            pi.setActiveTools(active);
           }
+
+          const active = allTools.filter((t: any) => allowed.has(t.name)).map((t: any) => t.name);
+          // Sub-agent sessions must never inherit parent tool scope.
+          pi.setActiveTools(active);
+
+          // ── 写入工具真值快照（单一决策源）──────────────────────────────────
+          setToolScope(active, "subagent", agentName, {
+            roles: (agentCfg as any)?.roles,
+            tools: (agentCfg as any)?.tools,
+          });
+
+          const activeSet = new Set(active);
+          const filteredPrompt = trimToolDescriptions(event.systemPrompt, {
+            hide: allToolNames.filter((name) => !activeSet.has(name)),
+            truncate: (config as any)?.tool_descriptions?.truncate ?? {},
+          });
+
+          const toolPreview = active.slice(0, 20).join(", ");
+          const more = active.length > 20 ? ` ...(+${active.length - 20})` : "";
+          const boundary = `\n\n[ToolBoundary]\n当前可用工具(${active.length}): ${toolPreview}${more}\n[/ToolBoundary]`;
+
+          try {
+            if (process.env.OMO_DEBUG_TOOLS === "1") {
+              const roleList = Array.isArray((agentCfg as any)?.roles) ? (agentCfg as any).roles.join(",") : "";
+              const toolList = Array.isArray((agentCfg as any)?.tools) ? (agentCfg as any).tools.join(",") : "";
+              console.error(`[debug-tools][before_agent_start] agent=${agentName} roles=[${roleList}] tools=[${toolList}] active(${active.length})=${active.join(",")}`);
+            }
+          } catch {}
+
+          return {
+            systemPromptOptions: {
+              ...(event.systemPromptOptions ?? {}),
+              selectedTools: active,
+            },
+            systemPrompt: `${filteredPrompt}${boundary}`,
+          };
         } catch {}
       }
       return { systemPrompt: event.systemPrompt };
@@ -1060,23 +1153,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
     // Trim verbose tool descriptions in system prompt
     const trimmedPrompt = trimToolDescriptions(event.systemPrompt, (config as any)?.tool_descriptions ?? {});
-    const activeMode = loadActiveMode() || "coordinator";
+    const activeMode = loadActiveMode();
     const modeInstructions = getModeInstructions(activeMode) ?? "";
     const modePrompt = modeInstructions
       ? `<MODE name="${activeMode}">\n${modeInstructions}\n</MODE>`
       : "";
 
-    // ── Inject compliance rule anchors ────────────────────────────────
-    const requiresIntent = modeRequiresIntentPrefix(activeMode);
-    const complianceRules: string[] = [];
-    complianceRules.push("<ComplianceRules>");
-    if (requiresIntent) {
-      complianceRules.push("- ASSISTANT output in coordinator mode MUST begin with `Intent: <type>` on the first non-empty line.");
-    }
-    complianceRules.push("- When instructed to call a tool, you MUST make an actual tool call (not just declare intent).");
-    complianceRules.push("- Violations trigger POLICY_VIOLATION markers and may enter a COMPLIANCE_RESET flow.");
-    complianceRules.push("</ComplianceRules>");
-    const compliancePrompt = complianceRules.join("\n");
+    // ── 简化的合规提示（仅做语义说明，强控制已下沉 runtime guard）────
+    const compliancePrompt = `<ComplianceRules>
+- 工具调用由 runtime 白名单控制，不在列表中的工具无法执行。
+- 模式切换需用户确认，模型不能自行切换。
+</ComplianceRules>`;
 
     return {
       systemPrompt: [omniPrompt, modePrompt, compliancePrompt, trimmedPrompt].filter(Boolean).join("\n\n---\n\n"),
@@ -1089,23 +1176,205 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
     const truncCfg = (toolCfg.truncate ?? {}) as Record<string, number>;
     const defaultTrunc = truncCfg.default ?? 0;
-    if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) return;
-    trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+    if (hide.size === 0 && defaultTrunc === 0 && Object.keys(truncCfg).length === 0) {
+      // still continue to debug payload tools below
+    } else {
+      trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
+    }
+
+    // ── 审计：payload.tools vs snapshot diff（可选强阻断）──────────────
+    try {
+      const payload = event.payload as Record<string, any>;
+      const names = new Set<string>();
+      const tools = Array.isArray((payload as any).tools) ? (payload as any).tools : [];
+      for (const t of tools) {
+        const n1 = (t as any)?.function?.name;
+        const n2 = (t as any)?.name;
+        if (typeof n1 === "string" && n1) names.add(n1);
+        if (typeof n2 === "string" && n2) names.add(n2);
+        const fds = (t as any)?.functionDeclarations;
+        if (Array.isArray(fds)) {
+          for (const fd of fds) {
+            const n3 = (fd as any)?.name;
+            if (typeof n3 === "string" && n3) names.add(n3);
+          }
+        }
+      }
+      const payloadTools = [...names];
+      const audit = auditPayloadTools(payloadTools);
+
+      if (!audit.consistent) {
+        console.error(
+          `[tool-scope-audit] payload.tools 与 snapshot 不一致:\n` +
+          `  missingInPayload: ${audit.missingInPayload.join(", ") || "(无)"}\n` +
+          `  extraInPayload: ${audit.extraInPayload.join(", ") || "(无)"}`
+        );
+      }
+
+      if (process.env.OMO_DEBUG_TOOLS === "1" && !_debugProviderLogged) {
+        console.error(`[debug-tools][before_provider_request] payloadTools(${payloadTools.length})=${payloadTools.join(",")}`);
+        _debugProviderLogged = true;
+      }
+    } catch {}
   });
 
   // ── Compliance: tool_call gate ──────────────────────────────────────
   // Conservative implementation: detects blocked/abandoned patterns,
   // records violations but only blocks clearly dangerous calls.
-  pi.on("tool_call", async (event, _ctx) => {
-    // No-op for built-in tools with valid input — we only flag patterns
-    // that indicate the model is "promising" a call without executing.
+  // Additionally enforces mode allowlist: tools not in current mode preset
+  // are blocked as defense-in-depth.
+  type ApprovalResult = { approved: true } | { approved: false; reason: string };
+  type GateDecision = { ok: true } | { ok: false; reason: string };
 
-    // Detect tool calls with empty/missing required args as potential
-    // pseudo-tool patterns (model declares intent but doesn't fill params).
+  const deny = (reason: string): GateDecision => ({ ok: false, reason });
+  const allow = (): GateDecision => ({ ok: true });
+
+  const requestApproval = async (
+    ctx: any,
+    title: string,
+    message: string,
+  ): Promise<ApprovalResult | null> => {
+    if (!ctx?.ui?.confirm) return null;
+    const result = await ctx.ui.confirm(title, message);
+
+    // Backward-compatible host UI: boolean confirm result.
+    if (typeof result === "boolean") {
+      if (result) return { approved: true };
+      let reason = "user_rejected";
+      try {
+        if (ctx?.ui?.input) {
+          const text = await ctx.ui.input("拒绝原因（可选）", "请输入拒绝原因，便于模型调整下一步");
+          if (typeof text === "string" && text.trim()) reason = text.trim();
+        }
+      } catch {}
+      return { approved: false, reason };
+    }
+
+    // Structured confirm result.
+    if (!result || typeof result !== "object" || typeof result.approved !== "boolean") {
+      return { approved: false, reason: "invalid_confirm_response" };
+    }
+
+    if (result.approved) return { approved: true };
+    const reason = typeof result.reason === "string" ? result.reason.trim() : "";
+    if (reason) return { approved: false, reason };
+
+    let fallbackReason = "user_rejected";
+    try {
+      if (ctx?.ui?.input) {
+        const text = await ctx.ui.input("拒绝原因（可选）", "请输入拒绝原因，便于模型调整下一步");
+        if (typeof text === "string" && text.trim()) fallbackReason = text.trim();
+      }
+    } catch {}
+    return { approved: false, reason: fallbackReason };
+  };
+
+  const gatePipelineSubagent = async (ctx: any, input: any): Promise<GateDecision> => {
+    if (!(input?.pool === "spawn" && input?.agent)) return allow();
+    if (!isCurrentModePipeline()) return allow();
+
+    // Pipeline 模式下，子代理 spawn 需要审批（不再做 step 门禁）
+    const approval = await requestApproval(
+      ctx,
+      "子代理审批",
+      `模型请求委托「${input.agent}」执行，是否同意？`,
+    );
+    if (!approval) {
+      return deny("子代理审批被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
+    }
+    if (!approval.approved) {
+      return deny(`用户拒绝了「${input.agent}」的执行。原因：${approval.reason}`);
+    }
+
+    return allow();
+  };
+
+  const gateSwitchMode = async (ctx: any, input: any): Promise<GateDecision> => {
+    if (!input?.mode) return allow();
+
+    const approval = await requestApproval(
+      ctx,
+      "切换模式",
+      `模型请求切换到「${input.mode}」，是否同意？`,
+    );
+    if (!approval) {
+      return deny("模式切换被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
+    }
+    if (!approval.approved) {
+      return deny(`用户拒绝了切换到「${input.mode}」。原因：${approval.reason}`);
+    }
+
+    return allow();
+  };
+
+  pi.on("tool_call", async (event, ctx) => {
     const toolName = (event as any).toolName;
     const input = (event as any).input;
 
-    // Only flag if the tool is a known actionable tool with empty params
+    if (toolName === "omo_subagent") {
+      const decision = await gatePipelineSubagent(ctx, input);
+      if (!decision.ok) return { block: true, reason: decision.reason };
+    }
+
+    if (toolName === "switch_mode") {
+      const decision = await gateSwitchMode(ctx, input);
+      if (!decision.ok) return { block: true, reason: decision.reason };
+    }
+
+    // ── Tool scope gate（单一真值：只读 snapshot，不重算）─────────────
+    // switch_mode and ask_user_question are always allowed across modes.
+    if (toolName && toolName !== "switch_mode" && toolName !== "ask_user_question") {
+      const snapshot = getToolScope();
+      if (snapshot && !isToolAllowed(toolName)) {
+        const violation: ViolationRecord = {
+          type: "TOOL_BLOCKED",
+          reason: `Tool "${toolName}" is not in current tool scope (source: ${snapshot.source}/${snapshot.sourceName}).`,
+          at: Date.now(),
+        };
+        recordViolation(complianceState, violation);
+        auditApproval("denied", toolName, undefined, violation.reason);
+        return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
+      }
+    }
+
+    // ── Clarification gate（信息不足时不盲目执行）───────────────────────
+    if (toolName && typeof input === "object" && input !== null) {
+      const clarifyDecision = checkClarification(toolName, input as Record<string, unknown>);
+      if (!clarifyDecision.ready) {
+        auditClarification("blocked", toolName, clarifyDecision.reason);
+        return {
+          block: true,
+          reason: `需要先确认信息: ${clarifyDecision.reason}`,
+        };
+      }
+      auditClarification("passed", toolName);
+    }
+
+    // ── Approval gate（高风险操作需审批）───────────────────────────────
+    if (toolName && typeof input === "object" && input !== null) {
+      const approvalDecision = checkApproval(toolName, input as Record<string, unknown>);
+      if (approvalDecision.action === "require_approval") {
+        const approval = await requestApproval(
+          ctx,
+          "操作审批",
+          `模型请求执行「${toolName}」(${approvalDecision.reason})，是否同意？`
+        );
+        if (!approval) {
+          auditApproval("denied", toolName, approvalDecision.riskLevel, "环境不支持审批");
+          return { block: true, reason: "当前环境不支持审批确认（ui.confirm 不可用）。" };
+        }
+        if (!approval.approved) {
+          auditApproval("denied", toolName, approvalDecision.riskLevel, approval.reason);
+          return { block: true, reason: `用户拒绝了「${toolName}」的执行。原因：${approval.reason}` };
+        }
+        auditApproval("approved", toolName, approvalDecision.riskLevel);
+      } else {
+        auditApproval("passed", toolName);
+      }
+    }
+
+    // Detect tool calls with empty/missing required args as potential
+    // pseudo-tool patterns (model declares intent but doesn't fill params).
     if (
       toolName &&
       typeof input === "object" &&
@@ -1139,76 +1408,23 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     }
   });
 
-  // ── Compliance: message_end gate ────────────────────────────────────
-  // Checks the finalized assistant message for Intent: prefix when the
-  // current mode requires it. On violation, injects a correction or
-  // enters the reset flow.
-  pi.on("message_end", async (event, _ctx) => {
-    try {
-      if (event.message.role !== "assistant") return;
+  // ── Evidence tracking: 记录工具执行结果 ────────────────────────────
+  pi.on("tool_result", async (event) => {
+    const toolName = (event as any).toolName;
+    const toolCallId = (event as any).toolCallId;
+    const args = (event as any).args ?? {};
+    const result = (event as any).result;
+    const success = (event as any).success !== false;
 
-      const activeMode = loadActiveMode() || "coordinator";
-      if (!modeRequiresIntentPrefix(activeMode)) return;
-
-      // Extract text content from the assistant message
-      let content = "";
-      const rawContent = event.message.content;
-      if (typeof rawContent === "string") {
-        content = rawContent;
-      } else if (Array.isArray(rawContent)) {
-        content = rawContent
-          .filter((part: any) => part?.type === "text")
-          .map((part: any) => part.text ?? "")
-          .join("");
-      }
-
-      if (!content.trim()) return;
-
-      const hasPrefix = hasIntentPrefix(content);
-
-      // ── In reset: check if the message recovers ────────────────────────
-      if (complianceState.inReset) {
-        // Reset is satisfied if the message now carries Intent: compliance-reset
-        // and has a Valid Intent prefix
-        if (hasPrefix && content.includes("compliance-reset")) {
-          markResetEnd(complianceState);
-        }
-        return;
-      }
-
-      // ── Out of reset: validate Intent prefix ───────────────────────────
-      if (!hasPrefix) {
-        const violation: ViolationRecord = {
-          type: "MISSING_INTENT_PREFIX",
-          reason: `Assistant message in "${activeMode}" mode is missing Intent: prefix.`,
-          at: Date.now(),
-        };
-        recordViolation(complianceState, violation);
-
-        if (shouldTriggerReset(complianceState)) {
-          markResetStart(complianceState);
-
-          // Replace the assistant message with a structured correction.
-          // Keep original content shape to avoid session serialization mismatch.
-          const resetMsg = buildResetInstruction(violation);
-          const nextContent = Array.isArray(rawContent)
-            ? [{ type: "text", text: resetMsg }]
-            : resetMsg;
-
-          return {
-            message: {
-              ...event.message,
-              content: nextContent,
-            },
-          };
-        }
-      }
-    } catch (err) {
-      // Fail-open: never let compliance checks crash the session flow.
-      console.warn("[compliance] message_end gate failed:", err);
-      return;
+    if (toolName) {
+      recordEvidence(toolName, toolCallId ?? "", args, result, success);
+      auditEvidence("recorded", toolName, toolCallId);
     }
   });
+
+  // ── Compliance: message_end gate（已下线）────────────────────────────
+  // message_end 内容改写已在 P0 中下线。
+  // 强控制已改为 runtime guard（tool_call 白名单拦截 + switch_mode 用户审批）。
 
 
   // ── Register custom tools ───────────────────────────────────────────
@@ -1218,159 +1434,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
   registerSubagentTool(pi);
 
-  // ── Workflow stage tools ──────────────────────────────────────────
-  pi.registerTool({
-    name: "stage_complete",
-    label: "Request Completion",
-    description: "workflow stage 子代理申请完成许可时调用,请求主 agent 批准。",
-    parameters: Type.Object({
-      summary: Type.String({ description: "简短阶段总结" }),
-      context: Type.String({ description: "传给下一阶段的上下文" }),
-      evidence: Type.Optional(Type.Array(Type.Object({
-        path: Type.Optional(Type.String({ description: "文件路径" })),
-        source: Type.Optional(Type.String({ description: "来源" })),
-        reason: Type.String({ description: "引用理由" }),
-      }), { description: "证据引用" })),
-      artifacts: Type.Optional(Type.Object({
-        files: Type.Optional(Type.Array(Type.String({ description: "文件列表" }))),
-        decisions: Type.Optional(Type.Array(Type.String({ description: "决策记录" }))),
-        risks: Type.Optional(Type.Array(Type.String({ description: "风险点" }))),
-        commands: Type.Optional(Type.Array(Type.String({ description: "可执行命令" }))),
-      }, { description: "产出物" })),
-      suggestedNext: Type.Optional(Type.Object({
-        branch: Type.Optional(Type.String({ description: "建议分支" })),
-        reason: Type.Optional(Type.String({ description: "理由" })),
-      }, { description: "下步建议" })),
-    }),
-    async execute(_toolCallId, params) {
-      const result: StageResultComplete = {
-        type: "complete",
-        summary: params.summary,
-        context: params.context,
-        evidence: (params as any).evidence,
-        artifacts: (params as any).artifacts,
-        suggestedNext: (params as any).suggestedNext,
-      };
-      writeWorkflowStageResult(result);
-      return { content: [{ type: "text", text: "stage_complete recorded" }], details: { ok: true } };
-    },
-  });
-
-  pi.registerTool({
-    name: "stage_ask_user",
-    label: "Stage Ask User",
-    description: "workflow stage 子代理需要用户输入时调用,写入结构化提问结果。",
-    parameters: Type.Object({
-      summary: Type.String({ description: "当前阶段状态" }),
-      question: Type.String({ description: "问题" }),
-      options: Type.Optional(Type.Array(Type.String({ description: "可选项" }))),
-      evidence: Type.Optional(Type.Array(Type.Object({
-        path: Type.Optional(Type.String({ description: "文件路径" })),
-        source: Type.Optional(Type.String({ description: "来源" })),
-        reason: Type.String({ description: "引用理由" }),
-      }), { description: "证据引用" })),
-      artifacts: Type.Optional(Type.Object({
-        decisions: Type.Optional(Type.Array(Type.String({ description: "决策记录" }))),
-        risks: Type.Optional(Type.Array(Type.String({ description: "风险点" }))),
-      }, { description: "产出物" })),
-    }),
-    async execute(_toolCallId, params) {
-      const result: StageResultAskUser = {
-        type: "ask_user",
-        summary: params.summary,
-        question: params.question,
-        options: params.options,
-        evidence: (params as any).evidence,
-        artifacts: (params as any).artifacts,
-      };
-      writeWorkflowStageResult(result);
-      return { content: [{ type: "text", text: "stage_ask_user recorded" }], details: { ok: true } };
-    },
-  });
-
-  // ── Initialize WorkflowManager ────────────────────────────────────
-  const wf = config?.workflows;
-  const workflowsConfig: WorkflowsConfig = {
-    default: typeof wf?.default === "string" ? wf.default : "standard-dev",
-    list: Array.isArray(wf?.list) && wf.list.length > 0 ? wf.list : DEFAULT_WORKFLOWS,
-  };
-  const workflowManager = new WorkflowManager({ cwd: process.cwd() });
-  registerWorkflowCommands(pi, workflowsConfig, workflowManager);
-
-  // 绑定 Chat overlay auto-open (ctx captured from session_start)
-  let _sessionCtx: ExtensionContext | null = null;
-  bindWorkflowChatBridge({
-    manager: workflowManager,
-    hub: getHub(),
-    getPoolSession: (id) => getPool().getSession(id),
-    autoOpenChat,
-    getSessionCtx: () => _sessionCtx,
-    notify: (message, level = 'info') => _sessionCtx?.ui.notify(message, level),
-    setStatus: (key, value) => _sessionCtx?.ui.setStatus(key, value),
-    clearStatus: (key) => _sessionCtx?.ui.setStatus(key, ''),
-    sendAgentMessage: (content) => {
-      try {
-        pi.sendMessage({ customType: 'workflow_event', content, display: true }, { deliverAs: 'followUp', triggerTurn: true });
-      } catch (e) {
-        console.warn('[workflow] sendAgentMessage failed (stale ctx after reload?):', e);
-      }
-    },
-  });
-
-  // ── Tool activation & description tools (always available) ─────────
-  pi.registerTool({
-    name: "activate_tools",
-    label: "Activate Tool",
-    description: "激活扩展工具使其在当前会话可用。参数 toolNames:需激活的工具名称列表。",
-    parameters: Type.Object({
-      toolNames: Type.Array(Type.String({ description: "工具名称列表" })),
-    }),
-    async execute(_toolCallId: string, params: { toolNames: string[] }) {
-      try {
-        const allTools = pi.getAllTools().map((t: any) => t.name).filter(Boolean);
-        const toActivate = new Set([...BASIC_TOOLS as string[], ...params.toolNames]);
-        const active = allTools.filter((t: any) => toActivate.has(t));
-        pi.setActiveTools(active);
-        return {
-          content: [{ type: "text" as const, text: `已激活: ${params.toolNames.join(", ")}` }],
-          details: { activated: params.toolNames },
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text" as const, text: `激活失败: ${err.message}` }],
-          details: {}, isError: true,
-        };
-      }
-    },
-  });
-
-  pi.registerTool({
-    name: "describe_tool",
-    label: "Describe Tool",
-    description: "查看某个工具的完整描述、参数和来源。",
-    parameters: Type.Object({
-      toolName: Type.String({ description: "工具名称" }),
-    }),
-    async execute(_toolCallId: string, params: { toolName: string }) {
-      try {
-        const all = pi.getAllTools();
-        const tool = all.find((t: any) => t.name === params.toolName);
-        if (!tool) {
-          return { content: [{ type: "text" as const, text: `工具 "${params.toolName}" 不存在` }], details: {} };
-        }
-        const info = tool as any;
-        return {
-          content: [{ type: "text" as const, text: `名称: ${info.name}\n描述: ${info.description}\n来源: ${info.sourceInfo?.source || "unknown"}` }],
-          details: { name: info.name, source: info.sourceInfo?.source },
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text" as const, text: `查询失败: ${err.message}` }],
-          details: {}, isError: true,
-        };
-      }
-    },
-  });
+  // ── Pipeline completion is driven by pool_completed + coordinator decision.
+  // step_report / step_ask_user tools removed to keep runtime protocol minimal.
 
   // ── Periodic role review — reminds agent every N user messages ──
   // Counts agent_end (once per user message), not turn_end (fires per LLM turn,
@@ -1380,6 +1445,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   let _userMsgCount = 0;
   let _skipNextAgentEnd = false;
   const REVIEW_INTERVAL = 5;
+  let _debugProviderLogged = false;
   pi.on("agent_end", async () => {
     if (_skipNextAgentEnd) {
       _skipNextAgentEnd = false;
