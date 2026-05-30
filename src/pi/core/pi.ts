@@ -35,7 +35,7 @@ import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "..
 import { checkClarification, shouldBlockForClarification } from "../policy/clarification-policy";
 import { checkApproval, requiresApproval } from "../policy/approval-policy";
 import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
-import { setAuditEnabled, auditClarification, auditApproval, auditEvidence } from "../policy/runtime-audit";
+import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
 // pipeline-state 已从执行决策链路移除
 
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
@@ -1090,13 +1090,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           const more = active.length > 20 ? ` ...(+${active.length - 20})` : "";
           const boundary = `\n\n[ToolBoundary]\n当前可用工具(${active.length}): ${toolPreview}${more}\n[/ToolBoundary]`;
 
-          try {
-            if (process.env.OMO_DEBUG_TOOLS === "1") {
-              const roleList = Array.isArray((agentCfg as any)?.roles) ? (agentCfg as any).roles.join(",") : "";
-              const toolList = Array.isArray((agentCfg as any)?.tools) ? (agentCfg as any).tools.join(",") : "";
-              console.error(`[debug-tools][before_agent_start] agent=${agentName} roles=[${roleList}] tools=[${toolList}] active(${active.length})=${active.join(",")}`);
-            }
-          } catch {}
+          // 审计：记录子代理工具范围（受 OMO_AUDIT 环境变量控制）
+          auditToolScope("set", "subagent", agentName, active);
 
           return {
             systemPromptOptions: {
@@ -1178,8 +1173,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         );
       }
 
-      if (process.env.OMO_DEBUG_TOOLS === "1" && !_debugProviderLogged) {
-        console.error(`[debug-tools][before_provider_request] payloadTools(${payloadTools.length})=${payloadTools.join(",")}`);
+      // 审计：记录 payload.tools（受 OMO_AUDIT 环境变量控制）
+      if (!_debugProviderLogged) {
+        auditToolScope("audit", "payload", "before_provider_request", payloadTools);
         _debugProviderLogged = true;
       }
     } catch {}
