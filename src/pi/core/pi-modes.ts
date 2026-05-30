@@ -288,17 +288,6 @@ export function isCurrentModePipeline(): boolean {
   return agent?.pipelineMode === true;
 }
 
-/**
- * 获取当前模式的白名单工具集（不含 switch_mode，由调用方统一添加）。
- * 返回空数组表示当前模式无工具限制。
- */
-export function getCurrentModeToolList(): string[] {
-  const name = loadActiveMode();
-  const agent = getAgent(name);
-  if (!agent) return [];
-  return resolveAgentTools(agent);
-}
-
 function loadToolGroups(): Record<string, string[]> {
   return ensureToolGroups();
 }
