@@ -63,8 +63,6 @@ import {
 
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
-import { createChatStatusView, groupChatStatusViews, type ChatStatusView } from "../subagent/chat-status-view";
-import { runPrivateChat, runGroupChat } from "../subagent/pi-chat-bridge";
 
 import type { WorkflowsConfig } from "../../core/workflow-types";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
@@ -1501,16 +1499,6 @@ ${contractDecision.hint}` : ""}`);
         `${a.status === "dead" ? "✗" : "●"} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`
       );
       ctx.ui.notify(`Pool agents (${agents.length}):\n${lines.join("\n")}`, "info");
-    },
-  });
-
-  pi.registerCommand("chat", {
-    description: "交互式子代理 chat TUI（当前禁用；请用 /pool-status 查看状态）",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(
-        "交互式子代理 chat TUI 当前暂停维护。请使用 /pool-status 查看子代理状态；底层 pool/hub 能力保留给未来 UI。",
-        "info",
-      );
     },
   });
 
