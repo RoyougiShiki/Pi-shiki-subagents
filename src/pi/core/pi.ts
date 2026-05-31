@@ -34,6 +34,7 @@ import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeCh
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
 import { checkClarification, shouldBlockForClarification } from "../policy/clarification-policy";
 import { checkApproval, requiresApproval } from "../policy/approval-policy";
+import { checkSubagentSpawnContract } from "../policy/subagent-contract-policy";
 import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
 // pipeline-state 已从执行决策链路移除
@@ -1144,7 +1145,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       trimProviderToolDescriptions(event.payload as Record<string, any>, hide, truncCfg, defaultTrunc);
     }
 
-    // ── 审计：payload.tools vs snapshot diff（可选强阻断）──────────────
+    // ── 审计：payload.tools vs snapshot（仅观测，不参与决策）──────────
     try {
       const payload = event.payload as Record<string, any>;
       const names = new Set<string>();
@@ -1162,22 +1163,30 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           }
         }
       }
+
       const payloadTools = [...names];
       const audit = auditPayloadTools(payloadTools);
+      const snapshot = getToolScope();
+      const snapshotCount = snapshot ? snapshot.tools.size : 0;
+      const payloadCount = payloadTools.length;
 
-      if (!audit.consistent) {
+      // 某些 provider 会在 payload.tools 中携带全量 schema（而非 runtime allowlist）。
+      // 这会导致 extraInPayload 大量出现，但不代表执行权限失效。
+      // 判定规则：payload 远大于 snapshot 且 extra 占比很高 → 视为 schema_mode，仅审计不报警。
+      const extraRatio = payloadCount > 0 ? audit.extraInPayload.length / payloadCount : 0;
+      const schemaMode = !!snapshot && payloadCount >= Math.max(snapshotCount + 8, snapshotCount * 2) && extraRatio > 0.6;
+
+      if (!schemaMode && !audit.consistent && (process.env.OMO_DEBUG_TOOLS === "1" || process.env.OMO_AUDIT === "1")) {
         console.error(
           `[tool-scope-audit] payload.tools 与 snapshot 不一致:\n` +
+          `  snapshot=${snapshotCount}, payload=${payloadCount}\n` +
           `  missingInPayload: ${audit.missingInPayload.join(", ") || "(无)"}\n` +
           `  extraInPayload: ${audit.extraInPayload.join(", ") || "(无)"}`
         );
       }
 
-      // 审计：记录 payload.tools（受 OMO_AUDIT 环境变量控制）
-      if (!_debugProviderLogged) {
-        auditToolScope("audit", "payload", "before_provider_request", payloadTools);
-        _debugProviderLogged = true;
-      }
+      // 统一写入审计（不进聊天流）
+      auditToolScope("audit", schemaMode ? "payload:schema_mode" : "payload", "before_provider_request", payloadTools);
     } catch {}
   });
 
@@ -1188,9 +1197,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // are blocked as defense-in-depth.
   type ApprovalResult = { approved: true } | { approved: false; reason: string };
   type GateDecision = { ok: true } | { ok: false; reason: string };
-
   const deny = (reason: string): GateDecision => ({ ok: false, reason });
   const allow = (): GateDecision => ({ ok: true });
+
 
   const requestApproval = async (
     ctx: any,
@@ -1233,7 +1242,20 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   };
 
   const gatePipelineSubagent = async (ctx: any, input: any): Promise<GateDecision> => {
-    if (!(input?.pool === "spawn" && input?.agent)) return allow();
+    // 非 spawn 路径不做子代理审批 gate
+    if (input?.pool !== "spawn") return allow();
+
+    // 先做参数完整性预检：缺参直接拒绝且不触发审批
+    if (!input?.id || !input?.agent || !input?.task) {
+      return deny("pool spawn requires id, agent, and task");
+    }
+
+    const contractDecision = checkSubagentSpawnContract(input);
+    if (contractDecision.action === "block") {
+      return deny(`${contractDecision.reason ?? "subagent_task_contract_failed"}${contractDecision.hint ? `
+${contractDecision.hint}` : ""}`);
+    }
+
     if (!isCurrentModePipeline()) return allow();
 
     // Pipeline 模式下，子代理 spawn 需要审批（不再做 step 门禁）
@@ -1296,7 +1318,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         };
         recordViolation(complianceState, violation);
         auditApproval("denied", toolName, undefined, violation.reason);
-        return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
+        return {
+          block: true,
+          reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
+        };
       }
     }
 
@@ -1307,7 +1332,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         auditClarification("blocked", toolName, clarifyDecision.reason);
         return {
           block: true,
-          reason: `需要先确认信息: ${clarifyDecision.reason}`,
+          reason: `需要先确认信息: ${clarifyDecision.reason}\n[guard] 下一步：先询问缺失信息，不要猜测执行。`,
         };
       }
       auditClarification("passed", toolName);
@@ -1328,7 +1353,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         }
         if (!approval.approved) {
           auditApproval("denied", toolName, approvalDecision.riskLevel, approval.reason);
-          return { block: true, reason: `用户拒绝了「${toolName}」的执行。原因：${approval.reason}` };
+          return {
+            block: true,
+            reason: `用户拒绝了「${toolName}」的执行。原因：${approval.reason}\n[guard] 下一步：停止同类动作，给出低风险替代方案或请求用户下一步指示。`,
+          };
         }
         auditApproval("approved", toolName, approvalDecision.riskLevel);
       } else {
@@ -1365,7 +1393,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             at: Date.now(),
           };
           recordViolation(complianceState, violation);
-          return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
+          return {
+          block: true,
+          reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
+        };
         }
       }
     }
@@ -1399,31 +1430,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Pipeline completion is driven by pool_completed + coordinator decision.
   // step_report / step_ask_user tools removed to keep runtime protocol minimal.
-
-  // ── Periodic role review — reminds agent every N user messages ──
-  // Counts agent_end (once per user message), not turn_end (fires per LLM turn,
-  // which is too frequent when the agent makes multiple tool calls in one response).
-  // Uses _skipNextAgentEnd to avoid counting the agent_end triggered by the
-  // review message itself (sendMessage with triggerTurn:true).
-  let _userMsgCount = 0;
-  let _skipNextAgentEnd = false;
-  const REVIEW_INTERVAL = 5;
+  // Agent review followUp disabled: avoid chat pollution and context drift.
   let _debugProviderLogged = false;
-  pi.on("agent_end", async () => {
-    if (_skipNextAgentEnd) {
-      _skipNextAgentEnd = false;
-      return;
-    }
-    _userMsgCount++;
-    if (_userMsgCount % REVIEW_INTERVAL === 0) {
-      _skipNextAgentEnd = true;
-      pi.sendMessage({
-        customType: "role_review",
-        content: "[Agent Review] " + REVIEW_INTERVAL + " user messages processed. Review your role, constraints, and conversation context.",
-        display: true,
-      }, { deliverAs: "followUp", triggerTurn: true });
-    }
-  });
 
   // ── Commands ────────────────────────────────────────────────────────
   pi.registerCommand("preset", {
@@ -1481,110 +1489,28 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerCommand("chat", {
-    description: "与子代理私聊或加入群聊。交互式选择后进入对话。",
+  pi.registerCommand("pool-status", {
+    description: "查看子代理 pool 状态（轻量，只读，不进入 chat TUI）",
     handler: async (_args, ctx) => {
-      const pool = getPool();
-      const hub = getHub();
-
-      interface ChatOption {
-        label: string;
-        type: "chat" | "group";
-        meetingId: string;
-        name: string;
-        selectable: boolean;
-      }
-      const options: ChatOption[] = [];
-      const statusViews: Array<{ view: ChatStatusView; option: ChatOption }> = [];
-
-      const agents = pool.list();
-      for (const a of agents) {
-        if (a.status === "dead") continue;
-        if (hub.getMeeting(a.id)) continue;
-        const displayName = a.name || a.agentName;
-        const state = a.status === "streaming" || a.status === "starting" ? "working" : "idle";
-        const view = createChatStatusView({
-          name: displayName,
-          state,
-          scope: "pool",
-          startedAt: a.startedAt,
-        });
-        statusViews.push({
-          view,
-          option: { label: view.listRow, type: "chat", meetingId: a.id, name: displayName, selectable: true },
-        });
-      }
-
-      // 活跃的群聊(只显示 type=group 的)
-      const meetings = hub.getActiveMeetings();
-      for (const m of meetings) {
-        if (m.type === "group") {
-          const names = m.participants.map(p => p.name).join(", ");
-          options.push({
-            label: `Group\n  ${m.name} · ${names}`,
-            type: "group",
-            meetingId: m.id,
-            name: m.name,
-            selectable: true,
-          });
-        }
-      }
-
-      // 已有的私聊(可继续)
-      for (const m of meetings) {
-        if (m.type !== "chat") continue;
-        const view = createChatStatusView({
-          name: m.name,
-          state: m.chatStatus?.state ?? "idle",
-          scope: m.chatStatus?.scope ?? "standalone",
-          startedAt: m.chatStatus?.startedAt ?? m.startedAt,
-          fallbackRecommended: m.chatStatus?.fallbackRecommended,
-        });
-        statusViews.push({
-          view,
-          option: { label: view.listRow, type: "chat", meetingId: m.id, name: m.name, selectable: true },
-        });
-      }
-
-      for (const group of groupChatStatusViews(statusViews.map((item) => item.view))) {
-        for (const item of statusViews.filter((candidate) => candidate.view.scope === group.scope)) {
-          options.push({ ...item.option, label: `${group.title}  ${item.view.listRow}` });
-        }
-      }
-
-      if (options.length === 0) {
-        ctx.ui.notify("没有活跃的子代理或群聊", "info");
+      const agents = getPool().list();
+      if (agents.length === 0) {
+        ctx.ui.notify("Pool is empty.", "info");
         return;
       }
+      const lines = agents.map((a: PoolAgentInfo) =>
+        `${a.status === "dead" ? "✗" : "●"} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`
+      );
+      ctx.ui.notify(`Pool agents (${agents.length}):\n${lines.join("\n")}`, "info");
+    },
+  });
 
-      const selected = await ctx.ui.select("选择要进入的会话:", options.map(o => o.label));
-      if (!selected) return;
-      const picked = options.find(o => o.label === selected);
-      if (!picked || !picked.selectable) return;
-
-      if (picked.type === "chat") {
-        const existing = hub.getMeeting(picked.meetingId);
-        if (!existing) {
-          const session = getPool().getSession(picked.meetingId);
-          if (!session) {
-            ctx.ui.notify("子代理会话已不存在", "error");
-            return;
-          }
-          const agentInfo = agents.find((a: PoolAgentInfo) => a.id === picked.meetingId);
-          hub.registerChat(picked.meetingId, picked.name, {
-            name: picked.name,
-            agentType: agentInfo?.agentName ?? "agent",
-            session,
-          }, undefined, {
-            scope: "pool",
-            state: agentInfo?.status === "streaming" || agentInfo?.status === "starting" ? "working" : "idle",
-            startedAt: agentInfo?.startedAt,
-          });
-        }
-        await runPrivateChat(picked.meetingId, picked.name, ctx);
-      } else {
-        await runGroupChat(picked.meetingId, picked.name, ctx);
-      }
+  pi.registerCommand("chat", {
+    description: "交互式子代理 chat TUI（当前禁用；请用 /pool-status 查看状态）",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify(
+        "交互式子代理 chat TUI 当前暂停维护。请使用 /pool-status 查看子代理状态；底层 pool/hub 能力保留给未来 UI。",
+        "info",
+      );
     },
   });
 

@@ -17,6 +17,7 @@ import { createAgentSession, SessionManager, type AgentSession } from "@earendil
 import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
 import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
+import { loadActiveMode } from "../core/pi-modes";
 
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
@@ -602,13 +603,18 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
     name: "omo_subagent",
     label: "OMO Subagent",
     description: [
-      "通过 pool 模式启动子代理。用法：",
-      "  pool spawn: { pool: \"spawn\", id, agent, task }",
-      "  pool send: { pool: \"send\", id, message }",
-      "  pool list: { pool: \"list\" }",
-      "  pool listSaved: { pool: \"listSaved\" } — 查看可恢复的旧 session",
-      "  pool resume: { pool: \"resume\", id } — 重新创建子代理（仅恢复任务上下文，对话历史不保留）",
-      "  pool kill: { pool: \"kill\", id }",
+      "通过 pool 模式委托子代理。用法：",
+      "  spawn: { pool: \"spawn\", id, agent, task }",
+      "  send: { pool: \"send\", id, message }",
+      "  list: { pool: \"list\" }",
+      "  listSaved: { pool: \"listSaved\" } — 查看可恢复会话",
+      "  resume: { pool: \"resume\", id } — 恢复任务上下文",
+      "  kill: { pool: \"kill\", id }",
+      "",
+      "协议（实现无关）：",
+      "  - spawn 提交任务后即进入异步执行；默认下一步是等待完成通知。",
+      "  - send 仅用于向已存在会话追加指令，不是 spawn 后默认动作。",
+      "  - 会话处于运行态时不要重复提交同类请求；收到 busy/reject 先降级或询问用户。",
     ].join("\n"),
     parameters: {
       type: "object",
@@ -627,15 +633,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       const agents = discoverAgents(cwd);
 
       const checkAgentAllowed = (agentName: string): string | null => {
-        let currentMode = "fallback";
-        try {
-          const sessionModePath = path.join(os.homedir(), ".pi", "agent", ".session-modes.json");
-          const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-          if (sessionFile && fs.existsSync(sessionModePath)) {
-            const map = JSON.parse(fs.readFileSync(sessionModePath, "utf-8"));
-            currentMode = map[sessionFile] || "fallback";
-          }
-        } catch {}
+        const currentMode = loadActiveMode();
         const blocked = getRuntimeBlockedAgents(currentMode, cwd);
         if (blocked.includes(agentName)) {
           const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
@@ -685,13 +683,32 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (spawnResult.error) {
             return { content: [{ type: "text", text: `✗ Spawn failed: ${spawnResult.error}` }], details: {}, isError: true };
           }
-          return { content: [{ type: "text", text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Use pool:send to interact.` }], details: {} };
+          return {
+            content: [{
+              type: "text",
+              text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Initial task started asynchronously; wait for completion notification.`
+            }],
+            details: {},
+          };
         }
 
         if (params.pool === "send") {
           if (!params.id || !params.message) {
             return { content: [{ type: "text", text: "pool send requires id and message" }], details: {}, isError: true };
           }
+
+          const current = pool.list().find((a: PoolAgentInfo) => a.id === params.id);
+          if (current && (current.status === "starting" || current.status === "streaming")) {
+            return {
+              content: [{
+                type: "text",
+                text: `Agent "${params.id}" is running (${current.status}). Do not submit another request now; wait for completion notification.\n[guard] 下一步：等待完成后再继续，或先向用户确认是否改为降级方案。`
+              }],
+              details: {},
+              isError: true,
+            };
+          }
+
           const result = await pool.sendPrompt(params.id, params.message);
           if (result.error) {
             return { content: [{ type: "text", text: `✗ ${result.error}` }], details: {}, isError: true };

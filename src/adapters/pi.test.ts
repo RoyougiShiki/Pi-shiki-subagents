@@ -96,14 +96,7 @@ describe('Pi adapter agent prompt sync', () => {
     fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
   });
 
-  test('writes workflow stage result to memory store', async () => {
-    const { writeWorkflowStageResult } = await import('../pi/core/pi');
-    const { getStageResult } = await import('../pi/workflow/stage-result-store');
-
-    writeWorkflowStageResult({ type: 'complete', summary: 'done', context: 'ctx' });
-
-    expect(getStageResult()).toEqual({ type: 'complete', summary: 'done', context: 'ctx' });
-  });
+  // (workflow stage result test removed — stage-result-store 已删除，存储已改为 pi.ts 内部变量)
 
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {
     const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');

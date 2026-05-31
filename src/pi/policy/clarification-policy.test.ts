@@ -25,8 +25,13 @@ describe('ClarificationPolicy', () => {
   });
 
   test('edit tool missing path blocks', () => {
-    const result = checkClarification('edit', { content: 'hello' });
+    const result = checkClarification('edit', { edits: [{ oldText: 'a', newText: 'b' }] });
     expect(result.ready).toBe(false);
+  });
+
+  test('edit tool with path+edits ready', () => {
+    const result = checkClarification('edit', { path: '/foo', edits: [{ oldText: 'a', newText: 'b' }] });
+    expect(result.ready).toBe(true);
   });
 
   test('bash tool missing command blocks', () => {
@@ -36,13 +41,14 @@ describe('ClarificationPolicy', () => {
   });
 
   test('bash tool with command ready', () => {
-    const result = checkClarification('bash', { command: 'ls', filePath: '/tmp' });
+    const result = checkClarification('bash', { command: 'ls /tmp' });
     expect(result.ready).toBe(true);
   });
 
   test('shouldBlockForClarification quick check', () => {
     expect(shouldBlockForClarification('read', {})).toBe(false);
     expect(shouldBlockForClarification('write', {})).toBe(true);
+    expect(shouldBlockForClarification('bash', { command: 'ls /tmp' })).toBe(false);
     expect(shouldBlockForClarification('write', { path: '/foo', content: 'bar', filePath: '/baz' })).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import { AGENT_PROMPTS } from "./pi-agents";
 import type { OmniMoConfig, PiCouncilParticipantConfig } from "../core/pi";
 import { getPool } from "../subagent/subagent-pool";
 import type { AgentConfig } from "../../adapters/agent-discovery";
+import { loadActiveMode } from "../core/pi-modes";
 
 // ─── Pi Council helpers ───────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ export async function runPiCouncilParticipant(args: {
     agent: agentConfig,
     task: formatPiCouncilPrompt(question, participant),
     cwd: args.ctx.cwd,
-    parentAgent: "coordinator",
+    parentAgent: loadActiveMode() || undefined,
     depth: 1,
   });
 

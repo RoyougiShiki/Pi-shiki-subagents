@@ -2,21 +2,14 @@
   "coordinator": {
     "type": "mode",
     "tools": [
-      "start_workflow",
-      "list_workflows",
-      "workflow_status",
-      "continue_workflow",
-      "send_stage_message",
-      "abort_workflow",
-      "retry_stage",
-      "reject_transition",
-      "ask_user_question"
+      "ask_user_question",
+      "todo",
+      "switch_mode",
+      "omo_subagent",
+      "omo_council"
     ],
-    "delegates": [],
-    "next": [],
-    "label": "工作流协调器",
-    "requiresIntentPrefix": true,
-    "intentPattern": "^Intent:\\s*\\S"
+    "pipelineMode": true,
+    "label": "主控模式"
   },
   "thinker": {
     "type": "subagent",
@@ -65,7 +58,6 @@
   "oracle": {
     "type": "subagent",
     "delegates": [],
-    "next": [],
     "label": "评审",
     "roles": [
       "读",
@@ -76,7 +68,6 @@
   "fixer": {
     "type": "subagent",
     "delegates": [],
-    "next": [],
     "label": "实现",
     "roles": [
       "读",
@@ -87,7 +78,6 @@
   "observer": {
     "type": "subagent",
     "delegates": [],
-    "next": [],
     "label": "看图",
     "roles": [
       "读"
@@ -95,9 +85,33 @@
   },
   "fallback": {
     "type": "mode",
-    "tools": [],
-    "delegates": [],
-    "label": "兜底模式"
+    "pipelineMode": false,
+    "requiresUserCommand": true,
+    "tools": [
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "grep",
+      "find",
+      "ls",
+      "web_search",
+      "code_search",
+      "fetch_content",
+      "get_search_content",
+      "codebase_memory_search_graph",
+      "codebase_memory_search_code",
+      "codebase_memory_trace_path",
+      "codebase_memory_get_code_snippet",
+      "context_mode_ctx_search",
+      "context_mode_ctx_execute",
+      "context_mode_ctx_execute_file",
+      "context_mode_ctx_index",
+      "context_mode_ctx_batch_execute",
+      "ask_user_question",
+      "switch_mode"
+    ],
+    "label": "兜底模式（直接干活）"
   },
   "_tool_groups": {
     "读": [
@@ -125,8 +139,6 @@
       "bash"
     ],
     "流程": [
-      "stage_complete",
-      "stage_ask_user"
     ],
     "管理": [
       "omo_subagent",
@@ -148,7 +160,6 @@
   "search": {
     "type": "subagent",
     "delegates": [],
-    "next": [],
     "label": "查阅",
     "roles": [
       "读",

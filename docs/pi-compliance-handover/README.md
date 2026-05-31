@@ -5,6 +5,8 @@
 > 本版用于替换旧的“workflow + message_end 改写”主导方案。
 >
 > 核心目标：在保持“指令遵循 / 降幻觉 / 降上下文污染”的前提下，显著降低系统复杂度与维护成本，避免再次进入“修一个崩一个”的循环。
+>
+> Runtime guard 详细设计：[`RUNTIME-GUARD-DESIGN.md`](./RUNTIME-GUARD-DESIGN.md)
 
 ---
 
