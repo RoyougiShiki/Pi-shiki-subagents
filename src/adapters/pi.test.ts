@@ -273,6 +273,57 @@ describe('Pi adapter config helpers', () => {
     fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
   });
 
+  test('workflow stage helper returns session snapshot context', async () => {
+    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
+    const helpers = createWorkflowStageGateHelpers({
+      workflows: {
+        default: 'flow',
+        list: [{ name: 'flow', description: 'Flow', stages: [{ id: 'stage', agent: 'primary' }] }],
+      },
+      knownAgents: ['primary'],
+    });
+
+    expect(helpers.getWorkflowStageGateContext()).toEqual({
+      workflows: [{ name: 'flow', description: 'Flow', stages: [{ id: 'stage', agent: 'primary' }] }],
+      workflowName: 'flow',
+      stageIndex: 0,
+      knownAgents: ['primary'],
+      stage: { id: 'stage', agent: 'primary' },
+    });
+  });
+
+  test('workflow stage helper returns null when workflow config is missing or empty', async () => {
+    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
+    expect(createWorkflowStageGateHelpers({ workflows: undefined, knownAgents: [] }).getWorkflowStageGateContext()).toBeNull();
+    expect(createWorkflowStageGateHelpers({ workflows: { default: 'flow', list: [] }, knownAgents: [] }).getWorkflowStageGateContext()).toBeNull();
+  });
+
+  test('pipeline subagent approval is required only for pipeline primary stage agents', async () => {
+    const { shouldRequestPipelineSubagentApproval } = await import('../pi/core/pi');
+    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: true, requiresStageApproval: true })).toBe(true);
+    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: true, requiresStageApproval: false })).toBe(false);
+    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: false, requiresStageApproval: true })).toBe(false);
+  });
+
+  test('workflow gate context exposes current stage for downstream delegation grants', async () => {
+    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
+    const helpers = createWorkflowStageGateHelpers({
+      knownAgents: ['coordinator', 'analyst', 'search', 'oracle', 'worker'],
+      workflows: {
+        default: 'custom-flow',
+        list: [{
+          name: 'custom-flow',
+          description: 'Custom',
+          stages: [{ id: 'analysis', agent: 'analyst', allowedSubagents: ['search'], review: { agent: 'oracle' } }],
+        }],
+      },
+    });
+
+    const context = helpers.getWorkflowStageGateContext();
+    expect(context?.stage.agent).toBe('analyst');
+    expect(context?.stage.allowedSubagents).toEqual(['search']);
+  });
+
   test('strips JSON comments without breaking URLs inside strings', async () => {
     const { stripJsonCommentsSafely } = await import('../pi/core/pi');
 

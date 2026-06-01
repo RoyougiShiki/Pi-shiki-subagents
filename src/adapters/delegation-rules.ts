@@ -3,9 +3,9 @@ import { getDelegationRulesFromConfig } from "./agent-runtime-config";
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 2;
 
 export const FALLBACK_PI_DELEGATION_RULES: Record<string, readonly string[]> = {
-  coordinator: [],
-  "analyst": ["oracle"],
-  designer: ["observer", "oracle"],
+  coordinator: ["search", "oracle"],
+  "analyst": ["search"],
+  designer: ["search", "observer", "oracle"],
   worker: ["fixer", "oracle"],
   implementer: ["fixer", "oracle"],
   batch: ["fixer", "oracle"],
@@ -33,6 +33,7 @@ export function checkDelegationAllowed(args: {
   rules?: Record<string, readonly string[]>;
   cwd?: string;
   allowedSubagents?: readonly string[];
+  allowMissingCaller?: boolean;
 }): DelegationDecision {
   const depth = args.depth ?? 0;
   const maxDepth = args.maxDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
@@ -44,8 +45,16 @@ export function checkDelegationAllowed(args: {
     };
   }
 
-  const caller = args.caller;
-  if (!caller) return { allowed: true };
+  const caller = args.caller?.trim();
+  if (!caller) {
+    return args.allowMissingCaller
+      ? { allowed: true }
+      : {
+          allowed: false,
+          reason: "Missing delegation caller",
+          allowedAgents: [],
+        };
+  }
 
   const configuredRules = getDelegationRulesFromConfig(args.cwd);
   const rules = args.rules ?? (Object.keys(configuredRules).length > 0 ? configuredRules : FALLBACK_PI_DELEGATION_RULES);

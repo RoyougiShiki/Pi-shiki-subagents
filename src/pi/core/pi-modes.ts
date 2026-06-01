@@ -29,7 +29,6 @@ interface AgentDefinition {
   label: string;
   tools?: string[];
   roles?: string[];
-  next?: string[];
   instructions?: string;
   hidden?: boolean;
   /** If true, assistant output must start with Intent: prefix (enforced at message_end). */
@@ -605,15 +604,6 @@ export default function (pi: ExtensionAPI) {
       if (agent.type !== "mode" && agent.type !== "both") {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
-      // Check if current mode allows switching to target mode
-      const currentMode = getActiveMode();
-      const currentAgent = getAgent(currentMode);
-      if (currentAgent?.next && Array.isArray(currentAgent.next)) {
-        if (currentAgent.next.length === 0 || !currentAgent.next.includes(name)) {
-          return { content: [{ type: "text" as const, text: `当前模式 "${currentMode}" 不允许切换到 "${name}"。` }], isError: true, details: {} as any };
-        }
-      }
-
       // 审批已统一到 tool_call gate 中处理，此处不再弹确认框
       applyMode(pi, name);
       saveAgent(name);

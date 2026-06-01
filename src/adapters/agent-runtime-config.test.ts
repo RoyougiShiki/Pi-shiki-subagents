@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getRuntimeBlockedAgents, loadRuntimeAgentDefinitions } from './agent-runtime-config';
+import { loadRuntimeAgentDefinitions } from './agent-runtime-config';
 
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -145,15 +145,4 @@ describe('runtime agent config', () => {
     expect(defs.oracle?.thinking).toBe('high');
   });
 
-  test('reads blocked agents from merged runtime config', () => {
-    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      agents: {
-        fallback: {
-          blocked: ['oracle'],
-        },
-      },
-    });
-
-    expect(getRuntimeBlockedAgents('fallback', projectDir)).toEqual(['oracle']);
-  });
 });

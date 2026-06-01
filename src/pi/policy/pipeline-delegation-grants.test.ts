@@ -1,0 +1,50 @@
+import { describe, expect, test, beforeEach } from 'bun:test';
+import {
+  consumePipelineDelegationGrant,
+  issuePipelineDelegationGrant,
+  resetPipelineDelegationGrantsForTests,
+} from './pipeline-delegation-grants';
+
+describe('pipeline delegation grants', () => {
+  beforeEach(() => {
+    resetPipelineDelegationGrantsForTests();
+  });
+
+  test('consumes a matching grant exactly once', () => {
+    issuePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0, childAllowedSubagents: ['search'] });
+
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })?.childAllowedSubagents).toEqual(['search']);
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeUndefined();
+  });
+
+  test('does not consume when caller target or depth mismatches', () => {
+    issuePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 });
+
+    expect(consumePipelineDelegationGrant({ caller: 'other', target: 'analyst', depth: 0 })).toBeUndefined();
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'worker', depth: 0 })).toBeUndefined();
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 1 })).toBeUndefined();
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeTruthy();
+  });
+
+  test('normalizes blank caller consistently with undefined caller', () => {
+    issuePipelineDelegationGrant({ caller: '   ', target: 'analyst', depth: 0 });
+
+    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeTruthy();
+  });
+
+  test('prunes expired grants before consuming', async () => {
+    issuePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0, ttlMs: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeUndefined();
+  });
+
+  test('consumes only one matching grant when duplicates exist', () => {
+    issuePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0, childAllowedSubagents: ['search'] });
+    issuePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0, childAllowedSubagents: ['observer'] });
+
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })?.childAllowedSubagents).toEqual(['search']);
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })?.childAllowedSubagents).toEqual(['observer']);
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeUndefined();
+  });
+});

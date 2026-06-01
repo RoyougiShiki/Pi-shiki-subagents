@@ -9,9 +9,7 @@ export interface RuntimeAgentDefinition {
   tools?: string[];
   roles?: string[];
   delegates?: string[];
-  blocked?: string[];
   hidden?: boolean;
-  next?: string[];
   instructions?: string;
   model?: string | Array<string | { id: string; variant?: string }>;
   variant?: string;
@@ -93,11 +91,6 @@ export function loadRuntimeAgentDefinitions(cwd = process.cwd()): Record<string,
 
 export function getRuntimeAgentDefinition(name: string, cwd = process.cwd()): RuntimeAgentDefinition | undefined {
   return loadRuntimeAgentDefinitions(cwd)[name];
-}
-
-export function getRuntimeBlockedAgents(name: string, cwd = process.cwd()): readonly string[] {
-  const blocked = getRuntimeAgentDefinition(name, cwd)?.blocked;
-  return Array.isArray(blocked) ? blocked : [];
 }
 
 export function getDelegationRulesFromConfig(cwd = process.cwd()): Record<string, readonly string[]> {

@@ -1,6 +1,6 @@
 # Agent 职责边界与提示词重设计 — 设计草案 v3
 
-> 状态：设计草案，已按最新讨论修订；尚未实现代码。  
+> 状态：历史设计草案，部分内容已被后续 runtime stage gate 设计更新；保留用于背景参考。  
 > 日期：2026-06-01  
 > 范围：Pi 当前扩展的 agent 提示词、agent 配置、默认 workflow 配置种子、启动通知机制。  
 > 非范围：旧 OpenCode 运行路径的功能维护；旧 OpenCode 清理另行分阶段处理。
@@ -12,8 +12,8 @@
 1. `thinker` 改名为 `analyst`，**不保留 thinker alias / 兼容映射**。
 2. `coordinator` 是唯一直接面向用户提问和澄清的主 agent。
 3. `coordinator` 工具保持管理型，不增加只读工具；它负责怀疑和接收门，不亲自验证底层事实。
-4. `analyst` 只做非提问型分析支持：只读工具 + 可委托 `oracle`；**不委托 search**，避免第二编排层。
-5. `analyst` 缺少搜索信息时，只能标记 `unknown` 并建议 `coordinator` 委托查阅类子代理或追问用户。
+4. `analyst` 只做非提问型分析支持：只读工具 + 可委托查证类子代理；不自发委托审查类子代理。
+5. `analyst` 缺少搜索信息时，可以在 runtime 允许范围内委托查证；若仍缺少必要信息，应标记 `unknown` 并建议 `coordinator` 追问用户或补充事实。
 6. `oracle` 本阶段重写为证据驱动的对抗性审查者，审查对象包括人类文字、AI 输出、子代理结果、方案、代码、文档、配置和测试预期。
 7. 客观中立原则集中放在 `coordinator` 和 `oracle`；`analyst` 仅保留最小边界；其他 agent 不扩散通用审查职责。
 8. 旧 workflow runtime 已下线；但 workflow 配置设计仍保留，用于快速/完整/研究路径等配置化模板与初始化种子。
@@ -108,8 +108,8 @@ omo-managed: true
 - 由 `thinker` 改名为 `analyst`。
 - 移除直接面向用户澄清/提问职责。
 - 保留需求、边界、影响范围、风险和方案比较能力。
-- 只读验证已知材料；不做全局搜索编排。
-- 只可委托审查类子代理，不能委托查阅类子代理。
+- 只读验证已知材料；可在 runtime 允许范围内委托查证类子代理补足事实。
+- 不自发委托审查类子代理；审查路径由主控或 runtime/workflow 控制。
 
 ### 草案内容
 
@@ -126,9 +126,9 @@ omo-managed: true
 # 工作方式
 - 基于委托提供的用户文字、代码片段、文档、子代理结果或明确路径分析。
 - 可使用只读工具验证已知材料。
-- 不负责全局搜索或发现上下文；不得委托查阅类子代理。
-- 缺少搜索信息时，标为 unknown，并建议主控委托查阅类子代理或追问用户。
-- 高风险、证据冲突或结论可靠性问题，可委托审查类子代理。
+- 可在 runtime 允许范围内委托查证类子代理补足事实，但不自行扩展到实现或审查编排。
+- 缺少必要信息时，标为 unknown，并建议主控追问用户或补充事实。
+- 高风险、证据冲突或结论可靠性问题，应交还主控，由主控或 runtime/workflow 决定是否审查。
 
 # 边界
 - 不直接问用户。
@@ -202,15 +202,15 @@ omo-managed: true
 | 产出 | 分析报告、unknowns、风险、方案比较 | 技术设计、任务拆解、计划文件 |
 | 是否提问用户 | 否 | 否 |
 | 是否写文件 | 否 | 是，可写设计/任务文件 |
-| 是否委托查阅类子代理 | 否 | 可按职责委托 |
-| 是否委托审查类子代理 | 可 | 可 |
+| 是否委托查阅类子代理 | 可在 runtime 允许范围内委托查证 | 可按职责委托 |
+| 是否委托审查类子代理 | 否，交由主控/runtime 控制 | 可按职责委托 |
 | 决策权 | 无 | 无，计划需 coordinator 审批 |
 
 边界规则：
 - `analyst` 处理“现在知道什么、不知道什么、风险和选择是什么”。
 - `designer` 处理“在需求已清楚后，技术上怎么做”。
 - 如果 designer 发现需求或边界仍不清，应返回 unknowns 给 coordinator，而不是自行面向用户提问。
-- 如果 analyst 发现需要全局搜索，应标 unknown，让 coordinator 委托查阅类子代理。
+- 如果 analyst 发现需要超出当前 runtime 允许范围的查证，应标 unknown，让 coordinator 决定补查或追问。
 
 ---
 
@@ -227,7 +227,7 @@ omo-managed: true
 ```json
 "analyst": {
   "type": "subagent",
-  "delegates": ["oracle"],
+  "delegates": ["<configured fact-checking subagent>"],
   "label": "非提问型分析支持",
   "roles": ["读"]
 }
@@ -236,8 +236,8 @@ omo-managed: true
 说明：
 - 不保留 `thinker` key。
 - 不设置 alias。
-- 不委托查阅类或视觉类子代理。
-- 只保留只读能力；如需更强检索能力，由主控先委托查阅类子代理收集材料，再交给 analyst。
+- 可委托 runtime 配置允许的查证类子代理。
+- 不委托审查或实现类子代理；审查由主控或 runtime/workflow 控制。
 
 ### oracle
 
@@ -246,7 +246,7 @@ omo-managed: true
 ### 其他引用
 
 - `DEFAULT_WORKFLOWS` 中所有 `agent: "thinker"` 改为 `agent: "analyst"`。
-- `FALLBACK_PI_DELEGATION_RULES` 中 `thinker` 改为 `analyst`，且 analyst 只允许委托 `oracle`。
+- `FALLBACK_PI_DELEGATION_RULES` 中 `thinker` 改为 `analyst`，且 analyst 的委托边界与 runtime 配置保持一致。
 - CLI preset 示例、测试、文档中 `thinker` 同步改为 `analyst`。
 
 ---
@@ -342,15 +342,15 @@ omo-managed: true
 - `src/adapters/agents/coordinator.md`：按精简版 prompt 重写。
 - `src/adapters/agents/thinker.md` → `src/adapters/agents/analyst.md`：重命名并重写。
 - `src/adapters/agents/oracle.md`：重写为对抗性审查者。
-- `src/adapters/agents-default.json`：`thinker` 改为 `analyst`；analyst roles/delegates 按本设计更新。
-- `src/adapters/delegation-rules.ts`：`thinker` 改为 `analyst`，delegates 只保留 `oracle`。
+- `src/adapters/agents-default.json`：`thinker` 改为 `analyst`；analyst roles/delegates 按 runtime 配置更新。
+- `src/adapters/delegation-rules.ts`：`thinker` 改为 `analyst`，委托边界与 runtime 配置保持一致。
 
 ### P1：配置种子、preset、测试
 
 - `src/config/schema.ts`：`DEFAULT_WORKFLOWS` 中 `thinker` 改为 `analyst`。
 - `src/cli/providers.ts`：preset 示例中 `thinker` 改为 `analyst`。
 - 相关测试中 `thinker` 改为 `analyst`。
-- 如测试依赖 analyst 可委托 search，应改为只委托 oracle 或由 coordinator 委托查阅类子代理。
+- 测试应避免把 agent 名写死为权限来源；应验证“分析类 agent 可委托配置允许的查证类子代理，但不可自发委托审查/实现类子代理”的职责边界。
 
 ### P1：启动通知
 

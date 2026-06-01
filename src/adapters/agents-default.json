@@ -8,13 +8,17 @@
       "omo_subagent",
       "omo_council"
     ],
+    "delegates": [
+      "search",
+      "oracle"
+    ],
     "pipelineMode": true,
     "label": "主控模式"
   },
   "analyst": {
     "type": "subagent",
     "delegates": [
-      "oracle"
+      "search"
     ],
     "label": "非提问型分析支持",
     "roles": [
@@ -24,7 +28,6 @@
   "designer": {
     "type": "subagent",
     "delegates": [
-      "search",
       "search",
       "observer",
       "oracle"
@@ -104,9 +107,22 @@
       "context_mode_ctx_index",
       "context_mode_ctx_batch_execute",
       "ask_user_question",
-      "switch_mode"
+      "switch_mode",
+      "todo",
+      "omo_subagent",
+      "omo_council"
     ],
-    "label": "兜底模式（直接干活）"
+    "label": "兜底模式（全工具救援）",
+    "delegates": [
+      "analyst",
+      "designer",
+      "worker",
+      "oracle",
+      "fixer",
+      "observer",
+      "dispatcher",
+      "search"
+    ]
   },
   "_tool_groups": {
     "读": [
@@ -133,8 +149,7 @@
       "edit",
       "bash"
     ],
-    "流程": [
-    ],
+    "流程": [],
     "管理": [
       "omo_subagent",
       "omo_council"

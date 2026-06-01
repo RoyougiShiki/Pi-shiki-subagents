@@ -7,7 +7,7 @@ import { checkDelegationAllowed, parseAllowedSubagentsEnv } from './delegation-r
 const rules = {
   worker: ['fixer', 'oracle'],
   implementer: ['fixer', 'oracle'],
-  analyst: ['oracle'],
+  analyst: ['search'],
   oracle: [],
 };
 
@@ -25,7 +25,13 @@ describe('pi delegation rules', () => {
   test('allows configured stage agents to call leaf agents', () => {
     expect(checkDelegationAllowed({ caller: 'worker', target: 'fixer', depth: 1, rules }).allowed).toBe(true);
     expect(checkDelegationAllowed({ caller: 'implementer', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
-    expect(checkDelegationAllowed({ caller: 'analyst', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
+    expect(checkDelegationAllowed({ caller: 'analyst', target: 'search', depth: 1, rules }).allowed).toBe(true);
+  });
+
+  test('blocks analyst from self-initiated oracle review', () => {
+    const result = checkDelegationAllowed({ caller: 'analyst', target: 'oracle', depth: 1, rules });
+    expect(result.allowed).toBe(false);
+    expect(result.allowedAgents).toEqual(['search']);
   });
 
   test('blocks leaf agents from spawning more subagents', () => {
@@ -94,6 +100,17 @@ describe('pi delegation rules', () => {
     const result = checkDelegationAllowed({ caller: 'custom', target: 'fixer', depth: 1, rules });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('no delegation rule');
+  });
+
+  test('blocks missing caller by default', () => {
+    const result = checkDelegationAllowed({ target: 'fixer', depth: 1, rules });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('Missing delegation caller');
+  });
+
+  test('allows missing caller only when explicitly configured for legacy compatibility', () => {
+    const result = checkDelegationAllowed({ target: 'fixer', depth: 1, rules, allowMissingCaller: true });
+    expect(result.allowed).toBe(true);
   });
 
   test('parses OMO_ALLOWED_SUBAGENTS env values', () => {

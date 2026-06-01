@@ -1,6 +1,8 @@
-import { describe, expect, test, mock } from 'bun:test';
-import { AgentPool } from '../pi/subagent/subagent-pool';
+import { describe, expect, test, mock, afterEach } from 'bun:test';
+import { AgentPool, resolveDelegationCaller } from '../pi/subagent/subagent-pool';
 import type { AgentConfig } from './agent-discovery';
+import { resetToolScope, setToolScope } from '../pi/policy/tool-scope-manager';
+import { consumePipelineDelegationGrant, issuePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from '../pi/policy/pipeline-delegation-grants';
 
 function makeAgent(name = 'worker'): AgentConfig {
   return {
@@ -99,6 +101,53 @@ function onNextPoolEvent(pool: AgentPool): Promise<any> {
     });
   });
 }
+
+describe('resolveDelegationCaller', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    resetToolScope();
+    resetPipelineDelegationGrantsForTests();
+  });
+
+  test('prefers OMO_AGENT_NAME from subagent env', () => {
+    process.env.OMO_AGENT_NAME = 'worker';
+    setToolScope(['omo_subagent'], 'mode', 'coordinator');
+    expect(resolveDelegationCaller()).toBe('worker');
+  });
+
+  test('falls back to tool scope source name for top-level calls', () => {
+    delete process.env.OMO_AGENT_NAME;
+    setToolScope(['omo_subagent'], 'mode', 'coordinator');
+    expect(resolveDelegationCaller()).toBe('coordinator');
+  });
+
+  test('falls back to active mode when env and tool scope are absent', () => {
+    delete process.env.OMO_AGENT_NAME;
+    resetToolScope();
+    expect(resolveDelegationCaller()).toBe('coordinator');
+  });
+
+  test('treats blank env and blank tool scope source as missing', () => {
+    process.env.OMO_AGENT_NAME = '   ';
+    setToolScope(['omo_subagent'], 'mode', '   ');
+    expect(resolveDelegationCaller()).toBe('coordinator');
+  });
+
+  test('pipeline stage primary grant is one-shot and carries child allowed subagents', () => {
+    issuePipelineDelegationGrant({
+      caller: 'coordinator',
+      target: 'analyst',
+      depth: 0,
+      childAllowedSubagents: ['search'],
+    });
+
+    const grant = consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 });
+    expect(grant?.childAllowedSubagents).toEqual(['search']);
+    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeUndefined();
+  });
+});
 
 describe('AgentPool basic operations', () => {
   test('spawn creates agent and sends initial prompt', async () => {

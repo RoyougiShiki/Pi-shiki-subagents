@@ -18,6 +18,9 @@ describe('default workflows and agent tool matrix', () => {
         expect(stage.agent).toBeTruthy();
         expect(stage.description).toBeTruthy();
         expect(stage.outputSchema).toBeTruthy();
+        if (stage.id === 'analyst') {
+          expect(stage.allowedSubagents).toContain('search');
+        }
       }
     }
   });
@@ -30,9 +33,9 @@ describe('default workflows and agent tool matrix', () => {
     );
   });
 
-  test('agents-default.json keeps coordinator on mode-control tools and leaf agents without omo_subagent', () => {
+  test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
-    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { tools?: string[] }>;
+    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; delegates?: string[] }>;
 
     expect(defs.coordinator?.tools).toEqual([
       'ask_user_question',
@@ -41,8 +44,23 @@ describe('default workflows and agent tool matrix', () => {
       'omo_subagent',
       'omo_council',
     ]);
+    expect(defs.coordinator?.delegates).toEqual(['search', 'oracle']);
 
-    for (const leaf of ['oracle', 'fixer', 'explorer', 'librarian', 'observer']) {
+    expect(defs.fallback?.tools).toEqual(expect.arrayContaining([
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'omo_subagent',
+      'omo_council',
+      'todo',
+    ]));
+    const subagents = Object.entries(defs)
+      .filter(([name, def]) => name !== 'fallback' && (def.type === 'subagent' || def.type === 'both'))
+      .map(([name]) => name);
+    expect(defs.fallback?.delegates?.sort()).toEqual(subagents.sort());
+
+    for (const leaf of ['oracle', 'fixer', 'observer']) {
       expect(defs[leaf]?.tools ?? []).not.toContain('omo_subagent');
     }
   });

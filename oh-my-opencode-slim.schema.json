@@ -291,12 +291,6 @@
                 "type": "string"
               }
             },
-            "blocked": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
             "hidden": {
               "type": "boolean"
             },
@@ -405,12 +399,6 @@
             }
           },
           "delegates": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "blocked": {
             "type": "array",
             "items": {
               "type": "string"
@@ -530,6 +518,9 @@
                   "agent": "analyst",
                   "description": "分析需求边界、影响范围、方案和风险",
                   "outputSchema": "analysis",
+                  "allowedSubagents": [
+                    "search"
+                  ],
                   "review": {
                     "agent": "oracle"
                   }
@@ -560,6 +551,9 @@
                   "agent": "analyst",
                   "description": "分析修复范围、边界和风险",
                   "outputSchema": "analysis",
+                  "allowedSubagents": [
+                    "search"
+                  ],
                   "review": {
                     "agent": "oracle"
                   }
@@ -581,6 +575,9 @@
                   "agent": "analyst",
                   "description": "分析研究问题并做只读研究结论",
                   "outputSchema": "analysis",
+                  "allowedSubagents": [
+                    "search"
+                  ],
                   "review": {
                     "agent": "oracle"
                   }

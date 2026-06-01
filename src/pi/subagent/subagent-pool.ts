@@ -15,9 +15,10 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
-import { getRuntimeBlockedAgents } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
 import { loadActiveMode } from "../core/pi-modes";
+import { getToolScope } from "../policy/tool-scope-manager";
+import { consumePipelineDelegationGrant } from "../policy/pipeline-delegation-grants";
 
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
@@ -43,6 +44,16 @@ async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     release!();
   }
+}
+
+export function resolveDelegationCaller(): string | undefined {
+  const envCaller = process.env.OMO_AGENT_NAME?.trim();
+  if (envCaller) return envCaller;
+
+  const snapshot = getToolScope();
+  if (snapshot?.sourceName?.trim()) return snapshot.sourceName.trim();
+
+  return loadActiveMode()?.trim() || undefined;
 }
 
 // ── Agent env helpers (unified save/restore to keep 3 env lists in sync) ──
@@ -632,38 +643,26 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       const cwd = ctx.cwd;
       const agents = discoverAgents(cwd);
 
-      const checkAgentAllowed = (agentName: string): string | null => {
-        const currentMode = loadActiveMode();
-        const blocked = getRuntimeBlockedAgents(currentMode, cwd);
-        if (blocked.includes(agentName)) {
-          const allowed = agents.map(a => a.name).filter(a => !blocked.includes(a));
-          return allowed.length > 0 ? allowed.join(", ") : "(无可用子代理)";
-        }
-        return null;
-      };
-
-      const callerAgent = process.env.OMO_AGENT_NAME;
+      const callerAgent = resolveDelegationCaller();
       const callerDepth = Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0;
       const allowedSubagents = parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS);
 
-      if (params.agent) {
-        const blocked = checkAgentAllowed(params.agent);
-        if (blocked !== null) {
-          return { content: [{ type: "text", text: `当前模式下可用子代理：${blocked}。` }], details: {}, isError: true };
-        }
+      const requireDelegationAllowed = (targetAgent: string, childAllowedSubagents?: readonly string[]): { ok: true; childAllowedSubagents?: readonly string[] } | { ok: false; response: any } => {
         const delegation = checkDelegationAllowed({
-          caller: callerAgent, target: params.agent, depth: callerDepth,
-          cwd, allowedSubagents,
+          caller: callerAgent, target: targetAgent, depth: callerDepth,
+          cwd, allowedSubagents: childAllowedSubagents ?? allowedSubagents,
         });
-        if (!delegation.allowed) {
-          const allowed = delegation.allowedAgents?.length ? delegation.allowedAgents.join(", ") : "(none)";
-          return {
+        if (delegation.allowed) return { ok: true, childAllowedSubagents };
+        const allowed = delegation.allowedAgents?.length ? delegation.allowedAgents.join(", ") : "(none)";
+        return {
+          ok: false,
+          response: {
             content: [{ type: "text", text: `${delegation.reason}. Allowed agents: ${allowed}` }],
-            details: { caller: callerAgent, target: params.agent, depth: callerDepth, allowedAgents: delegation.allowedAgents },
+            details: { caller: callerAgent, target: targetAgent, depth: callerDepth, allowedAgents: delegation.allowedAgents },
             isError: true,
-          };
-        }
-      }
+          },
+        };
+      };
 
       if (params.pool) {
         const pool = getPool();
@@ -675,10 +674,22 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           if (!agentCfg) {
             return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
           }
+          let pipelineGrantAllowedSubagents: readonly string[] | undefined;
+          const grant = consumePipelineDelegationGrant({
+            caller: callerAgent,
+            target: params.agent,
+            depth: callerDepth,
+          });
+          if (grant) {
+            pipelineGrantAllowedSubagents = grant.childAllowedSubagents;
+          } else {
+            const delegation = requireDelegationAllowed(params.agent);
+            if (!delegation.ok) return delegation.response;
+          }
           const spawnResult = await pool.spawn({
             id: params.id, name: params.id, agent: agentCfg,
             task: params.task, model: params.model || agentCfg.model,
-            cwd, parentAgent: callerAgent, depth: callerDepth + 1, allowedSubagents,
+            cwd, parentAgent: callerAgent, depth: callerDepth + 1, allowedSubagents: pipelineGrantAllowedSubagents ?? allowedSubagents,
           });
           if (spawnResult.error) {
             return { content: [{ type: "text", text: `✗ Spawn failed: ${spawnResult.error}` }], details: {}, isError: true };
@@ -748,7 +759,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           const resumeResult = await pool.spawn({
             id: record.id, name: record.name, agent: agentCfg,
             task: record.task, model: params.model || agentCfg.model,
-            cwd: record.cwd || cwd, parentAgent: process.env.OMO_AGENT_NAME,
+            cwd: record.cwd || cwd, parentAgent: resolveDelegationCaller(),
             depth: (Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0) + 1,
             allowedSubagents: parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS),
           });

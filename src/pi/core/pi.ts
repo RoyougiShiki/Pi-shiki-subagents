@@ -52,7 +52,7 @@ export { formatPiCouncilResults, resolvePiCouncilParticipants } from "../meeting
 
 
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "../meeting/pi-meeting";
-import { registerSubagentTool, getPool, initPoolModelResolver, type PoolAgentInfo } from "../subagent/subagent-pool";
+import { registerSubagentTool, getPool, initPoolModelResolver, resolveDelegationCaller, type PoolAgentInfo } from "../subagent/subagent-pool";
 import {
   createComplianceState,
   recordViolation,
@@ -63,9 +63,11 @@ import {
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
 
-import type { WorkflowsConfig } from "../../core/workflow-types";
+import type { StageNode, WorkflowsConfig } from "../../core/workflow-types";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
+import { checkWorkflowStageTargetAllowed } from "../policy/workflow-stage-policy";
+import { issuePipelineDelegationGrant } from "../policy/pipeline-delegation-grants";
 
 
 // ─── Config helpers ────────────────────────────────────────────────────────
@@ -549,15 +551,42 @@ export function getPiAgentsDirForSync(): string {
 
 
 
+function removeStaleManagedAgentFiles(agentsDir: string, sourceFiles: Set<string>): void {
+  let files: string[] = [];
+  try {
+    files = fs.readdirSync(agentsDir);
+  } catch {
+    return;
+  }
+
+  for (const file of files) {
+    if (!file.endsWith(".md") || sourceFiles.has(file)) continue;
+    const target = path.join(agentsDir, file);
+    let existing = "";
+    try {
+      existing = fs.readFileSync(target, "utf-8");
+    } catch {
+      continue;
+    }
+    if (!isManagedAgentContent(existing)) continue;
+    try {
+      fs.writeFileSync(`${target}.bak`, existing, "utf-8");
+      fs.rmSync(target, { force: true });
+      console.error(`[oh-my-opencode-slim] Removed stale managed agent file: ${file}`);
+    } catch {}
+  }
+}
+
 export function ensureAgentFiles(): void {
   const agentsDir = getPiAgentsDirForSync();
   const defaultAgentsDir = path.join(__dirname, "..", "..", "adapters", "agents");
   fs.mkdirSync(agentsDir, { recursive: true });
   try {
     if (!fs.existsSync(defaultAgentsDir)) return;
-    const files = fs.readdirSync(defaultAgentsDir);
+    const files = fs.readdirSync(defaultAgentsDir).filter((file) => file.endsWith(".md"));
+    const sourceFiles = new Set(files);
+    removeStaleManagedAgentFiles(agentsDir, sourceFiles);
     for (const file of files) {
-      if (!file.endsWith(".md")) continue;
       const target = path.join(agentsDir, file);
       const content = fs.readFileSync(path.join(defaultAgentsDir, file), "utf-8");
       syncAgentFile(target, content, file);
@@ -879,6 +908,48 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
+export function createWorkflowStageGateHelpers(args: {
+  workflows: WorkflowsConfig | undefined;
+  knownAgents: string[];
+}) {
+  const workflowConfigSnapshot = args.workflows;
+  // Snapshot tradeoff: dynamic config/agent changes during a session are not reflected.
+  // Restart the session to refresh workflow/agent definitions used by this gate.
+  const knownAgentNamesSnapshot = args.knownAgents;
+  // V1: stageIndex remains 0 throughout the session.
+  // Stage progression is not implemented yet — only one stage is ever active.
+  // Any future pipeline progression must be explicit, runtime-checked, and user-approved.
+  const workflowSessionState = {
+    workflowName: workflowConfigSnapshot?.default,
+    stageIndex: 0,
+  };
+
+  const getWorkflowStageGateContext = (): { workflows: WorkflowsConfig["list"]; workflowName: string; stageIndex: number; knownAgents: string[]; stage: StageNode } | null => {
+    const workflows = workflowConfigSnapshot;
+    const workflowName = workflowSessionState.workflowName?.trim() || workflows?.default?.trim();
+    if (!workflows || !workflowName || workflows.list.length === 0) return null;
+    const workflow = workflows.list.find((candidate) => candidate.name === workflowName);
+    const stage = workflow?.stages[workflowSessionState.stageIndex];
+    if (!stage) return null;
+    return {
+      workflows: workflows.list,
+      workflowName,
+      stageIndex: workflowSessionState.stageIndex,
+      knownAgents: knownAgentNamesSnapshot,
+      stage,
+    };
+  };
+
+  return { getWorkflowStageGateContext };
+}
+
+export function shouldRequestPipelineSubagentApproval(args: {
+  isPipelineMode: boolean;
+  requiresStageApproval: boolean;
+}): boolean {
+  return args.isPipelineMode && args.requiresStageApproval;
+}
+
 export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Clean up sub-agent env vars to prevent stale values from a previous
   // session leaking through extension reload. These are set by subagent-pool
@@ -899,7 +970,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   let toolExecutedThisTurn = false; // reset per tool_execution_start
 
   // ── Pipeline state (session-level, 替代 WorkflowManager) ─────────────
+  const workflowGateHelpers = createWorkflowStageGateHelpers({
+    workflows: config?.workflows,
+    knownAgents: Object.keys(loadRuntimeAgentDefinitions()),
+  });
+  const getWorkflowStageGateContext = workflowGateHelpers.getWorkflowStageGateContext;
 
+  const notifyWorkflowStageGateSkipped = (ctx?: any): void => {
+    const message = "Workflow stage gate skipped: workflow config is missing or empty.";
+    console.warn(`[oh-my-opencode-slim] ${message}`);
+    try { ctx?.ui?.notify?.(message, "warning"); } catch {}
+  };
 
   // ── Detect delegation capabilities ─────────────────────────────────
   function getToolNames(): Set<string> {
@@ -1253,9 +1334,29 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 ${contractDecision.hint}` : ""}`);
     }
 
+    // Non-pipeline rescue modes (for example fallback) must not be constrained
+    // by the active workflow stage; otherwise they can no longer rescue lockouts.
     if (!isCurrentModePipeline()) return allow();
 
-    // Pipeline 模式下，子代理 spawn 需要审批（不再做 step 门禁）
+    let requiresStageApproval = false;
+    const stageContext = getWorkflowStageGateContext();
+    if (!stageContext) notifyWorkflowStageGateSkipped(ctx);
+    if (stageContext) {
+      const stageDecision = checkWorkflowStageTargetAllowed({
+        ...stageContext,
+        targetAgent: input.agent,
+      });
+      if (!stageDecision.allowed) {
+        const allowed = stageDecision.allowedAgents.length > 0 ? stageDecision.allowedAgents.join(", ") : "(none)";
+        return deny(`Workflow stage gate blocked "${input.agent}": ${stageDecision.reason}. Allowed agents in current stage: ${allowed}`);
+      }
+      requiresStageApproval = stageDecision.requiresApproval;
+    }
+
+    if (!shouldRequestPipelineSubagentApproval({ isPipelineMode: isCurrentModePipeline(), requiresStageApproval })) return allow();
+
+    // Pipeline 模式下，仅当前 workflow stage 的主 agent spawn 需要用户审批。
+    // review.agent / allowedSubagents 属于辅助查证或审查路径，由 stage gate 直接放行。
     const approval = await requestApproval(
       ctx,
       "子代理审批",
@@ -1267,6 +1368,13 @@ ${contractDecision.hint}` : ""}`);
     if (!approval.approved) {
       return deny(`用户拒绝了「${input.agent}」的执行。原因：${approval.reason}`);
     }
+
+    issuePipelineDelegationGrant({
+      caller: resolveDelegationCaller(),
+      target: input.agent,
+      depth: 0,
+      childAllowedSubagents: stageContext?.stage.allowedSubagents,
+    });
 
     return allow();
   };
