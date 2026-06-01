@@ -21,7 +21,7 @@ const suspiciousPathPatterns = [
   /\/home\/[^\s'"`]+oh-my-opencode-slim\/(?:src|scripts|docs|dist)[^\s'"`]*/,
 ];
 
-const packagedRequiredFiles = [
+const staticPackagedRequiredFiles = [
   'package.json',
   'README.md',
   'LICENSE',
@@ -29,21 +29,8 @@ const packagedRequiredFiles = [
   'dist/index.d.ts',
   'dist/cli/index.js',
   'oh-my-opencode-slim.schema.json',
-  'src/pi/core/pi.ts',
-  'src/pi/core/pi-modes.ts',
-  'src/pi/meeting/pi-agents.ts',
-  'src/pi/subagent/subagent-pool.ts',
-  'src/pi/policy/tool-scope-manager.ts',
   'src/adapters/agents-default.json',
-  'src/adapters/agents/coordinator.md',
-  'src/adapters/agents/analyst.md',
-  'src/adapters/agents/oracle.md',
-  'src/adapters/agent-runtime-config.ts',
-  'src/adapters/agent-discovery.ts',
-  'src/adapters/delegation-rules.ts',
   'src/core/workflow-types.ts',
-  'src/config/schema.ts',
-  'src/config/loader.ts',
   'src/cli/index.ts',
   'src/skills/simplify/SKILL.md',
   'src/skills/codemap/SKILL.md',
@@ -93,6 +80,38 @@ function walkFiles(dir: string): string[] {
   });
 }
 
+function toPackagePath(filePath: string): string {
+  return path.relative(repoRoot, filePath).split(path.sep).join('/');
+}
+
+function findRequiredRuntimeSourceFiles(): string[] {
+  const managedAgentPrompts = walkFiles(
+    path.join(repoRoot, 'src', 'adapters', 'agents'),
+  ).filter((file) => file.endsWith('.md'));
+
+  const runtimeSourceRoots = [
+    path.join(repoRoot, 'src', 'pi'),
+    path.join(repoRoot, 'src', 'adapters'),
+    path.join(repoRoot, 'src', 'config'),
+  ];
+  const runtimeSources = runtimeSourceRoots.flatMap((root) =>
+    walkFiles(root).filter((file) =>
+      file.endsWith('.ts') &&
+      !file.endsWith('.test.ts') &&
+      !file.endsWith('.d.ts'),
+    ),
+  );
+
+  return [...managedAgentPrompts, ...runtimeSources].map(toPackagePath);
+}
+
+function getPackagedRequiredFiles(): string[] {
+  return [...new Set([
+    ...staticPackagedRequiredFiles,
+    ...findRequiredRuntimeSourceFiles(),
+  ])].sort();
+}
+
 function verifyDistHasNoLeakedPaths() {
   console.log('Checking dist for leaked machine paths...');
   const files = walkFiles(distDir).filter((file) =>
@@ -131,7 +150,7 @@ function packArtifact() {
   const packagedFiles = new Set(
     (parsed[0]?.files ?? []).map((file) => file.path),
   );
-  for (const requiredFile of packagedRequiredFiles) {
+  for (const requiredFile of getPackagedRequiredFiles()) {
     if (!packagedFiles.has(requiredFile)) {
       fail(`npm pack artifact is missing required file: ${requiredFile}`);
     }
