@@ -2,102 +2,63 @@
 
 ## Responsibility
 
-`src/config/` owns plugin configuration schema, load/merge pipeline, prompt
-resolution, and helper APIs used by agents, council, and runtime subsystems.
+`src/config/` owns the shared configuration schema and load/merge pipeline used by the maintained Pi adapter and any future platform adapters.
 
-## Architecture
+This module is shared infrastructure, not Pi-only. It should not depend on platform-specific runtime code.
 
-### Core entry points
+## Core Entry Points
 
-- `loadPluginConfig(directory)` is the top-level loader used by `src/index.ts`.
-- `PluginConfigSchema` validates and normalizes raw config, including:
-  - legacy council field deprecation capture
-  - strict guard that `prompt` / `orchestratorPrompt` are only for custom
-    agents.
-- `getAgentPrompt`/`loadAgentPrompt` and related helpers are consumed by
-  agent registry.
+- `schema.ts`
+  - Defines `PluginConfigSchema` and related config types.
+  - Provides `DEFAULT_WORKFLOWS` seed data for config initialization.
+- `loader.ts`
+  - Loads user/project config.
+  - Merges presets and root agent overrides.
+  - Applies environment preset override.
+- `council-schema.ts`
+  - Defines council/meeting configuration shapes.
+- `constants.ts`
+  - Shared agent names, aliases, defaults and config constants.
+- `utils.ts`
+  - Agent override helpers and custom-agent key discovery.
+- `agent-mcps.ts`
+  - MCP list parsing and defaults retained for configuration compatibility.
 
-### Merge and load pipeline
+## Load Pipeline
 
 `loadPluginConfig(directory)`:
 
-1. Locate user config (prefer `.jsonc`, then `.json`) from:
-   - `OPENCODE_CONFIG_DIR`
-   - `XDG_CONFIG_HOME/opencode`
-   - `~/.config/opencode`
-2. Locate project config at
-   `<directory>/.opencode/oh-my-opencode-slim.(jsonc|json)`.
-3. Validate with schema. Invalid/malformed files are warned and ignored by
-   returning `null` for that file.
-4. Merge user+project configs where project takes precedence:
-   nested merges for `agents`, `tmux`, `multiplexer`, `interview`, `sessionManager`,
-   `fallback`, `council`.
-   top-level arrays/values are overridden.
-5. If `tmux` is enabled and no explicit `multiplexer` is configured,
-   migrate to `multiplexer` (`tmux` compatibility path).
-6. Apply env override `OH_MY_OPENCODE_SLIM_PRESET` over config file preset.
-7. If preset exists, merge preset agents into `agents` so explicit root agents
-   still win (`deepMerge(preset, config.agents)`).
-8. Return merged config object.
+1. Locates user config from OpenCode-compatible config directories.
+2. Locates project config from `.opencode/oh-my-opencode-slim.(jsonc|json)`.
+3. Parses JSON/JSONC and validates with `PluginConfigSchema`.
+4. Merges user and project config, with project values taking precedence.
+5. Applies `OH_MY_OPENCODE_SLIM_PRESET` override when present.
+6. Merges selected preset agent overrides into root `agents`.
+7. Returns the normalized config object.
 
-### Prompt discovery
+## Current Consumers
 
-`loadAgentPrompt(agentName, preset?)`:
+- `src/pi/core/pi.ts`
+  - Uses config loading and merge helpers.
+- `src/pi/core/pi-modes.ts`
+  - Uses `DEFAULT_WORKFLOWS` to seed config when missing.
+- `scripts/generate-schema.ts`
+  - Generates `oh-my-opencode-slim.schema.json` from `PluginConfigSchema`.
+- `src/cli/**`
+  - Uses config types and generated defaults during install/bootstrap flows.
 
-- Searches config directories for `oh-my-opencode-slim/` prompt roots.
-- Supports optional preset subdirectory lookup when `preset` is alphanumeric/
-  hyphen/underscore-safe.
-- For each agent:
-  - `<agent>.md` replacement prompt
-  - `<agent>_append.md` appended prompt
-- Read errors are warned and do not fail config load.
+## Compatibility Notes
 
-### Schema surface and compatibility
+- Some schema fields remain for config compatibility even if the old workflow runtime is no longer active.
+- `DEFAULT_WORKFLOWS` is currently config seed data, not a runtime workflow engine.
+- Shared config should not import `src/pi/**` or any platform adapter implementation.
 
-- Agent override schema supports:
-  - `model` string or ordered fallback array (string or `{id, variant}`)
-  - `temperature`, `variant`, `options`, `skills`, `mcps`, `displayName`
-  - custom agent prompts (`prompt`, `orchestratorPrompt`) only.
-- Multiplexer:
-  - new unified `multiplexer` schema (`auto|tmux|zellij|none`)
-  - legacy `tmux` schema retained and migrated at load time.
-- Council:
-  - `CouncilConfigSchema` now normalizes deprecated `master*` fields into
-    `_legacyMasterModel` metadata for compatibility
-  - supports presets + timeout/retry/execution mode.
-- Fallback config supports per-agent chain arrays and retry/backoff values.
+## File Structure
 
-## Control flow and dependencies
-
-```text
-src/index.ts
-  └─> loadPluginConfig(directory)
-      ├─> Agent override application in src/agents/index.ts
-      ├─> MCP defaults/filters in src/config/agent-mcps.ts
-      ├─> Council session behavior in src/council/*
-      ├─> Fallback/session behavior in runtime hooks
-      └─> Multiplexer behavior in src/multiplexer/*
-```
-
-### Key collaborators
-
-- `constants.ts`
-  - names/aliases, orchestratable lists, default models/timeouts/modes.
-- `agent-mcps.ts`
-  - `getAgentMcpList`, `parseList`, `getAvailableMcpNames`.
-- `utils.ts`
-  - alias resolution and custom-agent key discovery.
-- `loader.ts`
-  - config IO, deep merge, preset composition, env override, prompt loading.
-- `schema.ts`, `council-schema.ts`
-  - type/shape validation + transformation.
-
-## File structure
-
-- `index.ts` — exported config surface
-- `loader.ts` — load, merge, prompt resolution, tmux migration
-- `schema.ts` — plugin config + agent override schemas
-- `council-schema.ts` — council-specific and legacy compatibility schema
-- `constants.ts` — defaults, names, delegation rules, timeouts
-- `agent-mcps.ts` — MCP defaults and allow-list parsing
-- `utils.ts` — config helper methods
+- `index.ts` — exported config surface.
+- `loader.ts` — load, merge, prompt resolution and compatibility migration.
+- `schema.ts` — plugin config and agent override schemas.
+- `council-schema.ts` — council-specific schema.
+- `constants.ts` — shared names/defaults.
+- `agent-mcps.ts` — MCP defaults and allow-list parsing.
+- `utils.ts` — helper methods.

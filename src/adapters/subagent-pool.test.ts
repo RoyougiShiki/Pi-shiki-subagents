@@ -137,7 +137,7 @@ describe('AgentPool basic operations', () => {
     const spawnResult = await pool.spawn({
       id: 'agent-send',
       name: 'agent-send',
-      agent: makeAgent('thinker'),
+      agent: makeAgent('analyst'),
       task: 'initial task',
     });
     expect(spawnResult.response).toContain('已启动');

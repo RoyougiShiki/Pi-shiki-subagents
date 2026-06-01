@@ -7,7 +7,7 @@ import { checkDelegationAllowed, parseAllowedSubagentsEnv } from './delegation-r
 const rules = {
   worker: ['fixer', 'oracle'],
   implementer: ['fixer', 'oracle'],
-  thinker: ['explorer', 'oracle'],
+  analyst: ['oracle'],
   oracle: [],
 };
 
@@ -25,7 +25,7 @@ describe('pi delegation rules', () => {
   test('allows configured stage agents to call leaf agents', () => {
     expect(checkDelegationAllowed({ caller: 'worker', target: 'fixer', depth: 1, rules }).allowed).toBe(true);
     expect(checkDelegationAllowed({ caller: 'implementer', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
-    expect(checkDelegationAllowed({ caller: 'thinker', target: 'explorer', depth: 1, rules }).allowed).toBe(true);
+    expect(checkDelegationAllowed({ caller: 'analyst', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
   });
 
   test('blocks leaf agents from spawning more subagents', () => {

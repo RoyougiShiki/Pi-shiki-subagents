@@ -11,19 +11,14 @@
     "pipelineMode": true,
     "label": "主控模式"
   },
-  "thinker": {
+  "analyst": {
     "type": "subagent",
     "delegates": [
-      "search",
-      "search",
-      "observer",
       "oracle"
     ],
-    "label": "需求分析与澄清",
+    "label": "非提问型分析支持",
     "roles": [
-      "流程",
-      "管理",
-      "检索"
+      "读"
     ]
   },
   "designer": {

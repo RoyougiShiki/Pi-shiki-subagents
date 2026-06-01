@@ -523,12 +523,12 @@
           "default": [
             {
               "name": "standard-dev",
-              "description": "标准开发流程：澄清与分析 → 计划 → 标准实施",
+              "description": "标准开发流程：分析 → 计划 → 标准实施",
               "stages": [
                 {
-                  "id": "thinker",
-                  "agent": "thinker",
-                  "description": "澄清需求并分析影响范围、方案和风险",
+                  "id": "analyst",
+                  "agent": "analyst",
+                  "description": "分析需求边界、影响范围、方案和风险",
                   "outputSchema": "analysis",
                   "review": {
                     "agent": "oracle"
@@ -553,12 +553,12 @@
             },
             {
               "name": "quick-fix",
-              "description": "快速修复流程：分析与澄清 → 快速实施",
+              "description": "快速修复流程：分析 → 快速实施",
               "stages": [
                 {
-                  "id": "thinker",
-                  "agent": "thinker",
-                  "description": "确认修复范围和边界",
+                  "id": "analyst",
+                  "agent": "analyst",
+                  "description": "分析修复范围、边界和风险",
                   "outputSchema": "analysis",
                   "review": {
                     "agent": "oracle"
@@ -574,12 +574,12 @@
             },
             {
               "name": "research-only",
-              "description": "研究流程：澄清与分析",
+              "description": "研究流程：分析",
               "stages": [
                 {
-                  "id": "thinker",
-                  "agent": "thinker",
-                  "description": "澄清研究问题并做只读研究与结论",
+                  "id": "analyst",
+                  "agent": "analyst",
+                  "description": "分析研究问题并做只读研究结论",
                   "outputSchema": "analysis",
                   "review": {
                     "agent": "oracle"
@@ -601,7 +601,49 @@
               "stages": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/__schema0"
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "agent": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "task": {
+                      "type": "string"
+                    },
+                    "outputSchema": {
+                      "type": "string"
+                    },
+                    "allowedSubagents": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "review": {
+                      "type": "object",
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "maxRetries": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "agent"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agent"
+                  ]
                 }
               }
             },
@@ -804,104 +846,6 @@
     "visionModel": {
       "description": "Model ID (provider/model format) for the vision_analyze tool. This model is used to analyze images via direct API call. Defaults to \"dmxapi/glm-4.1v-thinking-flash\" if not set.",
       "type": "string"
-    }
-  },
-  "$defs": {
-    "__schema0": {
-      "anyOf": [
-        {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "agent": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            },
-            "task": {
-              "type": "string"
-            },
-            "outputSchema": {
-              "type": "string"
-            },
-            "keepAlive": {
-              "type": "boolean"
-            },
-            "allowedSubagents": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "review": {
-              "type": "object",
-              "properties": {
-                "agent": {
-                  "type": "string"
-                },
-                "maxRetries": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "agent"
-              ]
-            }
-          },
-          "required": [
-            "agent"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "type": {
-              "type": "string",
-              "const": "choice"
-            },
-            "prompt": {
-              "type": "string"
-            },
-            "branches": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "label": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "stages": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/__schema0"
-                    }
-                  }
-                },
-                "required": [
-                  "label",
-                  "description",
-                  "stages"
-                ]
-              }
-            }
-          },
-          "required": [
-            "type",
-            "branches"
-          ]
-        }
-      ]
     }
   },
   "title": "oh-my-opencode-slim",

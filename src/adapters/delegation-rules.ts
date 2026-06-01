@@ -4,7 +4,7 @@ export const DEFAULT_MAX_SUBAGENT_DEPTH = 2;
 
 export const FALLBACK_PI_DELEGATION_RULES: Record<string, readonly string[]> = {
   coordinator: [],
-  "thinker": ["observer", "oracle"],
+  "analyst": ["oracle"],
   designer: ["observer", "oracle"],
   worker: ["fixer", "oracle"],
   implementer: ["fixer", "oracle"],

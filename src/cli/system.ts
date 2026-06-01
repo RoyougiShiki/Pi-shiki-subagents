@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { statSync } from 'node:fs';
-import { crossSpawn } from '../utils/compat';
+import { crossSpawn } from './compat';
 
 let cachedOpenCodePath: string | null = null;
 

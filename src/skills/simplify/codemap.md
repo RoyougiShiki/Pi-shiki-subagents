@@ -1,36 +1,28 @@
-# src/skills/simplify/
+# skills/simplify
 
 ## Responsibility
 
-- Provide a behavior-preserving refactoring skill contract that constrains code cleanup to clarity-focused,
-  low-risk changes.
-- Define explicit quality gates (understand-before-edit, behavior parity, incremental simplification, rollback-friendly diffs)
-  for any simplification task.
-- Ship only metadata; no local runtime state machine is kept in this directory.
+- Provide a behavior-preserving refactoring skill contract focused on clarity and low-risk cleanup.
+- Define quality gates: understand before edit, preserve behavior, simplify incrementally, keep diffs rollback-friendly.
+- Ship prompt/documentation metadata only; no local runtime state machine is kept in this directory.
 
 ## Design
 
 - Contract layer: `SKILL.md` is the executable prompt specification with explicit phases:
-  - pre-change understanding
-  - simplification candidate selection
-  - incremental transformation and verification
+  - pre-change understanding;
+  - simplification candidate selection;
+  - incremental transformation and verification;
   - final review checklist.
-- Documentation layer: `README.md` explains intent, source provenance, and plugin install behavior.
-- Policy model is declarative (`description`, allowed usage, checklist) consumed by the OpenCode skill executor,
-  without helper scripts or plugin code dependencies.
+- Documentation layer: `README.md` explains intent and usage.
+- Policy model is declarative and consumed by the host skill runtime.
 
 ## Flow
 
-- Agent discovery resolves `src/skills/simplify` as a custom skill entrypoint, then reads `SKILL.md` at runtime.
-- Runtime behavior is gated by `src/cli/custom-skills.ts` (`allowedAgents: ['oracle']`) and by skill permissions
-  computed in `getSkillPermissionsForAgent()`.
-- In practice the workflow is read-only and context-driven: simplify instructions require understanding of callers,
-  edge cases, and tests before mutation, then apply local, scoped refactors with validation.
-- Consumers (Fixer/Oracle/Reviewer tasks) rely on this contract as operational constraints, not as executable TypeScript.
+- Agent or host skill discovery resolves `src/skills/simplify` and reads `SKILL.md`.
+- The workflow is context-driven: simplify instructions require understanding callers, edge cases, and tests before mutation.
+- The skill is intended for local, scoped refactors with validation.
 
 ## Integration
 
-- Installed by plugin installer (`installCustomSkills`) using `src/cli/install.ts` via `installCustomSkill()`.
-- Permission surface is enforced by hook layer in `src/hooks/filter-available-skills/index.ts` (`permissionRules`).
+- Installed by CLI skill helpers through `src/cli/install.ts`.
 - Release integrity: `scripts/verify-release-artifact.ts` checks for `src/skills/simplify/SKILL.md` in package tarballs.
-- Operationally paired with codemap/fixer flows in `src/index.ts` orchestrations for post-feature readability hardening.

@@ -32,8 +32,7 @@ import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent } from "./pi-modes";
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
-import { checkClarification, shouldBlockForClarification } from "../policy/clarification-policy";
-import { checkApproval, requiresApproval } from "../policy/approval-policy";
+import { checkClarification } from "../policy/clarification-policy";
 import { checkSubagentSpawnContract } from "../policy/subagent-contract-policy";
 import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
@@ -1334,32 +1333,6 @@ ${contractDecision.hint}` : ""}`);
         };
       }
       auditClarification("passed", toolName);
-    }
-
-    // ── Approval gate（高风险操作需审批）───────────────────────────────
-    if (toolName && typeof input === "object" && input !== null) {
-      const approvalDecision = checkApproval(toolName, input as Record<string, unknown>);
-      if (approvalDecision.action === "require_approval") {
-        const approval = await requestApproval(
-          ctx,
-          "操作审批",
-          `模型请求执行「${toolName}」(${approvalDecision.reason})，是否同意？`
-        );
-        if (!approval) {
-          auditApproval("denied", toolName, approvalDecision.riskLevel, "环境不支持审批");
-          return { block: true, reason: "当前环境不支持审批确认（ui.confirm 不可用）。" };
-        }
-        if (!approval.approved) {
-          auditApproval("denied", toolName, approvalDecision.riskLevel, approval.reason);
-          return {
-            block: true,
-            reason: `用户拒绝了「${toolName}」的执行。原因：${approval.reason}\n[guard] 下一步：停止同类动作，给出低风险替代方案或请求用户下一步指示。`,
-          };
-        }
-        auditApproval("approved", toolName, approvalDecision.riskLevel);
-      } else {
-        auditApproval("passed", toolName);
-      }
     }
 
     // Detect tool calls with empty/missing required args as potential

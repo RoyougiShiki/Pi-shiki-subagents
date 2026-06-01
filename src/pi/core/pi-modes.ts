@@ -258,7 +258,7 @@ export function applyAgentTools(pi: ExtensionAPI, name: string, allowSubagentTyp
   return true;
 }
 
-function applyMode(pi: ExtensionAPI, name: string): boolean {
+function applyMode(pi: ExtensionAPI, name: string, notifyChange = true): boolean {
   // 1) turnExecutionContext 重置（pre-switch hook）
   try { _onBeforeModeChange?.(name); } catch {}
 
@@ -271,7 +271,9 @@ function applyMode(pi: ExtensionAPI, name: string): boolean {
 
   // 3) currentMode 已通过 saveAgent() 持久化
   // 4) 记录 mode-change 事件（供观测）
-  try { _onModeChange?.(name); } catch {}
+  if (notifyChange) {
+    try { _onModeChange?.(name); } catch {}
+  }
   return ok;
 }
 
@@ -339,25 +341,68 @@ export function setOnModeChange(cb: (mode: string) => void): void {
   _onModeChange = cb;
 }
 
+export const MODE_MESSAGE_TYPES = {
+  switched: "mode_switched",
+  sessionStarted: "mode_session_started",
+  sessionResumed: "mode_session_resumed",
+} as const;
+
+function getModeToolSummary(): { tools: string[]; line: string } {
+  const snapshot = getToolScope();
+  const tools = snapshot ? [...snapshot.tools] : [];
+  const preview = tools.slice(0, 12).join(", ");
+  const more = tools.length > 12 ? ` ...(+${tools.length - 12})` : "";
+  const line = tools.length > 0
+    ? `\n[tools:${tools.length}] ${preview}${more}`
+    : "\n[tools] all (no explicit allowlist)";
+  return { tools, line };
+}
+
 export function emitModeSwitched(
   pi: ExtensionAPI,
   fromMode: string,
   toMode: string,
   triggerTurn = true,
 ): void {
-  const snapshot = getToolScope();
-  const tools = snapshot ? [...snapshot.tools] : [];
-  const preview = tools.slice(0, 12).join(", ");
-  const more = tools.length > 12 ? ` ...(+${tools.length - 12})` : "";
-  const toolLine = tools.length > 0
-    ? `\n[tools:${tools.length}] ${preview}${more}`
-    : "\n[tools] all (no explicit allowlist)";
+  const { tools, line: toolLine } = getModeToolSummary();
 
   pi.sendMessage({
-    customType: "mode_switched",
+    customType: MODE_MESSAGE_TYPES.switched,
     content: `[mode] ${fromMode} -> ${toMode}${toolLine}`,
     display: true,
+    details: {
+      kind: "switched",
+      fromMode,
+      mode: toMode,
+      tools,
+      toolCount: tools.length,
+      timestamp: Date.now(),
+    },
   }, { deliverAs: "followUp", triggerTurn });
+}
+
+export function emitModeSessionNotice(
+  pi: ExtensionAPI,
+  kind: "started" | "resumed",
+  mode: string,
+): void {
+  const { tools, line: toolLine } = getModeToolSummary();
+  const customType = kind === "resumed"
+    ? MODE_MESSAGE_TYPES.sessionResumed
+    : MODE_MESSAGE_TYPES.sessionStarted;
+
+  pi.sendMessage({
+    customType,
+    content: `[mode-session] ${kind} | mode: ${mode}${toolLine}`,
+    display: true,
+    details: {
+      kind,
+      mode,
+      tools,
+      toolCount: tools.length,
+      timestamp: Date.now(),
+    },
+  }, { deliverAs: "followUp", triggerTurn: false });
 }
 
 /**
@@ -492,10 +537,15 @@ function registerModeHooks(pi: ExtensionAPI): void {
     _agentDefs = null;
     _toolGroups = null;
 
+    const noticeKind = event.reason === "resume" ? "resumed" : "started";
     if (event.reason === "resume") {
       const saved = loadActiveMode();
       if (saved && getAgent(saved)) {
-        if (applyMode(pi, saved)) return;
+        if (applyMode(pi, saved, false)) {
+          try { ctx.ui.setStatus("mode", `Mode: ${saved}`); } catch {}
+          try { emitModeSessionNotice(pi, noticeKind, saved); } catch {}
+          return;
+        }
       }
     }
     const subagentName = process.env.OMO_AGENT_NAME;
@@ -513,7 +563,10 @@ function registerModeHooks(pi: ExtensionAPI): void {
       return;
     }
     const mode = loadActiveMode();
-    applyMode(pi, mode);
+    if (applyMode(pi, mode, false)) {
+      try { ctx.ui.setStatus("mode", `Mode: ${mode}`); } catch {}
+      try { emitModeSessionNotice(pi, noticeKind, mode); } catch {}
+    }
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {

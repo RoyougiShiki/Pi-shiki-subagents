@@ -17,8 +17,8 @@ const repoRoot = path.resolve(__dirname, '..');
 const distDir = path.join(repoRoot, 'dist');
 
 const suspiciousPathPatterns = [
-  /\/Users\/[^\s'"`]+(?:node_modules|oh-my-opencode-slim)[^\s'"`]*/,
-  /\/home\/[^\s'"`]+(?:node_modules|oh-my-opencode-slim)[^\s'"`]*/,
+  /\/Users\/[^\s'"`]+oh-my-opencode-slim\/(?:src|scripts|docs|dist)[^\s'"`]*/,
+  /\/home\/[^\s'"`]+oh-my-opencode-slim\/(?:src|scripts|docs|dist)[^\s'"`]*/,
 ];
 
 const packagedRequiredFiles = [
@@ -29,17 +29,22 @@ const packagedRequiredFiles = [
   'dist/index.d.ts',
   'dist/cli/index.js',
   'oh-my-opencode-slim.schema.json',
-  'src/adapters/pi.ts',
-  'src/adapters/pi-modes.ts',
+  'src/pi/core/pi.ts',
+  'src/pi/core/pi-modes.ts',
+  'src/pi/meeting/pi-agents.ts',
+  'src/pi/subagent/subagent-pool.ts',
+  'src/pi/policy/tool-scope-manager.ts',
   'src/adapters/agents-default.json',
   'src/adapters/agents/coordinator.md',
-  'src/adapters/workflow-manager.ts',
-  'src/adapters/workflow-commands.ts',
+  'src/adapters/agents/analyst.md',
+  'src/adapters/agents/oracle.md',
   'src/adapters/agent-runtime-config.ts',
   'src/adapters/agent-discovery.ts',
   'src/adapters/delegation-rules.ts',
   'src/core/workflow-types.ts',
   'src/config/schema.ts',
+  'src/config/loader.ts',
+  'src/cli/index.ts',
   'src/skills/simplify/SKILL.md',
   'src/skills/codemap/SKILL.md',
 ];
@@ -157,13 +162,12 @@ function verifyFreshInstall(tarballPath: string) {
       cwd: installDir,
     });
 
-    const installedEntry = path.join(
+    const installedRoot = path.join(
       installDir,
       'node_modules',
       'oh-my-opencode-slim',
-      'dist',
-      'index.js',
     );
+    const installedEntry = path.join(installedRoot, 'dist', 'index.js');
     const installedEntryContent = readFileSync(installedEntry, 'utf8');
     for (const pattern of suspiciousPathPatterns) {
       const match = installedEntryContent.match(pattern);
@@ -173,6 +177,9 @@ function verifyFreshInstall(tarballPath: string) {
         );
       }
     }
+
+    const piExtension = path.join(installedRoot, 'src', 'pi', 'core', 'pi.ts');
+    readFileSync(piExtension, 'utf8');
 
     const smokeScript = [
       "import pkg from 'oh-my-opencode-slim';",

@@ -118,46 +118,38 @@ Fixers are responsible for writing `codemap.md` files during this workflow. Use 
 Example codemap:
 
 ```markdown
-# src/agents/
+# Example Codemap
 
 ## Responsibility
-Defines agent personalities and manages their configuration lifecycle.
+Describe the directory's concrete responsibility.
 
 ## Design
-Each agent is a prompt + permission set. Config system uses:
-- Default prompts (orchestrator.ts, explorer.ts, etc.)
-- User overrides from ~/.config/opencode/oh-my-opencode-slim.json
-- Permission wildcards for skill/MCP access control
+List the important abstractions, configuration sources, and boundaries.
 
 ## Flow
-1. Plugin loads → calls getAgentConfigs()
-2. Reads user config preset
-3. Merges defaults with overrides
-4. Applies permission rules (wildcard expansion)
-5. Returns agent configs to OpenCode
+Trace how data or control enters and leaves the module.
 
 ## Integration
-- Consumed by: Main plugin (src/index.ts)
-- Depends on: Config loader, skills registry
+List consumers and dependencies using current repository paths.
+
 ```
 
 Example **Root Codemap (Atlas)**:
 
 ```markdown
-# Repository Atlas: oh-my-opencode-slim
+# Repository Atlas: project-name
 
 ## Project Responsibility
-A high-performance, low-latency agent orchestration plugin for OpenCode, focusing on specialized sub-agent delegation and multiplexer-assisted child sessions.
+Summarize the maintained runtime and shared layers.
 
 ## System Entry Points
-- `src/index.ts`: Plugin initialization and OpenCode integration.
-- `package.json`: Dependency manifest and build scripts.
-- `oh-my-opencode-slim.json`: User configuration schema.
+- `package.json`: package manifest and platform extension declarations.
+- `src/<platform>/...`: platform adapter entrypoint.
+- `src/config/schema.ts`: shared configuration schema.
 
 ## Directory Map (Aggregated)
 | Directory | Responsibility Summary | Detailed Map |
 |-----------|------------------------|--------------|
-| `src/agents/` | Defines agent personalities (Orchestrator, Explorer) and manages model routing. | [View Map](src/agents/codemap.md) |
-| `src/features/` | Core logic for tmux integration and session state. | [View Map](src/features/codemap.md) |
-| `src/config/` | Implements the configuration loading pipeline and environment variable injection. | [View Map](src/config/codemap.md) |
+| `src/config/` | Shared configuration schema and loader. | [View Map](src/config/codemap.md) |
+| `src/adapters/` | Shared agent definitions and adapter helpers. | [View Map](src/adapters/codemap.md) |
 ```

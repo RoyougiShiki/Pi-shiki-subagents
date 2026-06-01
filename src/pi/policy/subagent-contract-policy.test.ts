@@ -8,7 +8,7 @@ describe('SubagentContractPolicy', () => {
   });
 
   test('blocks objectless spawn task', () => {
-    const result = checkSubagentSpawnContract({ pool: 'spawn', id: 'a1', agent: 'thinker', task: '输出3条缺失信息' });
+    const result = checkSubagentSpawnContract({ pool: 'spawn', id: 'a1', agent: 'analyst', task: '输出3条缺失信息' });
     expect(result.action).toBe('block');
     expect(result.reason).toBe('subagent_task_object_missing');
   });
@@ -17,7 +17,7 @@ describe('SubagentContractPolicy', () => {
     const result = checkSubagentSpawnContract({
       pool: 'spawn',
       id: 'a1',
-      agent: 'thinker',
+      agent: 'analyst',
       task: '针对“支付成功但库存未扣减”的问题，输出最多3条缺失信息；不要给解决方案。',
     });
     expect(result.action).toBe('allow');

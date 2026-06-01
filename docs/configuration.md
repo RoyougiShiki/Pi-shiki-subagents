@@ -1,243 +1,138 @@
 # Configuration Reference
 
-Complete reference for all configuration files and options in oh-my-opencode-slim.
-
----
+Complete reference for the maintained Pi adapter and shared configuration surface.
 
 ## Config Files
 
 | File | Purpose |
 |------|---------|
-| `~/.config/opencode/opencode.json` | OpenCode core settings (plugin registration, providers) |
-| `~/.config/opencode/oh-my-opencode-slim.json` | Plugin settings — agents, multiplexer, MCPs, council |
-| `~/.config/opencode/oh-my-opencode-slim.jsonc` | Same, but with JSONC (comments + trailing commas). Takes precedence over `.json` if both exist |
-| `.opencode/oh-my-opencode-slim.json` | Project-local overrides (optional, checked first) |
+| `~/.pi/agent/oh-my-opencode-slim.json` | Pi adapter runtime settings — agents, modes, tool groups, workflows seed data, council |
+| `~/.config/opencode/oh-my-opencode-slim.json` | Legacy-compatible user config path still read by the shared loader |
+| `~/.config/opencode/oh-my-opencode-slim.jsonc` | JSONC variant; takes precedence over `.json` when both exist |
+| `.opencode/oh-my-opencode-slim.json` | Project-local overrides |
 
-> **💡 JSONC recommended:** Use the `.jsonc` extension to add comments and trailing commas. If both `.jsonc` and `.json` exist, `.jsonc` takes precedence.
+JSONC supports comments and trailing commas.
 
----
-
-## Prompt Overriding
-
-Customize agent prompts without modifying source code. Create markdown files in `~/.config/opencode/oh-my-opencode-slim/`:
-
-| File | Effect |
-|------|--------|
-| `{agent}.md` | Replaces the agent's default prompt entirely |
-| `{agent}_append.md` | Appends custom instructions to the default prompt |
-
-When a `preset` is active, the plugin checks `~/.config/opencode/oh-my-opencode-slim/{preset}/` first, then falls back to the root directory.
-
-**Example directory structure:**
-
-```
-~/.config/opencode/oh-my-opencode-slim/
-  ├── best/
-  │   ├── orchestrator.md        # Preset-specific override (used when preset=best)
-  │   └── explorer_append.md
-  ├── orchestrator.md            # Fallback override
-  ├── orchestrator_append.md
-  ├── explorer.md
-  └── ...
-```
-
-Both `{agent}.md` and `{agent}_append.md` can coexist — the full replacement takes effect first, then the append. If neither exists, the built-in default prompt is used.
-
----
-
-## JSONC Format
-
-All config files support **JSONC** (JSON with Comments):
-
-- Single-line comments (`//`)
-- Multi-line comments (`/* */`)
-- Trailing commas in arrays and objects
-
-**Example:**
+## Minimal Preset Example
 
 ```jsonc
 {
-  // Active preset
-  "preset": "openai",
-
-  /* Agent model mappings */
+  "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json",
+  "preset": "default",
   "presets": {
-    "openai": {
-      "oracle": { "model": "openai/gpt-5.5" },
-      "explorer": { "model": "openai/gpt-5.4-mini" },
-    },
-  },
-
-  "multiplexer": {
-    "type": "tmux",
-    "layout": "main-vertical",
-  },
-}
-```
-
----
-
-## Full Option Reference
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `preset` | string | — | Active preset name (e.g. `"openai"`, `"best"`) |
-
-### Runtime Preset Switching
-
-Presets can also be switched at runtime without restarting using the `/preset` command. See [Preset Switching](preset-switching.md) for details.
-
-| `presets` | object | — | Named preset configurations |
-|-----------|--------|---|-----------------------------|
-| `presets.<name>.<agent>.model` | string | — | Model ID in `provider/model` format |
-| `presets.<name>.<agent>.temperature` | number | — | Temperature (0–2) |
-| `presets.<name>.<agent>.variant` | string | — | Reasoning effort: `"low"`, `"medium"`, `"high"` |
-| `presets.<name>.<agent>.displayName` | string | — | Custom user-facing alias for the agent (e.g. `"advisor"` for `oracle`) |
-| `presets.<name>.<agent>.skills` | string[] | — | Skills the agent can use (`"*"`, `"!item"`, explicit list) |
-| `presets.<name>.<agent>.mcps` | string[] | — | MCPs the agent can use (`"*"`, `"!item"`, explicit list) |
-| `presets.<name>.<agent>.options` | object | — | Provider-specific model options passed to the AI SDK (e.g., `textVerbosity`, `thinking` budget) |
-| `agents.<customAgent>.model` | string\|array | — | Required for custom agents inferred from unknown `agents` keys |
-| `agents.<customAgent>.prompt` | string | — | Full execution prompt for a custom agent |
-| `agents.<customAgent>.orchestratorPrompt` | string | — | Exact `@agent` block injected into the orchestrator prompt; must start with `@<agent-name>` |
-| `agents.<agent>.displayName` | string | — | Custom user-facing alias for the agent in the active config |
-| `showStartupToast` | boolean | `true` | Show the startup activation toast (`oh-my-opencode-slim is active`) when OpenCode starts |
-| `autoUpdate` | boolean | `true` | Automatically install plugin updates in the background; set to `false` for notification-only mode |
-| `multiplexer.type` | string | `"none"` | Multiplexer mode: `auto`, `tmux`, `zellij`, or `none` |
-| `multiplexer.layout` | string | `"main-vertical"` | Layout preset: `main-vertical`, `main-horizontal`, `tiled`, `even-horizontal`, `even-vertical` |
-| `multiplexer.main_pane_size` | number | `60` | Main pane size as percentage (20–80) |
-| `tmux.enabled` | boolean | `false` | Legacy alias for `multiplexer.type = "tmux"` |
-| `tmux.layout` | string | `"main-vertical"` | Legacy alias for `multiplexer.layout` |
-| `tmux.main_pane_size` | number | `60` | Legacy alias for `multiplexer.main_pane_size` |
-| `sessionManager.maxSessionsPerAgent` | integer | `2` | Maximum remembered resumable child sessions per specialist type in the current orchestrator session (1–10). See [Session Management](session-management.md) |
-| `sessionManager.readContextMinLines` | integer | `10` | Minimum number of lines read from a file before it appears in resumable-session context (0–1000) |
-| `sessionManager.readContextMaxFiles` | integer | `8` | Maximum number of recent read-context files shown per remembered child session (0–50) |
-| `disabled_mcps` | string[] | `[]` | MCP server IDs to disable globally |
-| `fallback.enabled` | boolean | `false` | Enable model failover on timeout/error |
-| `fallback.timeoutMs` | number | `15000` | Time before aborting and trying next model |
-| `fallback.retryDelayMs` | number | `500` | Delay between retry attempts |
-| `fallback.chains.<agent>` | string[] | — | Ordered fallback model IDs for an agent |
-| `fallback.retry_on_empty` | boolean | `true` | Treat silent empty provider responses (0 tokens) as failures and retry. Set `false` to accept empty responses |
-| `council.presets` | object | — | **Required if using council.** Named councillor presets |
-| `council.presets.<name>.<councillor>.model` | string | — | Councillor model |
-| `council.presets.<name>.<councillor>.variant` | string | — | Councillor variant |
-| `council.presets.<name>.<councillor>.prompt` | string | — | Optional role guidance for the councillor |
-| `council.default_preset` | string | `"default"` | Default preset when none is specified |
-| `council.timeout` | number | `180000` | Per-councillor timeout (ms) |
-| `council.councillor_execution_mode` | string | `"parallel"` | Run councillors in `parallel` or `serial`; use `serial` for single-model setups |
-| `council.councillor_retries` | number | `3` | Max retries per councillor on empty provider response (0–5) |
-| `visionModel` | string | `"dmxapi/glm-4.1v-thinking-flash"` | Vision model for `vision_analyze` in `provider/model` format (for example `dmxapi/minimax-m2.7`) |
-| `todoContinuation.maxContinuations` | integer | `5` | Max consecutive auto-continuations before stopping (1–50) |
-| `todoContinuation.cooldownMs` | integer | `3000` | Delay in ms before auto-continuing — gives user time to abort (0–30000) |
-| `todoContinuation.autoEnable` | boolean | `false` | Automatically enable auto-continue when session has enough todos |
-| `todoContinuation.autoEnableThreshold` | integer | `4` | Number of todos that triggers auto-enable (only used when `autoEnable` is true, 1–50) |
-| `interview.maxQuestions` | integer | `2` | Max questions per interview round (1–10) |
-| `interview.outputFolder` | string | `"interview"` | Directory where interview markdown files are written (relative to project root) |
-| `interview.autoOpenBrowser` | boolean | `true` | Automatically open the interview UI in your default browser during interactive runs; suppressed in tests and CI |
-| `interview.port` | integer | `0` | Interview server port (0–65535). `0` = OS-assigned random port (per-session mode). Any value > 0 enables [dashboard mode](interview.md#dashboard-mode) |
-| `interview.dashboard` | boolean | `false` | Enable [dashboard mode](interview.md#dashboard-mode) on the default port (43211). Setting `port` > 0 also enables dashboard mode. If both are set, `port` takes precedence |
-
-### Council configuration note
-
-- The **Council agent model** is configured like any other agent, for example in
-  `presets.<name>.council.model`.
-- The **councillor models** are configured separately under
-  `council.presets.<name>.<councillor>.model`.
-- Deprecated `council.master*` fields should not be used in new configs.
-
-### Startup Toast
-
-Set `showStartupToast` to `false` if you want to disable the startup toast that
-appears when the plugin activates.
-
-```jsonc
-{
-  "showStartupToast": false
-}
-```
-
-### Manual Update Mode
-
-Set `autoUpdate` to `false` if you want update notifications without automatic
-`bun install` runs.
-
-```jsonc
-{
-  "autoUpdate": false
-}
-```
-
-With `autoUpdate` set to `false`, this becomes notification-only mode: you'll
-see that a new version is available, but the plugin won't install it
-automatically.
-
-> Pinned plugin entries in `opencode.json` (for example
-> `"oh-my-opencode-slim@1.0.1"`) are the true version lock. Those stay pinned
-> regardless of `autoUpdate`.
-
-### Session Management
-
-Session management is enabled by default and does not need to be present in the
-starter config. Add `sessionManager` only if you want to tune how many resumable
-child-agent sessions are remembered or how much read context is shown. See
-[Session Management](session-management.md) for the concept, defaults, and
-examples.
-
-### Agent Display Names
-
-Use `displayName` to give an agent a user-facing alias while keeping the
-internal agent name unchanged.
-
-```jsonc
-{
-  "agents": {
-    "oracle": {
-      "displayName": "advisor"
-    },
-    "explorer": {
-      "displayName": "researcher"
+    "default": {
+      "coordinator": { "model": "provider/model" },
+      "analyst": { "model": "provider/model" },
+      "oracle": { "model": "provider/model", "variant": "high" },
+      "search": { "model": "provider/model" },
+      "designer": { "model": "provider/model" },
+      "fixer": { "model": "provider/model" },
+      "worker": { "model": "provider/model" },
+      "dispatcher": { "model": "provider/model" },
+      "observer": { "model": "provider/model" },
+      "council": { "model": "provider/model" }
     }
   }
 }
 ```
 
-With this config, users can refer to `@advisor` and `@researcher`, while the
-plugin still routes them to `oracle` and `explorer` internally.
+## Agent Model Overrides
 
-### Vision Model for `vision_analyze`
+| Option | Type | Description |
+|--------|------|-------------|
+| `preset` | string | Active preset name |
+| `presets.<name>.<agent>.model` | string \| array | Model ID or ordered fallback model list |
+| `presets.<name>.<agent>.temperature` | number | Temperature, when provider supports it |
+| `presets.<name>.<agent>.variant` | string | Reasoning effort such as `low`, `medium`, `high` |
+| `presets.<name>.<agent>.displayName` | string | User-facing alias for an agent |
+| `presets.<name>.<agent>.options` | object | Provider-specific options |
+| `agents.<agent>.model` | string \| array | Root-level agent override |
+| `agents.<agent>.displayName` | string | Root-level display name override |
+| `disabled_agents` | string[] | Agent names to disable |
 
-Set `visionModel` when you want `vision_analyze` to use a specific model.
+Current built-in agents include:
+
+```text
+coordinator, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
+```
+
+## Agent Definitions and Prompts
+
+Built-in agent definitions live in:
+
+```text
+src/adapters/agents-default.json
+src/adapters/agents/*.md
+```
+
+At runtime, Pi syncs managed markdown prompts into `~/.pi/agents/`.
+
+Prompt files should describe role boundaries and behavior. Tool access and delegates should remain in `agents-default.json` / runtime config, not duplicated in markdown.
+
+## Workflow Config
+
+`workflows` remains as configuration seed/template data. The old workflow runtime is no longer active.
 
 ```jsonc
 {
-  "visionModel": "dmxapi/glm-4.1v-thinking-flash"
+  "workflows": {
+    "default": "standard-dev",
+    "list": [
+      {
+        "name": "standard-dev",
+        "description": "标准开发流程：分析 → 计划 → 标准实施",
+        "stages": [
+          { "id": "analyst", "agent": "analyst", "description": "分析需求边界、影响范围、方案和风险" }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-Recommended split for mixed setups:
+The coordinator chooses the shortest safe path dynamically; it does not receive an injected current workflow step.
 
-- `observer.model`: reasoning/coordination model for the Observer agent
-- `visionModel`: dedicated vision model for image interpretation
+## Council
 
-Notes:
+Council configuration is split between:
 
-- `displayName` works in both top-level `agents` overrides and inside `presets`
-- `@` prefixes and surrounding whitespace are normalized automatically
-- Display names must be unique
-- Display names cannot conflict with internal agent names like `oracle` or `explorer`
+- `presets.<name>.council.model` — model for the council agent entry.
+- `council.presets.<name>.<councillor>.model` — models for individual councillors.
 
-### Custom Agents
+Deprecated `council.master*` fields should not be used in new configs.
 
-Unknown keys under `agents` are treated as custom subagents. A custom agent needs
-its own `model`, a normal `prompt`, and optionally an `orchestratorPrompt` that
-teaches the orchestrator exactly when to delegate to it.
+## Fallback Models
+
+```jsonc
+{
+  "fallback": {
+    "enabled": true,
+    "timeoutMs": 15000,
+    "retryDelayMs": 500,
+    "chains": {
+      "oracle": ["provider/backup-model"]
+    }
+  }
+}
+```
+
+## Startup and Update Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `showStartupToast` | boolean | `true` | Show startup activation toast |
+| `autoUpdate` | boolean | `true` | Automatically install updates when supported |
+
+## Custom Agents
+
+Unknown keys under `agents` are treated as custom subagents when they provide a model and prompt.
 
 ```jsonc
 {
   "agents": {
     "janitor": {
-      "model": "github-copilot/gpt-5.5",
-      "prompt": "You are Janitor. Audit codebase entropy, dead code, docs drift, naming inconsistencies, and unnecessary complexity. Prefer analysis and plans over direct edits.",
-      "orchestratorPrompt": "@janitor\n- Role: Maintenance specialist for codebase cleanup and entropy reduction\n- **Delegate when:** after large refactors • cleanup/technical-debt review • dead code or docs drift is suspected\n- **Don't delegate when:** feature implementation • urgent debugging • UI/UX work"
+      "model": "provider/model",
+      "prompt": "You are Janitor. Audit codebase entropy, dead code, docs drift, naming inconsistencies, and unnecessary complexity."
     }
   }
 }
@@ -245,6 +140,10 @@ teaches the orchestrator exactly when to delegate to it.
 
 Notes:
 
-- Custom agent names must be safe identifiers such as `janitor` or `security-reviewer`
-- Custom agents without a `model` are skipped with a warning
-- Disabled custom agents are not registered or injected into the orchestrator prompt
+- Custom agent names must be safe identifiers such as `janitor` or `security-reviewer`.
+- Custom agents without a `model` are skipped with a warning.
+- Disabled custom agents are not registered.
+
+## Deprecated / Compatibility Fields
+
+Some schema fields remain for compatibility with older configs and may be ignored by the current Pi runtime. Prefer current agent names and Pi adapter behavior for new configuration.

@@ -106,7 +106,7 @@ describe('Pi adapter agent prompt sync', () => {
     const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
     const content = fs.readFileSync(oraclePath, 'utf-8');
     expect(content).toContain('name: oracle');
-    expect(content).toContain('description: Strategic technical advisor and code reviewer');
+    expect(content).toContain('description: 证据驱动的对抗性审查');
     expect(content).toContain('omo-managed: true');
     expect(content).toContain('omo-source-hash:');
     expect(content).not.toContain('model:');
@@ -151,7 +151,7 @@ describe('Pi adapter agent prompt sync', () => {
     fs.mkdirSync(agentsDir, { recursive: true });
     const sourcePath = path.join(import.meta.dir, 'agents', 'oracle.md');
     const oraclePath = path.join(agentsDir, 'oracle.md');
-    const legacyContent = fs.readFileSync(sourcePath, 'utf-8').replace('description: Strategic technical advisor and code reviewer', 'description: Strategic technical advisor and code reviewer\nmodel: openai/gpt-4.1\nthinking: low');
+    const legacyContent = fs.readFileSync(sourcePath, 'utf-8').replace('description: 证据驱动的对抗性审查与[用户触发屏蔽词]', 'description: 证据驱动的对抗性审查与[用户触发屏蔽词]\nmodel: openai/gpt-4.1\nthinking: low');
     fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
 
     ensureAgentFiles();
@@ -304,7 +304,7 @@ describe('Pi adapter config helpers', () => {
       },
       workflows: {
         default: 'research-only',
-        list: [{ name: 'research-only', description: 'Research', stages: [{ agent: 'thinker' }] }],
+        list: [{ name: 'research-only', description: 'Research', stages: [{ agent: 'analyst' }] }],
       },
     });
 
