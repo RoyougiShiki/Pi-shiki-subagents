@@ -11,6 +11,7 @@ describe('SubagentContractPolicy', () => {
     const result = checkSubagentSpawnContract({ pool: 'spawn', id: 'a1', agent: 'analyst', task: '输出3条缺失信息' });
     expect(result.action).toBe('block');
     expect(result.reason).toBe('subagent_task_object_missing');
+    expect(result.hint).toContain('明确对象');
   });
 
   test('allows concrete spawn task', () => {

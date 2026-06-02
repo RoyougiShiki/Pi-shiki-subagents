@@ -13,6 +13,11 @@ import { formatWorkflowStageMarker } from "./workflow-stage-marker";
 export type ApprovalResult = { approved: true } | { approved: false; reason: string };
 export type GateDecision = { ok: true } | { ok: false; reason: string };
 
+export const SWITCH_MODE_APPROVAL_MESSAGE = {
+  title: "切换模式",
+  action: "模型请求切换模式，是否同意？",
+} as const;
+
 export interface WorkflowStageGateContext {
   workflows: WorkflowsConfig["list"];
   workflowName: string;
@@ -354,8 +359,8 @@ ${contractDecision.hint}` : ""}`);
 
     const approval = await requestApproval(
       ctx,
-      "切换模式",
-      `模型请求切换到「${input.mode}」，是否同意？`,
+      SWITCH_MODE_APPROVAL_MESSAGE.title,
+      `${SWITCH_MODE_APPROVAL_MESSAGE.action}\n目标：${input.mode}`,
     );
     if (!approval) {
       return deny("模式切换被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");

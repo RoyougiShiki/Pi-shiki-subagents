@@ -43,12 +43,14 @@ describe('TaskContractPolicy', () => {
     const result = checkTaskContract({ kind: 'subagent_spawn' });
     expect(result.action).toBe('block');
     expect(result.reason).toBe('subagent_task_missing');
+    expect(result.hint).toContain('任务对象');
   });
 
   test('blocks objectless subagent task', () => {
     const result = checkTaskContract({ kind: 'subagent_spawn', subagentTask: '输出3条缺失信息' });
     expect(result.action).toBe('block');
     expect(result.reason).toBe('subagent_task_object_missing');
+    expect(result.hint).toContain('明确对象');
   });
 
   test('allows concrete subagent task with object and output', () => {

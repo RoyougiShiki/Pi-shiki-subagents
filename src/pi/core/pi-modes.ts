@@ -271,7 +271,7 @@ function applyMode(pi: ExtensionAPI, name: string, notifyChange = true): boolean
   // 3) currentMode 已通过 saveAgent() 持久化
   // 4) 记录 mode-change 事件（供观测）
   if (notifyChange) {
-    try { _onModeChange?.(name); } catch {}
+    try { _onModeChange?.({ mode: name, origin: consumeModeSwitchOrigin() }); } catch {}
   }
   return ok;
 }
@@ -337,8 +337,33 @@ function resolveConfiguredTools(agent: AgentDefinition): string[] {
 }
 
 // ── Mode change callbacks (wired by composition root) ────────────────
-let _onModeChange: ((mode: string) => void) | null = null;
+let _onModeChange: ((event: ModeChangeEvent) => void) | null = null;
 let _onBeforeModeChange: ((mode: string) => void) | null = null;
+
+type ModeSwitchOrigin = "system" | "user_command" | "tool_call";
+
+interface ModeChangeEvent {
+  mode: string;
+  origin: ModeSwitchOrigin;
+}
+
+let _nextModeSwitchOrigin: ModeSwitchOrigin | null = null;
+
+function consumeModeSwitchOrigin(): ModeSwitchOrigin {
+  const origin = _nextModeSwitchOrigin ?? "system";
+  _nextModeSwitchOrigin = null;
+  return origin;
+}
+
+export function runWithModeSwitchOrigin<T>(origin: ModeSwitchOrigin, fn: () => T): T {
+  const previous = _nextModeSwitchOrigin;
+  _nextModeSwitchOrigin = origin;
+  try {
+    return fn();
+  } finally {
+    _nextModeSwitchOrigin = previous;
+  }
+}
 
 /**
  * Register a callback invoked before every mode switch.
@@ -352,7 +377,7 @@ export function setOnBeforeModeChange(cb: (mode: string) => void): void {
  * Register a callback invoked after every mode switch.
  * Called by pi.ts (composition root) to wire view layer updates.
  */
-export function setOnModeChange(cb: (mode: string) => void): void {
+export function setOnModeChange(cb: (event: ModeChangeEvent) => void): void {
   _onModeChange = cb;
 }
 
@@ -377,7 +402,7 @@ export function emitModeSwitched(
   pi: ExtensionAPI,
   fromMode: string,
   toMode: string,
-  triggerTurn = true,
+  triggerTurn: boolean,
 ): void {
   const { tools, line: toolLine } = getModeToolSummary();
 
@@ -511,13 +536,9 @@ export function registerModeCommands(pi: ExtensionAPI): void {
         }
         const agent = getAgent(trimmed);
         if (agent && (agent.type === "mode" || agent.type === "both")) {
-          const from = loadActiveMode();
-          applyMode(pi, trimmed);
+          runWithModeSwitchOrigin("user_command", () => applyMode(pi, trimmed));
           saveAgent(trimmed);
           ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
-          try {
-            emitModeSwitched(pi, from, trimmed, true);
-          } catch {}
         } else {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
         }
@@ -534,13 +555,9 @@ export function registerModeCommands(pi: ExtensionAPI): void {
       if (!selected) return;
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
-      const from = loadActiveMode();
-      applyMode(pi, picked);
+      runWithModeSwitchOrigin("user_command", () => applyMode(pi, picked));
       saveAgent(picked);
       ctx.ui.setStatus("mode", `Mode: ${picked}`);
-      try {
-        emitModeSwitched(pi, from, picked, true);
-      } catch {}
     },
   });
 }
@@ -618,7 +635,7 @@ export function registerSwitchModeTool(pi: ExtensionAPI): void {
         return { content: [{ type: "text" as const, text: `"${name}" 是子代理，不能作为模式切换。` }], isError: true, details: {} as any };
       }
       // 审批已统一到 tool_call gate 中处理，此处不再弹确认框
-      applyMode(pi, name);
+      runWithModeSwitchOrigin("tool_call", () => applyMode(pi, name));
       saveAgent(name);
       return { content: [{ type: "text" as const, text: `已切换到: ${name}` }], details: { mode: name } };
     },

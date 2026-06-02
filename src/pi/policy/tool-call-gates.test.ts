@@ -1,6 +1,7 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, beforeEach } from 'bun:test';
 import type { WorkflowsConfig } from '../../core/workflow-types';
-import { createToolCallGates, createWorkflowStageGateHelpers } from './tool-call-gates';
+import { consumePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from './pipeline-delegation-grants';
+import { createToolCallGates, createWorkflowStageGateHelpers, SWITCH_MODE_APPROVAL_MESSAGE } from './tool-call-gates';
 
 const workflows: WorkflowsConfig = {
   default: 'flow',
@@ -23,6 +24,7 @@ function makeGates(args: {
   recoveryStageIndex?: number;
   approvals?: boolean[];
   notices?: string[];
+  caller?: string;
 } = {}) {
   const helpers = createWorkflowStageGateHelpers({
     workflows,
@@ -46,7 +48,7 @@ function makeGates(args: {
     recordWorkflowStageAttempt: helpers.recordWorkflowStageAttempt,
     notifyWorkflowStageGateSkipped: () => {},
     isCurrentModePipeline: () => args.pipeline === true,
-    resolveDelegationCaller: () => 'caller',
+    resolveDelegationCaller: () => args.caller,
     emitWorkflowStageNotice: (text) => args.notices?.push(text),
   });
   const ctx = { ui: { confirm: async () => approvals.shift() ?? true } };
@@ -56,6 +58,10 @@ function makeGates(args: {
 const spawn = (agent: string) => ({ pool: 'spawn', id: `id-${agent}`, agent, task: 'Do the task with explicit context.' });
 
 describe('tool call workflow stage gates', () => {
+  beforeEach(() => {
+    resetPipelineDelegationGrantsForTests();
+  });
+
   test('allows non-spawn calls without stage checks', async () => {
     const { gates, ctx } = makeGates({ pipeline: true });
     const decision = await gates.gatePipelineSubagent(ctx, { pool: 'list' });
@@ -98,9 +104,17 @@ describe('tool call workflow stage gates', () => {
   });
 
   test('allows current stage without approval', async () => {
-    const { gates, ctx } = makeGates({ pipeline: true, approvals: [false] });
+    const { gates, ctx } = makeGates({ pipeline: true, approvals: [false], caller: 'caller' });
     const decision = await gates.gatePipelineSubagent(ctx, spawn('alpha'));
     expect(decision.ok).toBe(true);
+  });
+
+  test('does not issue pipeline grant when delegation caller is missing', async () => {
+    const { gates, ctx } = makeGates({ pipeline: true, caller: undefined });
+    const decision = await gates.gatePipelineSubagent(ctx, spawn('alpha'));
+
+    expect(decision.ok).toBe(true);
+    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'alpha', depth: 0 })).toBeUndefined();
   });
 
   test('approves next stage, advances cursor, and emits marker', async () => {
@@ -161,5 +175,56 @@ describe('tool call workflow stage gates', () => {
     expect(decision.ok).toBe(true);
     expect(match.helpers.getWorkflowStageRuntimeSnapshot().currentStageIndex).toBe(2);
     expect(match.helpers.getWorkflowStageRuntimeSnapshot().recoveryConsumed).toBe(true);
+  });
+
+  test('agent switch_mode calls require user approval', async () => {
+    const confirmations: Array<{ title: string; message: string }> = [];
+    const { gates } = makeGates();
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async (title: string, message: string) => {
+          confirmations.push({ title, message });
+          return true;
+        },
+      },
+    }, { mode: 'target-mode' });
+
+    expect(decision.ok).toBe(true);
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0].title).toBe(SWITCH_MODE_APPROVAL_MESSAGE.title);
+    expect(confirmations[0].message).toContain(SWITCH_MODE_APPROVAL_MESSAGE.action);
+    expect(confirmations[0].message).toContain('target-mode');
+  });
+
+  test('agent switch_mode calls are blocked when user rejects approval', async () => {
+    const { gates } = makeGates();
+    const decision = await gates.gateSwitchMode({ ui: { confirm: async () => false } }, { mode: 'target-mode' });
+
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('用户拒绝');
+  });
+
+  test('agent switch_mode calls are blocked when approval UI is unavailable', async () => {
+    const { gates } = makeGates();
+    const decision = await gates.gateSwitchMode({}, { mode: 'target-mode' });
+
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('ui.confirm');
+  });
+
+  test('switch_mode calls without target mode do not request approval', async () => {
+    let confirmCalled = false;
+    const { gates } = makeGates();
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async () => {
+          confirmCalled = true;
+          return true;
+        },
+      },
+    }, {});
+
+    expect(decision.ok).toBe(true);
+    expect(confirmCalled).toBe(false);
   });
 });

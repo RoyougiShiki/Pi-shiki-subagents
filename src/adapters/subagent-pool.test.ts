@@ -150,17 +150,15 @@ describe('resolveDelegationCaller', () => {
     expect(fixerTools.includes('bash')).toBe(true);
   });
 
-  test('pipeline stage primary grant is one-shot and carries child allowed subagents', () => {
+  test('pipeline stage primary grant is not issued when caller is missing', () => {
     issuePipelineDelegationGrant({
-      caller: 'coordinator',
+      caller: undefined,
       target: 'analyst',
       depth: 0,
       childAllowedSubagents: ['search'],
     });
 
-    const grant = consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 });
-    expect(grant?.childAllowedSubagents).toEqual(['search']);
-    expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeUndefined();
+    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeUndefined();
   });
 });
 

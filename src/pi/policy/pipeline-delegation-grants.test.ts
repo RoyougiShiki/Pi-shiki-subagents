@@ -26,10 +26,12 @@ describe('pipeline delegation grants', () => {
     expect(consumePipelineDelegationGrant({ caller: 'coordinator', target: 'analyst', depth: 0 })).toBeTruthy();
   });
 
-  test('normalizes blank caller consistently with undefined caller', () => {
-    issuePipelineDelegationGrant({ caller: '   ', target: 'analyst', depth: 0 });
+  test('does not issue grants without a concrete caller', () => {
+    expect(issuePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeUndefined();
+    expect(issuePipelineDelegationGrant({ caller: '   ', target: 'analyst', depth: 0 })).toBeUndefined();
 
-    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeTruthy();
+    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeUndefined();
+    expect(consumePipelineDelegationGrant({ caller: '   ', target: 'analyst', depth: 0 })).toBeUndefined();
   });
 
   test('prunes expired grants before consuming', async () => {

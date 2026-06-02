@@ -27,12 +27,15 @@ function pruneExpired(now = Date.now()): void {
   }
 }
 
-export function issuePipelineDelegationGrant(input: PipelineDelegationGrantInput): PipelineDelegationGrant {
+export function issuePipelineDelegationGrant(input: PipelineDelegationGrantInput): PipelineDelegationGrant | undefined {
   const now = Date.now();
   pruneExpired(now);
+  const caller = normalize(input.caller);
+  const target = normalize(input.target);
+  if (!caller || !target) return undefined;
   const grant: PipelineDelegationGrant = {
-    caller: normalize(input.caller),
-    target: input.target.trim(),
+    caller,
+    target,
     depth: input.depth ?? 0,
     childAllowedSubagents: input.childAllowedSubagents ? [...input.childAllowedSubagents] : undefined,
     expiresAt: now + (input.ttlMs ?? 30_000),
@@ -49,7 +52,8 @@ export function consumePipelineDelegationGrant(input: {
   const now = Date.now();
   pruneExpired(now);
   const caller = normalize(input.caller);
-  const target = input.target.trim();
+  const target = normalize(input.target);
+  if (!caller || !target) return undefined;
   const depth = input.depth ?? 0;
   const index = grants.findIndex((grant) =>
     grant.caller === caller && grant.target === target && grant.depth === depth,

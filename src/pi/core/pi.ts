@@ -50,7 +50,7 @@ export { formatPiCouncilResults, resolvePiCouncilParticipants } from "../meeting
 
 
 export { formatPiMeetingResult, normalizePiMeetingBackend, normalizePiMeetingMaxRounds, normalizePiMeetingObjective } from "../meeting/pi-meeting";
-import { registerSubagentTool, getPool, initPoolModelResolver, resolveDelegationCaller, type PoolAgentInfo } from "../subagent/subagent-pool";
+import { registerSubagentTool, getPool, initPoolModelResolver, resolveDelegationCaller, resolveSubagentToolNamesForAgent, type PoolAgentInfo } from "../subagent/subagent-pool";
 import {
   createComplianceState,
   recordViolation,
@@ -623,12 +623,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       setOnBeforeModeChange(() => {
         toolExecutedThisTurn = false;
       });
-      setOnModeChange((newMode: string) => {
+      setOnModeChange((event) => {
         const prevMode = currentMode;
-        currentMode = newMode;
-        ctx.ui.setStatus("mode", `Mode: ${newMode}`);
+        currentMode = event.mode;
+        ctx.ui.setStatus("mode", `Mode: ${event.mode}`);
         try {
-          emitModeSwitched(pi, prevMode, newMode, true);
+          emitModeSwitched(pi, prevMode, event.mode, event.origin === "tool_call");
         } catch {}
       });
     } catch {}
@@ -665,32 +665,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       if (process.env.OMO_AGENT_NAME) {
         try {
           const agentName = process.env.OMO_AGENT_NAME;
-          const runtimeDefs = loadRuntimeAgentDefinitions(process.cwd());
-          const agentCfg = runtimeDefs[agentName] ?? getAgent(agentName);
+          const agentCfg = getAgent(agentName);
           const allTools = pi.getAllTools();
           const allToolNames = allTools.map((t: any) => t.name).filter(Boolean);
-
-          let allowed = new Set<string>();
-          if (agentCfg) {
-            const groups = (() => {
-              try {
-                const configPath = path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
-                const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-                return raw._tool_groups ?? {};
-              } catch {
-                return {} as Record<string, string[]>;
-              }
-            })();
-
-            if (Array.isArray((agentCfg as any).tools) && (agentCfg as any).tools.length > 0) {
-              allowed = new Set((agentCfg as any).tools);
-            } else if (Array.isArray((agentCfg as any).roles) && (agentCfg as any).roles.length > 0 && Object.keys(groups).length > 0) {
-              for (const role of (agentCfg as any).roles) {
-                const group = (groups as Record<string, string[]>)[role];
-                if (Array.isArray(group)) group.forEach((t: string) => allowed.add(t));
-              }
-            }
-          }
+          const resolvedToolNames = resolveSubagentToolNamesForAgent(agentName, process.cwd());
+          const allowed = new Set(resolvedToolNames ?? []);
 
           const active = allTools.filter((t: any) => allowed.has(t.name)).map((t: any) => t.name);
           // Sub-agent sessions must never inherit parent tool scope.

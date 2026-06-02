@@ -83,7 +83,7 @@ function validateSubagentSpawn(input: TaskContractInput): TaskContractDecision {
   if (!hasText(input.subagentTask)) {
     return block(
       "subagent_task_missing",
-      "[guard] 子代理委托缺少 task。下一步：补全分析对象、期望输出和约束。",
+      "[guard] 子代理委托缺少 task。下一步：补全任务对象、期望输出和约束。",
       ["subagentTask"],
     );
   }
@@ -92,7 +92,7 @@ function validateSubagentSpawn(input: TaskContractInput): TaskContractDecision {
   if (looksLikeObjectlessTask(task)) {
     return block(
       "subagent_task_object_missing",
-      "[guard] 委托任务缺少分析对象。下一步：补全要分析的问题/功能/文件/需求。",
+      "[guard] 委托任务缺少明确对象。下一步：补全要处理的问题/功能/文件/需求。",
       ["analysisObject"],
     );
   }
