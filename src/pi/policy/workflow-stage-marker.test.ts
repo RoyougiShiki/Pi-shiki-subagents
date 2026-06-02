@@ -46,6 +46,20 @@ describe('workflow stage marker', () => {
     expect(parseWorkflowStageMarkersFromEntries([{ content: marker }])?.stageIndex).toBe(4);
   });
 
+  test('ignores markers older than the current session timestamp', () => {
+    const parentMarker = formatWorkflowStageMarker({ event: 'transition_approved', workflowName: 'flow', stageIndex: 1, targetAgent: 'a', timestamp: 100 });
+    const currentMarker = formatWorkflowStageMarker({ event: 'transition_approved', workflowName: 'flow', stageIndex: 2, targetAgent: 'b', timestamp: 200 });
+
+    expect(parseWorkflowStageMarkersFromEntries([parentMarker], { minTimestamp: 150 })).toBeNull();
+    expect(parseWorkflowStageMarkersFromEntries([parentMarker, currentMarker], { minTimestamp: 150 })?.stageIndex).toBe(2);
+  });
+
+  test('ignores legacy markers without timestamp when session timestamp filtering is enabled', () => {
+    const legacyMarker = `[workflow-stage-marker]\nversion: 1\nevent: transition_approved\nworkflow: flow\nstageIndex: 1\nstageId: plan\nstageAgent: beta\ntargetAgent: beta\n[/workflow-stage-marker]`;
+
+    expect(parseWorkflowStageMarkersFromEntries([legacyMarker], { minTimestamp: 150 })).toBeNull();
+  });
+
   test('resume notice mentions candidate and recovery constraints', () => {
     const notice = formatWorkflowStageResumeNotice({ candidate: { workflowName: 'flow', stageIndex: 1, markerEvent: 'transition_approved', source: 'session_marker' } });
     expect(notice).toContain('[workflow-stage-resume]');

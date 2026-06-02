@@ -455,6 +455,21 @@ function createToolImplementations(config: OmniMoConfig | null) {
 
 // ─── Pi extension entry point ──────────────────────────────────────────────
 
+function sessionStartTimestamp(ctx: any): number | undefined {
+  const headerTimestamp = ctx?.sessionManager?.getHeader?.()?.timestamp;
+  const parsedHeader = typeof headerTimestamp === "string" || typeof headerTimestamp === "number"
+    ? Date.parse(String(headerTimestamp))
+    : NaN;
+  if (Number.isFinite(parsedHeader)) return parsedHeader;
+
+  const entries = ctx?.sessionManager?.getEntries?.() ?? [];
+  const firstTimestamp = Array.isArray(entries) ? entries[0]?.timestamp : undefined;
+  const parsedEntry = typeof firstTimestamp === "string" || typeof firstTimestamp === "number"
+    ? Date.parse(String(firstTimestamp))
+    : NaN;
+  return Number.isFinite(parsedEntry) ? parsedEntry : undefined;
+}
+
 export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Clean up sub-agent env vars to prevent stale values from a previous
   // session leaking through extension reload. These are set by subagent-pool
@@ -567,7 +582,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const entries = (ctx as any)?.sessionManager?.getEntries?.()
         ?? (ctx as any)?.sessionManager?.getBranch?.()
         ?? [];
-      workflowSessionRecoveryState.recoveryCandidate = parseWorkflowStageMarkersFromEntries(entries);
+      workflowSessionRecoveryState.recoveryCandidate = parseWorkflowStageMarkersFromEntries(entries, {
+        minTimestamp: sessionStartTimestamp(ctx),
+      });
     } catch {
       workflowSessionRecoveryState.recoveryCandidate = null;
     }

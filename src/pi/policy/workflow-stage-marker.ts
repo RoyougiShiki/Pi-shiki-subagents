@@ -69,7 +69,16 @@ function extractEntryText(entry: unknown): string {
   return extractTextPart(entry).join("\n");
 }
 
-function parseMarkerBlock(block: string): WorkflowStageRecoveryCandidate | null {
+interface WorkflowStageMarkerParseOptions {
+  /** Ignore markers older than this session timestamp. Prevents forked sessions from recovering parent-session markers. */
+  minTimestamp?: number;
+}
+
+function isUsableTimestamp(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseMarkerBlock(block: string, options: WorkflowStageMarkerParseOptions = {}): WorkflowStageRecoveryCandidate | null {
   const fields: Record<string, string> = {};
   for (const rawLine of block.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -88,6 +97,10 @@ function parseMarkerBlock(block: string): WorkflowStageRecoveryCandidate | null 
   const stageIndex = Number(fields.stageIndex);
   if (!Number.isInteger(stageIndex) || stageIndex < 0) return null;
   const timestamp = fields.timestamp ? Number(fields.timestamp) : undefined;
+  const parsedTimestamp = Number.isFinite(timestamp) ? timestamp : undefined;
+  if (isUsableTimestamp(options.minTimestamp) && (!isUsableTimestamp(parsedTimestamp) || parsedTimestamp < options.minTimestamp)) {
+    return null;
+  }
 
   return {
     workflowName,
@@ -95,12 +108,12 @@ function parseMarkerBlock(block: string): WorkflowStageRecoveryCandidate | null 
     stageId: fields.stageId?.trim() || undefined,
     stageAgent: fields.stageAgent?.trim() || undefined,
     markerEvent: event,
-    timestamp: Number.isFinite(timestamp) ? timestamp : undefined,
+    timestamp: parsedTimestamp,
     source: "session_marker",
   };
 }
 
-export function parseWorkflowStageMarkersFromEntries(entries: unknown[]): WorkflowStageRecoveryCandidate | null {
+export function parseWorkflowStageMarkersFromEntries(entries: unknown[], options: WorkflowStageMarkerParseOptions = {}): WorkflowStageRecoveryCandidate | null {
   let last: WorkflowStageRecoveryCandidate | null = null;
   for (const entry of entries ?? []) {
     const text = extractEntryText(entry);
@@ -108,7 +121,7 @@ export function parseWorkflowStageMarkersFromEntries(entries: unknown[]): Workfl
     const regex = /\[workflow-stage-marker\]([\s\S]*?)\[\/workflow-stage-marker\]/g;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(text))) {
-      const parsed = parseMarkerBlock(match[1] ?? "");
+      const parsed = parseMarkerBlock(match[1] ?? "", options);
       if (parsed) last = parsed;
     }
   }
