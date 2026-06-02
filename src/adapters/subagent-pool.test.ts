@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, afterEach } from 'bun:test';
-import { AgentPool, resolveDelegationCaller } from '../pi/subagent/subagent-pool';
+import { AgentPool, resolveDelegationCaller, resolveSubagentToolNamesForAgent } from '../pi/subagent/subagent-pool';
 import type { AgentConfig } from './agent-discovery';
 import { resetToolScope, setToolScope } from '../pi/policy/tool-scope-manager';
 import { consumePipelineDelegationGrant, issuePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from '../pi/policy/pipeline-delegation-grants';
@@ -123,16 +123,31 @@ describe('resolveDelegationCaller', () => {
     expect(resolveDelegationCaller()).toBe('coordinator');
   });
 
-  test('falls back to active mode when env and tool scope are absent', () => {
+  test('does not guess active mode when env and tool scope are absent', () => {
     delete process.env.OMO_AGENT_NAME;
     resetToolScope();
-    expect(resolveDelegationCaller()).toBe('coordinator');
+    expect(resolveDelegationCaller()).toBeUndefined();
   });
 
   test('treats blank env and blank tool scope source as missing', () => {
     process.env.OMO_AGENT_NAME = '   ';
     setToolScope(['omo_subagent'], 'mode', '   ');
-    expect(resolveDelegationCaller()).toBe('coordinator');
+    expect(resolveDelegationCaller()).toBeUndefined();
+  });
+
+  test('uses fallback tool scope as delegation caller for rescue mode', () => {
+    delete process.env.OMO_AGENT_NAME;
+    setToolScope(['omo_subagent'], 'mode', 'fallback');
+    expect(resolveDelegationCaller()).toBe('fallback');
+  });
+
+  test('resolves subagent tools from explicit tools and default role groups', () => {
+    expect(resolveSubagentToolNamesForAgent('worker')).toEqual(['read', 'write', 'edit']);
+    const fixerTools = resolveSubagentToolNamesForAgent('fixer') ?? [];
+    expect(fixerTools.includes('read')).toBe(true);
+    expect(fixerTools.includes('write')).toBe(true);
+    expect(fixerTools.includes('edit')).toBe(true);
+    expect(fixerTools.includes('bash')).toBe(true);
   });
 
   test('pipeline stage primary grant is one-shot and carries child allowed subagents', () => {
@@ -170,6 +185,7 @@ describe('AgentPool basic operations', () => {
 
     expect(event.type).toBe('completed');
     expect(event.response).toBe('task done');
+    expect(createSession.mock.calls[0]?.[0]?.tools).toEqual(['read', 'write', 'edit']);
     expect(pool.list()).toHaveLength(1);
     expect(pool.list()[0].id).toBe('test-agent');
     expect(pool.list()[0].status).toBe('idle');

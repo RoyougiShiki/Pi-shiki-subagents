@@ -29,7 +29,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent } from "./pi-modes";
+import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent, rehydrateActiveModeTools, registerModeCommands, registerModeHooks, registerSwitchModeTool } from "./pi-modes";
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
 import { checkClarification } from "../policy/clarification-policy";
 import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
@@ -65,6 +65,8 @@ import type { WorkflowsConfig } from "../../core/workflow-types";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
 import { createToolCallGates, createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
+import type { WorkflowStageRecoveryCandidate } from "../policy/workflow-stage-runtime";
+import { formatWorkflowStageResumeNotice, parseWorkflowStageMarkersFromEntries } from "../policy/workflow-stage-marker";
 import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../agents/managed-agent-files";
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
@@ -465,6 +467,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   ];
   for (const v of OMO_ENV_VARS) delete process.env[v];
 
+  // ── Mode / agent lifecycle （从 pi-modes.ts 集中注册）─────────────────
+  registerModeCommands(pi);
+  registerModeHooks(pi);
+  registerSwitchModeTool(pi);
+
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
 
@@ -473,9 +480,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   let toolExecutedThisTurn = false; // reset per tool_execution_start
 
   // ── Pipeline state (session-level, 替代 WorkflowManager) ─────────────
+  const workflowSessionRecoveryState: {
+    sessionWasResumed: boolean;
+    recoveryCandidate: WorkflowStageRecoveryCandidate | null;
+  } = { sessionWasResumed: false, recoveryCandidate: null };
+
   const workflowGateHelpers = createWorkflowStageGateHelpers({
     workflows: config?.workflows,
     knownAgents: Object.keys(loadRuntimeAgentDefinitions()),
+    getSessionRecoveryState: () => workflowSessionRecoveryState,
   });
   const getWorkflowStageGateContext = workflowGateHelpers.getWorkflowStageGateContext;
 
@@ -538,10 +551,37 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Mapping file path (user-local, not in repo) ──────────────────────
   // ── Generate agent files on first load ──────────────────────────────
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (event, ctx) => {
     // 启用审计（可通过环境变量控制）
     if (process.env.OMO_AUDIT === "1" || process.env.OMO_DEBUG_TOOLS === "1") {
       setAuditEnabled(true);
+    }
+
+    try {
+      rehydrateActiveModeTools(pi, (ctx as any)?.sessionManager?.getSessionFile?.());
+    } catch {}
+
+    const isResume = (event as any)?.reason === "resume";
+    workflowSessionRecoveryState.sessionWasResumed = isResume;
+    try {
+      const entries = (ctx as any)?.sessionManager?.getEntries?.()
+        ?? (ctx as any)?.sessionManager?.getBranch?.()
+        ?? [];
+      workflowSessionRecoveryState.recoveryCandidate = parseWorkflowStageMarkersFromEntries(entries);
+    } catch {
+      workflowSessionRecoveryState.recoveryCandidate = null;
+    }
+    if (workflowSessionRecoveryState.recoveryCandidate) {
+      workflowSessionRecoveryState.sessionWasResumed = true;
+    }
+    if (isResume || workflowSessionRecoveryState.recoveryCandidate) {
+      try {
+        pi.sendMessage({
+          customType: "workflow_stage_resume",
+          content: formatWorkflowStageResumeNotice({ candidate: workflowSessionRecoveryState.recoveryCandidate }),
+          display: true,
+        }, { deliverAs: "followUp", triggerTurn: false });
+      } catch {}
     }
 
     // 注意：pipeline checkpoint 恢复已从执行决策链路移除。
@@ -778,9 +818,22 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // are blocked as defense-in-depth.
   const { gatePipelineSubagent, gateSwitchMode } = createToolCallGates({
     getWorkflowStageGateContext,
+    getWorkflowStageRuntimeSnapshot: workflowGateHelpers.getWorkflowStageRuntimeSnapshot,
+    advanceWorkflowStage: workflowGateHelpers.advanceWorkflowStage,
+    confirmWorkflowStageRecovery: workflowGateHelpers.confirmWorkflowStageRecovery,
+    recordWorkflowStageAttempt: workflowGateHelpers.recordWorkflowStageAttempt,
     notifyWorkflowStageGateSkipped,
     isCurrentModePipeline,
     resolveDelegationCaller,
+    emitWorkflowStageNotice: (text: string) => {
+      try {
+        pi.sendMessage({
+          customType: "workflow_stage",
+          content: text,
+          display: true,
+        }, { deliverAs: "followUp", triggerTurn: false });
+      } catch {}
+    },
   });
 
   pi.on("tool_call", async (event, ctx) => {

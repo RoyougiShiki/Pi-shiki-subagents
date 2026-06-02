@@ -15,8 +15,8 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
 import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
+import { loadRuntimeAgentDefinitions, type RuntimeAgentDefinition } from "../../adapters/agent-runtime-config";
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
-import { loadActiveMode } from "../core/pi-modes";
 import { getToolScope } from "../policy/tool-scope-manager";
 import { consumePipelineDelegationGrant } from "../policy/pipeline-delegation-grants";
 
@@ -53,7 +53,10 @@ export function resolveDelegationCaller(): string | undefined {
   const snapshot = getToolScope();
   if (snapshot?.sourceName?.trim()) return snapshot.sourceName.trim();
 
-  return loadActiveMode()?.trim() || undefined;
+  // Do not fall back to loadActiveMode(): during extension reload its module-local
+  // session file can be unset, which falls back to the first configured mode and
+  // misclassifies rescue/fallback calls as coordinator delegation.
+  return undefined;
 }
 
 // ── Agent env helpers (unified save/restore to keep 3 env lists in sync) ──
@@ -91,6 +94,48 @@ const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
 const REGISTRY_FILENAME = "pool-registry.json";
 const SESSION_DIR = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
+
+function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
+  const merged: Record<string, string[]> = {};
+  const mergeGroups = (groups: unknown) => {
+    if (!groups || typeof groups !== "object") return;
+    for (const [name, tools] of Object.entries(groups as Record<string, unknown>)) {
+      if (Array.isArray(tools)) merged[name] = tools.filter((tool): tool is string => typeof tool === "string" && tool.trim().length > 0);
+    }
+  };
+
+  try {
+    const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+    mergeGroups(defaults._tool_groups);
+  } catch {}
+  try {
+    const userConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    mergeGroups(userConfig._tool_groups);
+  } catch {}
+  try {
+    const projectConfigPath = path.join(cwd, ".opencode", "oh-my-opencode-slim.json");
+    const projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
+    mergeGroups(projectConfig._tool_groups);
+  } catch {}
+  return merged;
+}
+
+export function resolveSubagentToolNamesForAgent(agentName: string, cwd = process.cwd()): string[] | undefined {
+  const runtime = loadRuntimeAgentDefinitions(cwd)[agentName] as RuntimeAgentDefinition | undefined;
+  if (!runtime) return undefined;
+  if (Array.isArray(runtime.tools) && runtime.tools.length > 0) {
+    return [...new Set(runtime.tools.map((tool) => tool.trim()).filter(Boolean))];
+  }
+  if (Array.isArray(runtime.roles) && runtime.roles.length > 0) {
+    const groups = readToolGroups(cwd);
+    const tools = new Set<string>();
+    for (const role of runtime.roles) {
+      for (const tool of groups[role] ?? []) tools.add(tool);
+    }
+    return [...tools];
+  }
+  return undefined;
+}
 
 interface PoolAgentRecord {
   id: string;
@@ -174,6 +219,7 @@ export async function runIsolatedTask(
       const created = await createAgentSession({
         cwd: opts.cwd,
         sessionManager: SessionManager.inMemory(),
+        tools: resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd),
       });
       session = created.session;
 
@@ -351,27 +397,23 @@ export class AgentPool {
       const resolvedModel = presetModelStr && this.resolveModel ? this.resolveModel(presetModelStr) : undefined;
 
       let session: AgentSession | undefined;
+      const resolvedTools = resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd);
 
       try {
         const created = await this.createSession({
           cwd: opts.cwd,
           sessionManager: SessionManager.inMemory(),
           model: resolvedModel,
+          tools: resolvedTools,
         });
         session = created.session;
 
-        // Apply tool filtering per agent roles from JSON config
+        // Defense-in-depth for SDKs that support runtime tool updates.
+        // The primary boundary is createAgentSession({ tools: resolvedTools }) above,
+        // which avoids async process.env races during before_agent_start.
         try {
-          const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
-          const agentCfg = raw.agents?.[opts.agent.name];
-          const groups = raw._tool_groups ?? {};
-          if (agentCfg?.roles && Object.keys(groups).length > 0) {
-            const toolNames = new Set<string>();
-            for (const role of agentCfg.roles) {
-              const group = groups[role];
-              if (group) group.forEach((t: string) => toolNames.add(t));
-            }
-            (session as any).setActiveToolsByName([...toolNames]);
+          if (resolvedTools && typeof (session as any).setActiveToolsByName === "function") {
+            (session as any).setActiveToolsByName(resolvedTools);
           }
         } catch (err) {
           console.warn(`[pool] Tool filtering failed for "${opts.agent.name}":`, err);

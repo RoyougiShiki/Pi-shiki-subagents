@@ -276,6 +276,17 @@ function applyMode(pi: ExtensionAPI, name: string, notifyChange = true): boolean
   return ok;
 }
 
+export function rehydrateActiveModeTools(pi: ExtensionAPI, sessionFile?: string): string | undefined {
+  try {
+    if (sessionFile) _currentSessionFile = sessionFile;
+    const mode = loadActiveMode();
+    if (!getAgent(mode)) return undefined;
+    return applyMode(pi, mode, false) ? mode : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function getModeInstructions(name: string): string | undefined {
   return getAgent(name)?.instructions;
 }
@@ -284,9 +295,14 @@ export function getModeInstructions(name: string): string | undefined {
  * 当前模式是否走 pipeline 编排（有步骤校验 + 审批 gate）。
  */
 export function isCurrentModePipeline(): boolean {
-  const name = loadActiveMode();
-  const agent = getAgent(name);
-  return agent?.pipelineMode === true;
+  const snapshot = getToolScope();
+  if (!snapshot) return false;
+  if (snapshot.source === "subagent") return false;
+  if (snapshot.source === "mode") {
+    const snapshotAgent = getAgent(snapshot.sourceName);
+    return snapshotAgent?.pipelineMode === true;
+  }
+  return false;
 }
 
 function loadToolGroups(): Record<string, string[]> {
@@ -437,7 +453,7 @@ export function validateModeAllowlist(allTools: string[]): string | null {
 
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
-function registerModeCommands(pi: ExtensionAPI): void {
+export function registerModeCommands(pi: ExtensionAPI): void {
   // Auto-populate oh-my-opencode-slim.json with defaults when missing
   try {
     const configPath = getConfigPath();
@@ -529,7 +545,7 @@ function registerModeCommands(pi: ExtensionAPI): void {
   });
 }
 
-function registerModeHooks(pi: ExtensionAPI): void {
+export function registerModeHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     try { _currentSessionFile = (ctx as any)?.sessionManager?.getSessionFile?.() ?? undefined; } catch { _currentSessionFile = undefined; }
 
@@ -580,10 +596,7 @@ function registerModeHooks(pi: ExtensionAPI): void {
 
 // ── 独立扩展入口 ──────────────────────────────────────────────────────────
 
-export default function (pi: ExtensionAPI) {
-  registerModeCommands(pi);
-  registerModeHooks(pi);
-
+export function registerSwitchModeTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "switch_mode",
     label: "Switch Mode",

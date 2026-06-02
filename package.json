@@ -23,8 +23,7 @@
   ],
   "pi": {
     "extensions": [
-      "./src/pi/core/pi.ts",
-      "./src/pi/core/pi-modes.ts"
+      "./src/pi/core/pi.ts"
     ]
   },
   "repository": {
