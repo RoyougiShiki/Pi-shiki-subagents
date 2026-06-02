@@ -34,12 +34,6 @@ export const CUSTOM_SKILLS: CustomSkill[] = [
     allowedAgents: ['oracle'],
     sourcePath: 'src/skills/simplify',
   },
-  {
-    name: 'codemap',
-    description: 'Repository understanding and hierarchical codemap generation',
-    allowedAgents: ['orchestrator'],
-    sourcePath: 'src/skills/codemap',
-  },
 ];
 
 /**

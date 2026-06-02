@@ -33,7 +33,6 @@ const staticPackagedRequiredFiles = [
   'src/core/workflow-types.ts',
   'src/cli/index.ts',
   'src/skills/simplify/SKILL.md',
-  'src/skills/codemap/SKILL.md',
 ];
 
 function fail(message: string): never {

@@ -363,7 +363,7 @@ omo-managed: true
 
 ### P2：文档与残留
 
-- 更新 Pi 相关 codemap 或设计文档中的 `thinker` 命名。
+- 更新 Pi 相关设计文档中的 `thinker` 命名。
 - 记录旧 OpenCode 后续清理任务，但不在本轮实施。
 
 ---
