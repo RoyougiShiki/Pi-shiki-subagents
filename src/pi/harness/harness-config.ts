@@ -147,7 +147,7 @@ function resolveThresholds(config?: HarnessConfig["toolResultBudget"]): UserThre
   return {
     byTool: config?.thresholds?.byTool,
     default: config?.thresholds?.default,
- ;
+  };
 }
 
 // ─── Config Resolver ─────────────────────────────────────────────────────────

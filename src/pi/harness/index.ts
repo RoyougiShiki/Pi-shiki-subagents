@@ -34,10 +34,12 @@ export {
   BYTES_PER_TOKEN_ESTIMATE,
   MAX_TOOL_RESULT_TOKENS,
   MAX_TOOL_RESULT_BYTES,
-  DEFAULT_TOOL_THRESHOLDS,
+  SYSTEM_TOOL_THRESHOLDS,
+  SYSTEM_DEFAULT_THRESHOLD,
   getToolThreshold,
   shouldSkipPersist,
   SKIP_PERSIST_TOOL_NAMES,
+  type UserThresholdConfig,
 } from "./thresholds";
 
 // Types

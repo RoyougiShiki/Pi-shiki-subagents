@@ -52,7 +52,7 @@ describe("completion auditor", () => {
     // 子代理完成自己的任务是正常的，不应该被 block
     const result = auditCompletion({
       finalText: "任务完成。",
-      evidence: { kinds: ["modification"], pendingSubagentCount: 0 },
+      evidence: { kinds: ["modification", "verification"], pendingSubagentCount: 0 },
       agentContext: subagentContext,
     });
     expect(result.action).toBe("allow");
