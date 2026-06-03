@@ -131,19 +131,27 @@ function isLegacyOmoAgentContent(existing: string, sourceContent: string, label:
     isLegacyGeneratedAgentContent(existing, label);
 }
 
-function writeManagedAgentFile(target: string, managedContent: string, label: string): "updated" {
+interface AgentFileSyncOptions {
+  quiet?: boolean;
+}
+
+function logAgentFileSync(message: string, options?: AgentFileSyncOptions): void {
+  if (!options?.quiet) console.error(`[oh-my-opencode-slim] ${message}`);
+}
+
+function writeManagedAgentFile(target: string, managedContent: string, label: string, options?: AgentFileSyncOptions): "updated" {
   const existing = fs.readFileSync(target, "utf-8");
   fs.writeFileSync(`${target}.bak`, existing, "utf-8");
   fs.writeFileSync(target, managedContent, "utf-8");
-  console.error(`[oh-my-opencode-slim] Updated managed agent file: ${label}`);
+  logAgentFileSync(`Updated managed agent file: ${label}`, options);
   return "updated";
 }
 
-function syncAgentFile(target: string, sourceContent: string, label: string): "created" | "updated" | "skipped" {
+function syncAgentFile(target: string, sourceContent: string, label: string, options?: AgentFileSyncOptions): "created" | "updated" | "skipped" {
   const managedContent = withManagedAgentMetadata(sourceContent);
   if (!fs.existsSync(target)) {
     fs.writeFileSync(target, managedContent, "utf-8");
-    console.error(`[oh-my-opencode-slim] Generated agent file: ${label}`);
+    logAgentFileSync(`Generated agent file: ${label}`, options);
     return "created";
   }
 
@@ -152,13 +160,13 @@ function syncAgentFile(target: string, sourceContent: string, label: string): "c
     if (!isLegacyOmoAgentContent(existing, sourceContent, label)) {
       return "skipped";
     }
-    return writeManagedAgentFile(target, managedContent, label);
+    return writeManagedAgentFile(target, managedContent, label, options);
   }
   if (existing === managedContent) {
     return "skipped";
   }
 
-  return writeManagedAgentFile(target, managedContent, label);
+  return writeManagedAgentFile(target, managedContent, label, options);
 }
 
 function generateAgentMd(
@@ -228,7 +236,7 @@ function removeStaleManagedAgentFiles(agentsDir: string, sourceFiles: Set<string
     try {
       fs.writeFileSync(`${target}.bak`, existing, "utf-8");
       fs.rmSync(target, { force: true });
-      console.error(`[oh-my-opencode-slim] Removed stale managed agent file: ${file}`);
+      logAgentFileSync(`Removed stale managed agent file: ${file}`);
     } catch {}
   }
 }
@@ -263,7 +271,7 @@ export function updateAgentModels(config: AgentSyncConfig | null, presetName: st
     const mdPath = path.join(agentsDir, `${name}.md`);
     if (fs.existsSync(mdPath)) {
       const content = generateAgentMd(name, info.prompt, info.description);
-      syncAgentFile(mdPath, content, `${name}.md`);
+      syncAgentFile(mdPath, content, `${name}.md`, { quiet: true });
     }
 
     const tomlPath = path.join(agentsDir, `${name}.toml`);

@@ -18,7 +18,11 @@ declare module "@earendil-works/pi-coding-agent" {
     ): void;
     registerCommand(
       name: string,
-      options: { description: string; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void },
+      options: { description: string; getArgumentCompletions?: (prefix: string) => any[] | null | Promise<any[] | null>; handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void },
+    ): void;
+    registerShortcut(
+      shortcut: string,
+      options: { description?: string; handler: (ctx: ExtensionContext) => Promise<void> | void },
     ): void;
     registerMessageRenderer(
       customType: string,
@@ -199,13 +203,43 @@ declare module "@earendil-works/pi-coding-agent" {
 }
 
 declare module "@earendil-works/pi-tui" {
+  export type AutocompleteItem = { value: string; label: string; description?: string };
+
   export enum Key {
     up = "up",
     down = "down",
     pageUp = "pageUp",
     pageDown = "pageDown",
+    enter = "enter",
+    escape = "escape",
+    backspace = "backspace",
   }
-  export function matchesKey(data: string, key: Key): boolean;
+  export namespace Key {
+    function ctrl(key: string): string;
+  }
+  export function matchesKey(data: string, key: Key | string): boolean;
+
+  export interface SelectItem {
+    value: string;
+    label: string;
+    description?: string;
+  }
+  export interface SelectListTheme {
+    selectedPrefix: (text: string) => string;
+    selectedText: (text: string) => string;
+    description: (text: string) => string;
+    scrollInfo: (text: string) => string;
+    noMatch: (text: string) => string;
+  }
+  export class SelectList {
+    onSelect?: (item: SelectItem) => void;
+    onCancel?: () => void;
+    constructor(items: SelectItem[], maxVisible: number, theme: SelectListTheme);
+    getSelectedItem(): SelectItem | null;
+    handleInput(data: string): void;
+    invalidate(): void;
+    render(width: number): string[];
+  }
 
   export class Container {
     children: any[];

@@ -40,3 +40,27 @@ export function resolvePresetSwitchPlan(
     thinking: getPresetThinkingForOrchestrator(config, presetName),
   };
 }
+
+export function getPresetNames(config: PresetSwitchConfig | null): string[] {
+  return Object.keys(config?.presets ?? {});
+}
+
+export function getPresetCompletions(
+  config: PresetSwitchConfig | null,
+  prefix: string,
+): Array<{ value: string; label: string; description?: string }> | null {
+  const normalizedPrefix = prefix.trim().toLowerCase();
+  const items = getPresetNames(config)
+    .filter((name) => !normalizedPrefix || name.toLowerCase().includes(normalizedPrefix))
+    .map((name) => {
+      const model = getPresetModelForOrchestrator(config, name);
+      const thinking = getPresetThinkingForOrchestrator(config, name);
+      const details = [model, thinking ? `thinking:${thinking}` : undefined].filter(Boolean);
+      return {
+        value: name,
+        label: name,
+        ...(details.length > 0 ? { description: details.join(" | ") } : {}),
+      };
+    });
+  return items.length > 0 ? items : null;
+}

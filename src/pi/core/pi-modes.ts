@@ -476,6 +476,31 @@ export function validateModeAllowlist(allTools: string[]): string | null {
   return null;
 }
 
+function switchToModeByName(pi: ExtensionAPI, ctx: ExtensionContext, name: string): boolean {
+  const agent = getAgent(name);
+  if (!agent || (agent.type !== "mode" && agent.type !== "both")) return false;
+  runWithModeSwitchOrigin("user_command", () => applyMode(pi, name));
+  saveAgent(name);
+  try { ctx.ui.setStatus("mode", `Mode: ${name}`); } catch {}
+  return true;
+}
+
+function cyclePublicMode(pi: ExtensionAPI, ctx: ExtensionContext, direction: 1 | -1): void {
+  const publics = getPublicAgents();
+  if (publics.length === 0) {
+    try { ctx.ui.notify("没有可切换的模式。", "warning"); } catch {}
+    return;
+  }
+  if (publics.length === 1) return;
+
+  const current = loadActiveMode();
+  const currentIndex = publics.indexOf(current);
+  const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+  const next = publics[(baseIndex + direction + publics.length) % publics.length];
+  if (!next || next === current) return;
+  switchToModeByName(pi, ctx, next);
+}
+
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 export function registerModeCommands(pi: ExtensionAPI): void {
@@ -534,12 +559,7 @@ export function registerModeCommands(pi: ExtensionAPI): void {
           ctx.ui.notify(`未知模式: "${trimmed}"。`, "error");
           return;
         }
-        const agent = getAgent(trimmed);
-        if (agent && (agent.type === "mode" || agent.type === "both")) {
-          runWithModeSwitchOrigin("user_command", () => applyMode(pi, trimmed));
-          saveAgent(trimmed);
-          ctx.ui.setStatus("mode", `Mode: ${trimmed}`);
-        } else {
+        if (!switchToModeByName(pi, ctx, trimmed)) {
           ctx.ui.notify(`"${trimmed}" 不能作为模式使用`, "error");
         }
         return;
@@ -555,10 +575,18 @@ export function registerModeCommands(pi: ExtensionAPI): void {
       if (!selected) return;
       const picked = publics[options.indexOf(selected)];
       if (!picked || picked === current) return;
-      runWithModeSwitchOrigin("user_command", () => applyMode(pi, picked));
-      saveAgent(picked);
-      ctx.ui.setStatus("mode", `Mode: ${picked}`);
+      switchToModeByName(pi, ctx, picked);
     },
+  });
+
+  pi.registerShortcut("ctrl+down", {
+    description: "切换到下一个模式",
+    handler: (ctx) => cyclePublicMode(pi, ctx, 1),
+  });
+
+  pi.registerShortcut("ctrl+up", {
+    description: "切换到上一个模式",
+    handler: (ctx) => cyclePublicMode(pi, ctx, -1),
   });
 }
 

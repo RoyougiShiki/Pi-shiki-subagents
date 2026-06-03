@@ -67,13 +67,32 @@ mock.module("@earendil-works/pi-tui", () => {
     invalidate() {}
     render(_w) { return [""]; }
   }
+  class MockSelectList {
+    items;
+    onSelect;
+    onCancel;
+    constructor(items) { this.items = items; }
+    getSelectedItem() { return this.items[0] ?? null; }
+    handleInput(_d) {}
+    invalidate() {}
+    render(_w) { return this.items.length ? this.items.map((item) => item.label) : [""]; }
+  }
   return {
     Input: MockInput,
     Container: MockContainer,
     Spacer: MockSpacer,
     Text: MockText,
+    SelectList: MockSelectList,
     matchesKey: () => false,
-    Key: { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown' },
+    Key: {
+      up: 'up',
+      down: 'down',
+      pageUp: 'pageUp',
+      pageDown: 'pageDown',
+      enter: 'enter',
+      escape: 'escape',
+      ctrl: (key: string) => `ctrl+${key}`,
+    },
   };
 });
 

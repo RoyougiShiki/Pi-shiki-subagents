@@ -22,9 +22,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
+  DynamicBorder,
   getAgentDir,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+  Input,
+  SelectList,
+  Spacer,
+  Text,
+} from "@earendil-works/pi-tui";
+import type { AutocompleteItem, SelectItem, SelectListTheme } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -69,7 +77,8 @@ import type { WorkflowStageRecoveryCandidate } from "../policy/workflow-stage-ru
 import { formatWorkflowStageResumeNotice, parseWorkflowStageMarkersFromEntries } from "../policy/workflow-stage-marker";
 import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../agents/managed-agent-files";
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
-import { getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
+import { ORCHESTRATOR_NAME } from "../../config/constants";
+import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -78,6 +87,9 @@ export { parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch
 // ─── Config helpers ────────────────────────────────────────────────────────
 
 const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls"];
+const PRESET_MODEL_SUBCOMMAND = "model";
+const LEGACY_RESERVED_PRESET_KEYS = new Set<string>(["master"]);
+const PRESET_MODEL_SELECTOR_MAX_VISIBLE = 12;
 
 export interface PiCouncilParticipantConfig {
   name?: string;
@@ -97,7 +109,7 @@ export interface PiCouncilConfig {
 
 export interface OmniMoConfig {
   preset?: string;
-  presets?: Record<string, Record<string, { model?: string; variant?: string; thinking?: string }>>;
+  presets?: Record<string, Record<string, { model?: string; variant?: string; thinking?: string } | Record<string, unknown>>>;
   agents?: Record<string, { model?: string; variant?: string; thinking?: string }>;
   disabled_agents?: string[];
   council?: PiCouncilConfig;
@@ -193,6 +205,69 @@ function readPiNativeConfig(): OmniMoConfig | null {
     } catch {}
   }
   return null;
+}
+
+function getPiNativeConfigPath(): string {
+  const configBase = path.join(getPiAgentDirForConfig(), "oh-my-opencode-slim");
+  const jsoncPath = `${configBase}.jsonc`;
+  const jsonPath = `${configBase}.json`;
+  if (fs.existsSync(jsoncPath)) return jsoncPath;
+  return jsonPath;
+}
+
+function writePiNativeConfig(config: OmniMoConfig): void {
+  const configPath = getPiNativeConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+}
+
+function getConfigPresetNames(config: OmniMoConfig | null): string[] {
+  return Object.keys(config?.presets ?? {});
+}
+
+function getConfigAgentNames(config: OmniMoConfig | null, presetName: string): string[] {
+  const names = new Set<string>(Object.keys(AGENT_PROMPTS));
+  for (const name of Object.keys(config?.agents ?? {})) names.add(name);
+  for (const name of Object.keys(config?.presets?.[presetName] ?? {})) names.add(name);
+  for (const reserved of LEGACY_RESERVED_PRESET_KEYS) names.delete(reserved);
+  return [...names].sort();
+}
+
+function normalizeModelReference(model: string): string | undefined {
+  const parsed = parsePiModelId(model);
+  return parsed ? `${parsed.provider}/${parsed.model}` : undefined;
+}
+
+function getConfiguredAgentModel(config: OmniMoConfig, presetName: string, agentName: string): string | undefined {
+  const presetOverride = config.presets?.[presetName]?.[agentName];
+  const globalOverride = config.agents?.[agentName];
+  const presetModel = typeof presetOverride === "object" && presetOverride !== null ? (presetOverride as { model?: unknown }).model : undefined;
+  const globalModel = typeof globalOverride === "object" && globalOverride !== null ? (globalOverride as { model?: unknown }).model : undefined;
+  return typeof presetModel === "string" ? presetModel : typeof globalModel === "string" ? globalModel : undefined;
+}
+
+function getAvailableModels(ctx: ExtensionContext): Array<{ provider: string; id: string }> {
+  const registry = ctx.modelRegistry as any;
+  try { registry.refresh?.(); } catch {}
+  const models = typeof registry.getAvailable === "function" ? registry.getAvailable() : registry.getAll?.() ?? [];
+  return (models as Array<{ provider?: unknown; id?: unknown }>).filter(
+    (model): model is { provider: string; id: string } => typeof model.provider === "string" && typeof model.id === "string",
+  );
+}
+
+function getModelCompletionItems(ctx: ExtensionContext, prefix: string): AutocompleteItem[] | null {
+  const normalizedPrefix = prefix.trim().toLowerCase();
+  const models = getAvailableModels(ctx);
+  const filtered = models.filter((model) => {
+    const ref = `${model.provider}/${model.id}`;
+    return !normalizedPrefix || ref.toLowerCase().includes(normalizedPrefix) || model.id.toLowerCase().includes(normalizedPrefix);
+  });
+  if (filtered.length === 0) return null;
+  return filtered.map((model) => ({
+    value: `${model.provider}/${model.id}`,
+    label: model.id,
+    description: model.provider,
+  }));
 }
 
 export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
@@ -947,13 +1022,284 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Agent review followUp disabled: avoid chat pollution and context drift.
   let _debugProviderLogged = false;
 
+  function getPresetCommandCompletions(prefix: string): AutocompleteItem[] | null {
+    const latestConfig = loadOmniMoConfig();
+    const trimmed = prefix.trimStart();
+    const presetItems = getPresetCompletions(latestConfig, trimmed) ?? [];
+
+    if (!trimmed.includes(" ")) {
+      const modelItem: AutocompleteItem = {
+        value: PRESET_MODEL_SUBCOMMAND,
+        label: PRESET_MODEL_SUBCOMMAND,
+        description: "Set a model for one agent in a preset",
+      };
+      const items = [modelItem, ...presetItems].filter((item) =>
+        !trimmed || item.value.toLowerCase().includes(trimmed.toLowerCase()),
+      );
+      return items.length > 0 ? items : null;
+    }
+
+    const subcommand = trimmed.split(/\s+/, 1)[0];
+    if (subcommand !== PRESET_MODEL_SUBCOMMAND) return presetItems.length > 0 ? presetItems : null;
+
+    const rest = trimmed.slice(PRESET_MODEL_SUBCOMMAND.length).trimStart();
+    const endsWithSpace = /\s$/.test(trimmed);
+    const tokens = rest ? rest.split(/\s+/) : [];
+    const presetNames = getConfigPresetNames(latestConfig);
+
+    if (tokens.length === 0 || (tokens.length === 1 && !endsWithSpace)) {
+      const presetPrefix = tokens[0] ?? "";
+      const items = presetNames
+        .filter((name) => !presetPrefix || name.toLowerCase().includes(presetPrefix.toLowerCase()))
+        .map((name) => ({
+          value: `${PRESET_MODEL_SUBCOMMAND} ${name}`,
+          label: name,
+          description: "preset",
+        }));
+      return items.length > 0 ? items : null;
+    }
+
+    const presetName = tokens[0]!;
+    if (tokens.length === 1 && endsWithSpace || tokens.length === 2 && !endsWithSpace) {
+      if (!latestConfig?.presets?.[presetName]) return null;
+      const agentPrefix = tokens.length === 2 ? tokens[1]! : "";
+      const items = getConfigAgentNames(latestConfig, presetName)
+        .filter((name) => !agentPrefix || name.toLowerCase().includes(agentPrefix.toLowerCase()))
+        .map((name) => ({
+          value: `${PRESET_MODEL_SUBCOMMAND} ${presetName} ${name}`,
+          label: name,
+          description: getConfiguredAgentModel(latestConfig as OmniMoConfig, presetName, name) ?? "agent",
+        }));
+      return items.length > 0 ? items : null;
+    }
+
+    return null;
+  }
+
+  async function selectPresetModel(ctx: ExtensionContext, currentModelRef?: string): Promise<string | undefined> {
+    const models = getAvailableModels(ctx);
+    if (models.length === 0) {
+      ctx.ui.notify("No available models found. Configure provider auth first.", "warning");
+      return undefined;
+    }
+
+    type PresetModelOption = { provider: string; id: string; ref: string; name?: string };
+    const options: PresetModelOption[] = models
+      .map((model) => ({
+        provider: model.provider,
+        id: model.id,
+        ref: `${model.provider}/${model.id}`,
+        name: typeof (model as { name?: unknown }).name === "string" ? (model as unknown as { name: string }).name : undefined,
+      }))
+      .sort((a, b) => {
+        if (currentModelRef) {
+          if (a.ref === currentModelRef && b.ref !== currentModelRef) return -1;
+          if (b.ref === currentModelRef && a.ref !== currentModelRef) return 1;
+        }
+        const providerCompare = a.provider.localeCompare(b.provider);
+        return providerCompare || a.id.localeCompare(b.id);
+      });
+
+    return ctx.ui.custom<string | undefined>(
+      (tui, theme, _kb, done) => {
+        const searchInput = new Input();
+        const topBorder = new DynamicBorder((s: string) => theme.fg("accent", s));
+        const title = new Text(theme.fg("accent", theme.bold("Select model for preset agent")), 1, 0);
+        const hint = new Text(theme.fg("dim", "Type to filter · ↑↓ move · Enter select · Esc cancel"), 1, 0);
+        const spacer = new Spacer(1);
+        const bottomBorder = new DynamicBorder((s: string) => theme.fg("accent", s));
+        const selectTheme: SelectListTheme = {
+          selectedPrefix: (text: string) => theme.fg("accent", text),
+          selectedText: (text: string) => theme.fg("accent", text),
+          description: (text: string) => theme.fg("muted", text),
+          scrollInfo: (text: string) => theme.fg("dim", text),
+          noMatch: (text: string) => theme.fg("warning", text),
+        };
+
+        let disposed = false;
+        let selectList = createSelectList("");
+
+        searchInput.onSubmit = () => {
+          const selected = selectList.getSelectedItem();
+          if (selected) safeDone(selected.value);
+        };
+        searchInput.onEscape = () => safeDone(undefined);
+
+        function safeDone(value: string | undefined) {
+          if (disposed) return;
+          disposed = true;
+          done(value);
+        }
+
+        function toSelectItem(option: PresetModelOption): SelectItem {
+          const details = [option.provider, option.name, option.ref === currentModelRef ? "current" : undefined]
+            .filter((part): part is string => Boolean(part));
+          return {
+            value: option.ref,
+            label: option.id,
+            ...(details.length > 0 ? { description: details.join(" · ") } : {}),
+          };
+        }
+
+        function filterOptions(query: string): PresetModelOption[] {
+          const normalized = query.trim().toLowerCase();
+          if (!normalized) return options;
+          return options.filter((option) => {
+            const haystack = `${option.ref} ${option.id} ${option.provider} ${option.name ?? ""}`.toLowerCase();
+            return haystack.includes(normalized);
+          });
+        }
+
+        function createSelectList(query: string): SelectList {
+          const list = new SelectList(
+            filterOptions(query).map(toSelectItem),
+            PRESET_MODEL_SELECTOR_MAX_VISIBLE,
+            selectTheme,
+          );
+          list.onSelect = (item: SelectItem) => safeDone(item.value);
+          list.onCancel = () => safeDone(undefined);
+          return list;
+        }
+
+        function refreshFilter() {
+          selectList = createSelectList(searchInput.getValue());
+        }
+
+        return {
+          get focused() { return searchInput.focused; },
+          set focused(value: boolean) { searchInput.focused = value; },
+          render(width: number) {
+            return [
+              ...topBorder.render(width),
+              ...title.render(width),
+              ...hint.render(width),
+              ...spacer.render(width),
+              ...searchInput.render(width),
+              ...spacer.render(width),
+              ...selectList.render(width),
+              ...spacer.render(width),
+              ...bottomBorder.render(width),
+            ];
+          },
+          invalidate() {
+            topBorder.invalidate();
+            title.invalidate();
+            hint.invalidate();
+            spacer.invalidate();
+            searchInput.invalidate();
+            selectList.invalidate();
+            bottomBorder.invalidate();
+          },
+          handleInput(data: string) {
+            const before = searchInput.getValue();
+            selectList.handleInput(data);
+            if (disposed) return;
+            searchInput.handleInput(data);
+            if (searchInput.getValue() !== before) refreshFilter();
+            tui.requestRender();
+          },
+          dispose() { safeDone(undefined); },
+        };
+      },
+      {
+        overlay: true,
+        overlayOptions: {
+          width: "100%",
+          maxHeight: Math.max(12, PRESET_MODEL_SELECTOR_MAX_VISIBLE + 8),
+          anchor: "bottom-center",
+          margin: 0,
+        },
+      },
+    );
+  }
+
+  async function handlePresetModelCommand(args: string, ctx: ExtensionContext): Promise<void> {
+    const config = readPiNativeConfig() ?? loadOmniMoConfig() ?? { presets: {} };
+    config.presets ??= {};
+
+    const tokens = args.trim().split(/\s+/).filter(Boolean);
+    let presetName = tokens[0];
+    let agentName = tokens[1];
+    let modelRef = tokens[2];
+
+    if (!presetName) {
+      const presetNames = getConfigPresetNames(config);
+      if (presetNames.length === 0) {
+        ctx.ui.notify("No presets configured.", "error");
+        return;
+      }
+      const selectedPreset = await ctx.ui.select("Select preset", presetNames);
+      if (!selectedPreset) return;
+      presetName = selectedPreset;
+    }
+
+    if (!config.presets[presetName]) {
+      ctx.ui.notify(`Preset "${presetName}" not found.`, "error");
+      return;
+    }
+
+    if (!agentName) {
+      const agentNames = getConfigAgentNames(config, presetName);
+      const selectedAgent = await ctx.ui.select("Select agent", agentNames);
+      if (!selectedAgent) return;
+      agentName = selectedAgent;
+    }
+
+    const currentModelRef = getConfiguredAgentModel(config, presetName, agentName);
+    if (!modelRef) {
+      const selectedModel = await selectPresetModel(ctx, currentModelRef);
+      if (!selectedModel) return;
+      modelRef = selectedModel;
+    }
+
+    const normalizedModelRef = normalizeModelReference(modelRef);
+    if (!normalizedModelRef) {
+      ctx.ui.notify(`Invalid model id "${modelRef}". Expected provider/model.`, "error");
+      return;
+    }
+
+    const parsed = parsePiModelId(normalizedModelRef)!;
+    const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
+    if (!model) {
+      ctx.ui.notify(`Model not found: ${normalizedModelRef}`, "error");
+      return;
+    }
+
+    const preset = config.presets[presetName]!;
+    const existing = typeof preset[agentName] === "object" && preset[agentName] !== null ? preset[agentName] as Record<string, unknown> : {};
+    preset[agentName] = { ...existing, model: normalizedModelRef };
+    writePiNativeConfig(config);
+
+    const effects = [`${presetName}.${agentName}.model = ${normalizedModelRef}`, `saved to ${getPiNativeConfigPath()}`];
+    if (presetName === currentPreset) {
+      updateAgentModels(config, presetName);
+      effects.push("active agent files updated");
+      if (agentName === ORCHESTRATOR_NAME) {
+        const switched = await pi.setModel(model);
+        effects.push(switched ? `${ORCHESTRATOR_NAME} model switched now` : `${ORCHESTRATOR_NAME} model saved but not switched: no API key`);
+      }
+    }
+
+    ctx.ui.notify(`Preset model updated:\n${effects.map((effect) => `- ${effect}`).join("\n")}`, "success");
+  }
+
   // ── Commands ────────────────────────────────────────────────────────
   pi.registerCommand("preset", {
     description:
       "Switch model preset. Usage: /preset <name>\n" +
       "Configure presets in ~/.config/opencode/oh-my-opencode-slim.json",
+    ...(getPresetCommandCompletions ? {
+      getArgumentCompletions: (prefix: string): AutocompleteItem[] | null =>
+        getPresetCommandCompletions(prefix),
+    } : {}),
     handler: async (args, ctx) => {
-      const name = args.trim();
+      const rawArgs = args.trim();
+      if (rawArgs === PRESET_MODEL_SUBCOMMAND || rawArgs.startsWith(`${PRESET_MODEL_SUBCOMMAND} `)) {
+        await handlePresetModelCommand(rawArgs.slice(PRESET_MODEL_SUBCOMMAND.length), ctx);
+        return;
+      }
+
+      const name = rawArgs;
       if (!name) {
         ctx.ui.notify(
           `Usage: /preset <name>. Current: ${currentPreset}`,
@@ -978,17 +1324,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       if (plan.model) {
         const parsed = parsePiModelId(plan.model);
         if (!parsed) {
-          effects.push(`orchestrator model not switched: invalid model id ${plan.model}`);
+          effects.push(`${ORCHESTRATOR_NAME} model not switched: invalid model id ${plan.model}`);
         } else {
           const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
           if (!model) {
-            effects.push(`orchestrator model not switched: model not found ${plan.model}`);
+            effects.push(`${ORCHESTRATOR_NAME} model not switched: model not found ${plan.model}`);
           } else {
             const switched = await pi.setModel(model);
             effects.push(
               switched
-                ? `orchestrator model switched to ${plan.model}`
-                : `orchestrator model not switched: no API key for ${plan.model}`,
+                ? `${ORCHESTRATOR_NAME} model switched to ${plan.model}`
+                : `${ORCHESTRATOR_NAME} model not switched: no API key for ${plan.model}`,
             );
           }
         }
