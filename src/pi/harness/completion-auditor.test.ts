@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { auditCompletion, type CompletionEvidenceSummary } from "./completion-auditor";
+import { type AgentContext } from "./agent-context";
 
 const emptyEvidence: CompletionEvidenceSummary = { kinds: [] };
+const mainAgentContext: AgentContext = { role: "main" };
+const subagentContext: AgentContext = { role: "subagent", agentName: "worker-1" };
 
 describe("completion auditor", () => {
   test("allows neutral text without claims", () => {
@@ -33,11 +36,62 @@ describe("completion auditor", () => {
     expect(result.action).toBe("allow");
   });
 
-  test("blocks completion with pending subagent", () => {
-    const result = auditCompletion({ finalText: "全部完成。", evidence: { kinds: [], pendingSubagentCount: 1 } });
+  // ─── Agent Context 区分测试 ───────────────────────────────────────────────
+
+  test("blocks completion with pending subagent for main agent", () => {
+    const result = auditCompletion({
+      finalText: "全部完成。",
+      evidence: { kinds: [], pendingSubagentCount: 1 },
+      agentContext: mainAgentContext,
+    });
     expect(result.action).toBe("block");
     expect(result.issues[0]?.id).toBe("completion_with_pending_subagent");
   });
+
+  test("allows completion with pending subagent for subagent (it completes itself)", () => {
+    // 子代理完成自己的任务是正常的，不应该被 block
+    const result = auditCompletion({
+      finalText: "任务完成。",
+      evidence: { kinds: ["modification"], pendingSubagentCount: 0 },
+      agentContext: subagentContext,
+    });
+    expect(result.action).toBe("allow");
+  });
+
+  test("subagent does not check pending subagents even if count > 0", () => {
+    // 子代理不应该检查 pending subagent count
+    // 因为它只完成自己的任务，不负责等待其他子代理
+    const result = auditCompletion({
+      finalText: "我的任务完成了。",
+      evidence: { kinds: ["modification"], pendingSubagentCount: 5 },
+      agentContext: subagentContext,
+    });
+    // 子代理声明完成，没有 verification，所以会 warn
+    expect(result.action).toBe("warn");
+    expect(result.issues.map((i) => i.id)).not.toContain("completion_with_pending_subagent");
+  });
+
+  test("main agent checks pending tasks", () => {
+    const result = auditCompletion({
+      finalText: "全部完成。",
+      evidence: { kinds: [], pendingTaskCount: 2 },
+      agentContext: mainAgentContext,
+    });
+    expect(result.action).toBe("block");
+    expect(result.issues[0]?.id).toBe("completion_with_pending_tasks");
+  });
+
+  test("subagent does not check pending tasks", () => {
+    const result = auditCompletion({
+      finalText: "任务完成。",
+      evidence: { kinds: [], pendingTaskCount: 5 },
+      agentContext: subagentContext,
+    });
+    // 子代理不检查 pending tasks
+    expect(result.action).toBe("allow");
+  });
+
+  // ─── 自定义 messages 测试 ────────────────────────────────────────────────
 
   test("supports caller-provided messages without hard-coded logic strings", () => {
     const result = auditCompletion(
