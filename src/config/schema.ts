@@ -206,6 +206,81 @@ export const FailoverConfigSchema = z.object({
 
 export type FailoverConfig = z.infer<typeof FailoverConfigSchema>;
 
+export const HarnessPatternConfigSchema = z
+  .object({
+    completion: z.array(z.string()).optional(),
+    testPass: z.array(z.string()).optional(),
+    lintPass: z.array(z.string()).optional(),
+    typecheckPass: z.array(z.string()).optional(),
+    acknowledgesFailure: z.array(z.string()).optional(),
+    acknowledgesUnverified: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export const HarnessMessageConfigSchema = z
+  .object({
+    verificationEvidence: z
+      .object({
+        subagentPending: z.string().optional(),
+        toolFailedWithoutRecovery: z.string().optional(),
+        modificationWithoutVerification: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    completionAuditor: z
+      .object({
+        testPassWithoutEvidence: z.string().optional(),
+        lintPassWithoutEvidence: z.string().optional(),
+        typecheckPassWithoutEvidence: z.string().optional(),
+        completionWithPendingSubagent: z.string().optional(),
+        completionWithPendingTasks: z.string().optional(),
+        completionAfterFailureWithoutAcknowledgement: z.string().optional(),
+        modificationWithoutVerification: z.string().optional(),
+        injectedHeader: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    toolResultBudget: z
+      .object({
+        persistedOutputTemplate: z.string().optional(),
+        clearedOutputTemplate: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const HarnessConfigSchema = z
+  .object({
+    completionAuditor: z
+      .object({
+        enabled: z.boolean().optional(),
+        blockOnUnverifiedModification: z.boolean().optional(),
+        patterns: HarnessPatternConfigSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    toolResultBudget: z
+      .object({
+        enabled: z.boolean().optional(),
+        thresholds: z
+          .object({
+            default: z.number().int().positive().optional(),
+            byTool: z.record(z.string(), z.number().int().positive()).optional(),
+          })
+          .strict()
+          .optional(),
+        previewChars: z.number().int().positive().optional(),
+        storageBaseDir: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
+    messages: HarnessMessageConfigSchema.optional(),
+  })
+  .strict();
+
+export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
+
 const ReviewConfigSchema = z.object({
   agent: z.string(),
   maxRetries: z.number().int().min(1).optional(),
@@ -332,6 +407,7 @@ export const PluginConfigSchema = z
     workflows: WorkflowsConfigSchema.optional(),
     todoContinuation: TodoContinuationConfigSchema.optional(),
     fallback: FailoverConfigSchema.optional(),
+    harness: HarnessConfigSchema.optional(),
     council: CouncilConfigSchema.optional(),
     visionModel: z
       .string()

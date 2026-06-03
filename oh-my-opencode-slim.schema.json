@@ -520,19 +520,13 @@
                   "outputSchema": "analysis",
                   "allowedSubagents": [
                     "search"
-                  ],
-                  "review": {
-                    "agent": "oracle"
-                  }
+                  ]
                 },
                 {
                   "id": "plan",
                   "agent": "designer",
                   "description": "生成实施计划与任务文件",
-                  "outputSchema": "plan",
-                  "review": {
-                    "agent": "oracle"
-                  }
+                  "outputSchema": "plan"
                 },
                 {
                   "id": "implement",
@@ -553,10 +547,7 @@
                   "outputSchema": "analysis",
                   "allowedSubagents": [
                     "search"
-                  ],
-                  "review": {
-                    "agent": "oracle"
-                  }
+                  ]
                 },
                 {
                   "id": "worker",
@@ -577,10 +568,7 @@
                   "outputSchema": "analysis",
                   "allowedSubagents": [
                     "search"
-                  ],
-                  "review": {
-                    "agent": "oracle"
-                  }
+                  ]
                 }
               ]
             }
@@ -769,6 +757,169 @@
           "type": "boolean"
         }
       }
+    },
+    "harness": {
+      "type": "object",
+      "properties": {
+        "completionAuditor": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "blockOnUnverifiedModification": {
+              "type": "boolean"
+            },
+            "patterns": {
+              "type": "object",
+              "properties": {
+                "completion": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "testPass": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "lintPass": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "typecheckPass": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "acknowledgesFailure": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "acknowledgesUnverified": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "toolResultBudget": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "thresholds": {
+              "type": "object",
+              "properties": {
+                "default": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "byTool": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "previewChars": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "storageBaseDir": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "messages": {
+          "type": "object",
+          "properties": {
+            "verificationEvidence": {
+              "type": "object",
+              "properties": {
+                "subagentPending": {
+                  "type": "string"
+                },
+                "toolFailedWithoutRecovery": {
+                  "type": "string"
+                },
+                "modificationWithoutVerification": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "completionAuditor": {
+              "type": "object",
+              "properties": {
+                "testPassWithoutEvidence": {
+                  "type": "string"
+                },
+                "lintPassWithoutEvidence": {
+                  "type": "string"
+                },
+                "typecheckPassWithoutEvidence": {
+                  "type": "string"
+                },
+                "completionWithPendingSubagent": {
+                  "type": "string"
+                },
+                "completionWithPendingTasks": {
+                  "type": "string"
+                },
+                "completionAfterFailureWithoutAcknowledgement": {
+                  "type": "string"
+                },
+                "modificationWithoutVerification": {
+                  "type": "string"
+                },
+                "injectedHeader": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            },
+            "toolResultBudget": {
+              "type": "object",
+              "properties": {
+                "persistedOutputTemplate": {
+                  "type": "string"
+                },
+                "clearedOutputTemplate": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "council": {
       "type": "object",

@@ -437,6 +437,63 @@ describe('deepMerge behavior', () => {
     const config = loadPluginConfig(projectDir);
     expect(config.fallback?.chains.writing).toEqual(['openai/gpt-5.5']);
   });
+
+  test('merges harness config from user and project', () => {
+    const userOpencodeDir = path.join(userConfigDir, 'opencode');
+    fs.mkdirSync(userOpencodeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userOpencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        harness: {
+          completionAuditor: {
+            blockOnUnverifiedModification: true,
+          },
+          toolResultBudget: {
+            thresholds: {
+              default: 1000,
+              byTool: { bash: 2000 },
+            },
+          },
+          messages: {
+            completionAuditor: {
+              testPassWithoutEvidence: 'USER_TEST',
+            },
+          },
+        },
+      }),
+    );
+
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        harness: {
+          toolResultBudget: {
+            thresholds: {
+              byTool: { grep: 3000 },
+            },
+            previewChars: 120,
+          },
+          messages: {
+            verificationEvidence: {
+              subagentPending: 'PROJECT_SUBAGENT',
+            },
+          },
+        },
+      }),
+    );
+
+    const config = loadPluginConfig(projectDir);
+    expect(config.harness?.completionAuditor?.blockOnUnverifiedModification).toBe(true);
+    expect(config.harness?.toolResultBudget?.thresholds?.default).toBe(1000);
+    expect(config.harness?.toolResultBudget?.thresholds?.byTool?.bash).toBe(2000);
+    expect(config.harness?.toolResultBudget?.thresholds?.byTool?.grep).toBe(3000);
+    expect(config.harness?.toolResultBudget?.previewChars).toBe(120);
+    expect(config.harness?.messages?.completionAuditor?.testPassWithoutEvidence).toBe('USER_TEST');
+    expect(config.harness?.messages?.verificationEvidence?.subagentPending).toBe('PROJECT_SUBAGENT');
+  });
 });
 
 describe('preset resolution', () => {

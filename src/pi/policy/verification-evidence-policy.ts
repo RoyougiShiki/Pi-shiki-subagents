@@ -1,3 +1,6 @@
+import { DEFAULT_HARNESS_MESSAGES } from "../harness/messages";
+import type { HarnessMessageCatalog } from "../harness/types";
+
 export interface VerificationEvidenceState {
   hasRead: boolean;
   hasModify: boolean;
@@ -16,14 +19,24 @@ export interface VerificationEvidenceContext {
 export interface VerificationEvidenceDecision {
   action: "allow" | "warn";
   reason?: string;
+  messageKey?: keyof HarnessMessageCatalog["verificationEvidence"];
   hint?: string;
+}
+
+export interface VerificationEvidenceOptions {
+  messages?: HarnessMessageCatalog["verificationEvidence"];
 }
 
 const allow = (): VerificationEvidenceDecision => ({ action: "allow" });
 
-const warn = (reason: string, hint: string): VerificationEvidenceDecision => ({
+const warn = (
+  reason: string,
+  messageKey: keyof HarnessMessageCatalog["verificationEvidence"],
+  hint: string,
+): VerificationEvidenceDecision => ({
   action: "warn",
   reason,
+  messageKey,
   hint,
 });
 
@@ -36,25 +49,31 @@ const warn = (reason: string, hint: string): VerificationEvidenceDecision => ({
 export function checkVerificationEvidence(
   state: VerificationEvidenceState,
   context: VerificationEvidenceContext = {},
+  options: VerificationEvidenceOptions = {},
 ): VerificationEvidenceDecision {
+  const messages = options.messages ?? DEFAULT_HARNESS_MESSAGES.verificationEvidence;
+
   if (context.dependingOnSubagent && state.hasSubagentPending) {
     return warn(
       "subagent_pending",
-      "[guard] 子代理尚未完成；等待完成通知后再总结其结果。",
+      "subagentPending",
+      messages.subagentPending,
     );
   }
 
   if ((context.afterToolFailure || state.hasFailure) && !state.hasVerification) {
     return warn(
       "tool_failed_without_recovery",
-      "[guard] 上一步工具失败；不要宣称完成，请先处理失败或说明未完成。",
+      "toolFailedWithoutRecovery",
+      messages.toolFailedWithoutRecovery,
     );
   }
 
   if ((context.afterModification || state.hasModify || context.userAskedForFinal) && state.hasModify && !state.hasVerification) {
     return warn(
       "modified_without_verification",
-      "[guard] 已有修改证据，但未检测到验证证据；总结时请明确“尚未验证”。",
+      "modificationWithoutVerification",
+      messages.modificationWithoutVerification,
     );
   }
 

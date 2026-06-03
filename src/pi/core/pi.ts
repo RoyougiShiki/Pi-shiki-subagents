@@ -40,7 +40,7 @@ import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent, rehydrateActiveModeTools, registerModeCommands, registerModeHooks, registerSwitchModeTool } from "./pi-modes";
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
 import { checkClarification } from "../policy/clarification-policy";
-import { recordEvidence, getWriteEvidences } from "../policy/evidence-tracker";
+import { recordEvidence, getEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
 // pipeline-state 已从执行决策链路移除
 
@@ -70,6 +70,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { getHub } from "../meeting/pi-hub";
 
 import type { WorkflowsConfig } from "../../core/workflow-types";
+import type { HarnessConfig } from "../../config/schema";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
 import { createToolCallGates, createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
@@ -79,6 +80,7 @@ import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../a
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { ORCHESTRATOR_NAME } from "../../config/constants";
 import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
+import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit } from "../harness";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -114,6 +116,7 @@ export interface OmniMoConfig {
   disabled_agents?: string[];
   council?: PiCouncilConfig;
   workflows?: WorkflowsConfig;
+  harness?: HarnessConfig;
 }
 
 interface PiDelegationCapabilities {
@@ -545,6 +548,39 @@ function sessionStartTimestamp(ctx: any): number | undefined {
   return Number.isFinite(parsedEntry) ? parsedEntry : undefined;
 }
 
+// ─── Harness helpers ────────────────────────────────────────────────────────
+
+function expandHomePath(filepath: string): string {
+  if (filepath.startsWith("~")) {
+    return path.join(homedir(), filepath.slice(1));
+  }
+  return filepath;
+}
+
+function extractTextFromContentParts(content: any[]): string {
+  if (!Array.isArray(content)) return "";
+  const texts: string[] = [];
+  for (const part of content) {
+    if (part?.type === "text" && typeof part.text === "string") {
+      texts.push(part.text);
+    }
+  }
+  return texts.join("\n");
+}
+
+function replaceFirstTextInContent(content: any[], newText: string): any[] {
+  if (!Array.isArray(content)) return [{ type: "text", text: newText }];
+  const result = [...content];
+  for (let i = 0; i < result.length; i++) {
+    if (result[i]?.type === "text") {
+      result[i] = { ...result[i], text: newText };
+      return result;
+    }
+  }
+  result.push({ type: "text", text: newText });
+  return result;
+}
+
 export default function omniMoPiExtension(pi: ExtensionAPI) {
   // Clean up sub-agent env vars to prevent stale values from a previous
   // session leaking through extension reload. These are set by subagent-pool
@@ -564,6 +600,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? "default";
+
+  // ── Harness config (completion auditor + tool result budget) ────────────
+  const harnessConfig = resolveHarnessConfig(config?.harness);
+  const harnessSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // ── Compliance state (session-level, in-memory) ──────────────────────
   let complianceState: ComplianceState = createComplianceState();
@@ -972,20 +1012,29 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     }
 
     // Explicitly blocked tool names / patterns
-    const BLOCKED_PREFIXES = ["sudo ", "rm -rf /", ":(){ :|:& };:"];
+    // Only block truly dangerous commands that would destroy the system
+    const DANGER_PATTERNS = [
+      /^sudo\s/i,                          // sudo commands
+      /^rm\s+-rf\s+\/\s*$/i,               // rm -rf / (exact root)
+      /^rm\s+-rf\s+\/\*/i,                 // rm -rf /* (root wildcard)
+      /^rm\s+-rf\s+~\s*$/i,                // rm -rf ~ (home directory)
+      /^rm\s+-rf\s+~\/*/i,                 // rm -rf ~/* (home wildcard)
+      /^:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/i, // fork bomb
+    ];
     if (toolName === "bash" && typeof input?.command === "string") {
-      for (const prefix of BLOCKED_PREFIXES) {
-        if (input.command.trim().startsWith(prefix)) {
+      const trimmedCmd = input.command.trim();
+      for (const pattern of DANGER_PATTERNS) {
+        if (pattern.test(trimmedCmd)) {
           const violation: ViolationRecord = {
             type: "TOOL_BLOCKED",
-            reason: `Blocked dangerous bash command starting with "${prefix}".`,
+            reason: `Blocked dangerous bash command matching pattern ${pattern}.`,
             at: Date.now(),
           };
           recordViolation(complianceState, violation);
           return {
-          block: true,
-          reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
-        };
+            block: true,
+            reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
+          };
         }
       }
     }
@@ -994,20 +1043,81 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Evidence tracking: 记录工具执行结果 ────────────────────────────
   pi.on("tool_result", async (event) => {
     const toolName = (event as any).toolName;
-    const toolCallId = (event as any).toolCallId;
-    const args = (event as any).args ?? {};
-    const result = (event as any).result;
-    const success = (event as any).success !== false;
+    const toolCallId = (event as any).toolCallId ?? "";
+    // Pi ToolResultEvent uses 'input' but legacy code may use 'args'
+    const args = (event as any).input ?? (event as any).args ?? {};
+    // Pi ToolResultEvent uses 'content' array, legacy may use 'result'
+    const content = (event as any).content ?? (event as any).result;
+    const isError = (event as any).isError ?? (event as any).success === false;
 
     if (toolName) {
-      recordEvidence(toolName, toolCallId ?? "", args, result, success);
+      // Record evidence for completion auditor
+      recordEvidence(toolName, toolCallId, args, content, !isError);
       auditEvidence("recorded", toolName, toolCallId);
+
+      // ── Tool result budget (optional, large output persistence) ─────────────
+      if (harnessConfig.toolResultBudget.enabled) {
+        const contentText = extractTextFromContentParts(Array.isArray(content) ? content : []);
+        if (contentText.length > 0) {
+          const storageBaseDir = harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results";
+          const expandedBaseDir = expandHomePath(storageBaseDir);
+          const decision = await applyToolResultBudget(
+            { toolName, toolCallId, content: contentText },
+            {
+              thresholds: harnessConfig.toolResultBudget.thresholds,
+              previewChars: harnessConfig.toolResultBudget.previewChars,
+              storage: { baseDir: expandedBaseDir, sessionId: harnessSessionId },
+              messages: harnessConfig.messages,
+            },
+          );
+          if (decision.action === "persist") {
+            // Return modified content to replace original
+            const newContent = replaceFirstTextInContent(
+              Array.isArray(content) ? content : [{ type: "text", text: String(content) }],
+              decision.content,
+            );
+            return { content: newContent, details: (event as any).details, isError }; 
+          }
+        }
+      }
     }
   });
 
-  // ── Compliance: message_end gate（已下线）────────────────────────────
-  // message_end 内容改写已在 P0 中下线。
-  // 强控制已改为 runtime guard（tool_call 白名单拦截 + switch_mode 用户审批）。
+  // ── Compliance: message_end hook for completion auditor ───────────────────
+  // P0: 只做 notify/followUp 提醒，不改写消息，不 block。
+  pi.on("message_end", async (event, ctx) => {
+    if (!harnessConfig.completionAuditor.enabled) return;
+
+    const message = (event as any).message;
+    if (message?.role !== "assistant") return;
+
+    const finalText = extractTextFromContentParts(message?.content ?? []);
+    if (!finalText) return;
+
+    // Run harness audit with current evidences
+    const decision = runHarnessAudit(
+      {
+        finalText,
+        evidences: getEvidences(),
+        userAskedForFinal: false, // TODO: detect from conversation context
+      },
+      {
+        messages: harnessConfig.messages,
+        completion: {
+          blockOnUnverifiedModification: harnessConfig.completionAuditor.blockOnUnverifiedModification,
+          patterns: harnessConfig.completionAuditor.patterns,
+        },
+      },
+    );
+
+    // P0: Only notify, do NOT modify message
+    if (decision.action === "warn" && decision.issues.length > 0) {
+      const issueSummary = decision.issues.map(i => `• ${i.message}`).join("\n");
+      try {
+        ctx.ui.notify(`[harness] 完成审计提醒:\n${issueSummary}`, "warning");
+      } catch {}
+    }
+  });
 
 
   // ── Register custom tools ───────────────────────────────────────────

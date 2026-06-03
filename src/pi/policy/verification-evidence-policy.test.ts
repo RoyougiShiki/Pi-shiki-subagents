@@ -19,6 +19,7 @@ describe('VerificationEvidencePolicy', () => {
     const result = checkVerificationEvidence({ ...baseState, hasModify: true }, { afterModification: true });
     expect(result.action).toBe('warn');
     expect(result.reason).toBe('modified_without_verification');
+    expect(result.messageKey).toBe('modificationWithoutVerification');
     expect(result.hint).toContain('尚未验证');
   });
 
@@ -31,12 +32,29 @@ describe('VerificationEvidencePolicy', () => {
     const result = checkVerificationEvidence({ ...baseState, hasFailure: true }, { afterToolFailure: true });
     expect(result.action).toBe('warn');
     expect(result.reason).toBe('tool_failed_without_recovery');
+    expect(result.messageKey).toBe('toolFailedWithoutRecovery');
   });
 
   test('warns when depending on pending subagent', () => {
     const result = checkVerificationEvidence({ ...baseState, hasSubagentPending: true }, { dependingOnSubagent: true });
     expect(result.action).toBe('warn');
     expect(result.reason).toBe('subagent_pending');
+    expect(result.messageKey).toBe('subagentPending');
+  });
+
+  test('uses caller-provided messages', () => {
+    const result = checkVerificationEvidence(
+      { ...baseState, hasSubagentPending: true },
+      { dependingOnSubagent: true },
+      {
+        messages: {
+          subagentPending: 'CUSTOM_SUBAGENT',
+          toolFailedWithoutRecovery: 'CUSTOM_FAILURE',
+          modificationWithoutVerification: 'CUSTOM_MODIFICATION',
+        },
+      },
+    );
+    expect(result.hint).toBe('CUSTOM_SUBAGENT');
   });
 
   test('does not scan natural language text', () => {

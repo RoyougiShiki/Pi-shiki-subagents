@@ -189,6 +189,7 @@ export function loadPluginConfig(directory: string): PluginConfig {
         projectConfig.sessionManager,
       ),
       fallback: deepMerge(config.fallback, projectConfig.fallback),
+      harness: deepMerge(config.harness, projectConfig.harness),
       council: deepMerge(config.council, projectConfig.council),
     };
   }
