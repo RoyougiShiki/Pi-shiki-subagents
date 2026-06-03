@@ -42,6 +42,11 @@ import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "..
 import { checkClarification } from "../policy/clarification-policy";
 import { recordEvidence, getEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
+import {
+  recordDeniedToolCall,
+  isDeniedToolCall,
+  buildDeniedToolGuardMessage,
+} from "../policy/denied-tool-memory";
 // pipeline-state 已从执行决策链路移除
 
 import { AGENT_PROMPTS } from "../meeting/pi-agents";
@@ -951,14 +956,36 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const toolName = (event as any).toolName;
     const input = (event as any).input;
 
+    // ── Denied Tool Memory: 防止重复被拒调用 ──────────────────────────────
+    if (toolName && typeof input === "object" && input !== null) {
+      const deniedRecord = isDeniedToolCall(toolName, input as Record<string, unknown>);
+      if (deniedRecord) {
+        const guardMessage = buildDeniedToolGuardMessage(deniedRecord);
+        return {
+          block: true,
+          reason: `${guardMessage}\n[guard] 如需继续，请考虑替代方案或询问用户确认。`,
+        };
+      }
+    }
+
     if (toolName === "omo_subagent") {
       const decision = await gatePipelineSubagent(ctx, input);
-      if (!decision.ok) return { block: true, reason: decision.reason };
+      if (!decision.ok) {
+        if (toolName && typeof input === "object" && input !== null) {
+          recordDeniedToolCall(toolName, input as Record<string, unknown>, decision.reason);
+        }
+        return { block: true, reason: decision.reason };
+      }
     }
 
     if (toolName === "switch_mode") {
       const decision = await gateSwitchMode(ctx, input);
-      if (!decision.ok) return { block: true, reason: decision.reason };
+      if (!decision.ok) {
+        if (toolName && typeof input === "object" && input !== null) {
+          recordDeniedToolCall(toolName, input as Record<string, unknown>, decision.reason);
+        }
+        return { block: true, reason: decision.reason };
+      }
     }
 
     // ── Tool scope gate（单一真值：只读 snapshot，不重算）─────────────
@@ -973,6 +1000,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         };
         recordViolation(complianceState, violation);
         auditApproval("denied", toolName, undefined, violation.reason);
+        recordDeniedToolCall(toolName, input as Record<string, unknown>, violation.reason);
         return {
           block: true,
           reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
@@ -985,6 +1013,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const clarifyDecision = checkClarification(toolName, input as Record<string, unknown>);
       if (!clarifyDecision.ready) {
         auditClarification("blocked", toolName, clarifyDecision.reason);
+        if (toolName && typeof input === "object" && input !== null) {
+          recordDeniedToolCall(toolName, input as Record<string, unknown>, clarifyDecision.reason ?? "clarification required");
+        }
         return {
           block: true,
           reason: `需要先确认信息: ${clarifyDecision.reason}\n[guard] 下一步：先询问缺失信息，不要猜测执行。`,
@@ -1008,6 +1039,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         at: Date.now(),
       };
       recordViolation(complianceState, violation);
+      recordDeniedToolCall(toolName, input as Record<string, unknown>, violation.reason);
       return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
     }
 
@@ -1031,6 +1063,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             at: Date.now(),
           };
           recordViolation(complianceState, violation);
+          recordDeniedToolCall(toolName, input as Record<string, unknown>, violation.reason);
           return {
             block: true,
             reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
