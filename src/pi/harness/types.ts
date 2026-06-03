@@ -28,6 +28,8 @@ export interface HarnessMessageCatalog {
     completionWithPendingTasks: string;
     completionAfterFailureWithoutAcknowledgement: string;
     modificationWithoutVerification: string;
+    finalReportWithoutAcknowledgingFailure: string;
+    finalReportWithoutAcknowledgingUnverified: string;
     injectedHeader: string;
   };
   toolResultBudget: {

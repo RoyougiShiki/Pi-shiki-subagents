@@ -116,3 +116,13 @@ export {
   type HarnessMessageConfig,
   type HarnessPatternConfig,
 } from "./harness-config";
+
+// Final Request Detector
+export {
+  detectFinalRequest,
+  detectFinalRequestFromMessages,
+  DEFAULT_FINAL_REQUEST_PATTERNS,
+  type FinalRequestPatternConfig,
+  type FinalRequestDetectorOptions,
+  type UserMessage,
+} from "./final-request-detector";

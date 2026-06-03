@@ -83,12 +83,69 @@ describe("completion auditor", () => {
 
   test("subagent does not check pending tasks", () => {
     const result = auditCompletion({
-      finalText: "任务完成。",
-      evidence: { kinds: [], pendingTaskCount: 5 },
+      finalText: "我的任务完成了。",
+      evidence: { kinds: [], pendingTaskCount: 3 },
       agentContext: subagentContext,
     });
-    // 子代理不检查 pending tasks
     expect(result.action).toBe("allow");
+    expect(result.issues).toHaveLength(0);
+  });
+
+  // ─── userAskedForFinal vs claimsCompletion 区分测试 ────────────────────────
+
+  test("userAskedForFinal does NOT make claimsCompletion true", () => {
+    // 用户问“做完了吗”，但 assistant 回“还没，测试失败了”
+    // claimsCompletion = false（没说“完成”）
+    // isFinalReport = true（用户问了）
+    // 应该 allow，因为不是虚假完成声明
+    const result = auditCompletion({
+      finalText: "还没做完，测试失败了。",
+      evidence: { kinds: ["test_failure"], failedToolCount: 1 },
+      userAskedForFinal: true,
+    });
+    // 没有声称完成，但有 test_failure，且已经说明了失败
+    expect(result.action).toBe("allow");
+    expect(result.issues).toHaveLength(0);
+  });
+
+  test("userAskedForFinal triggers finalReportWithoutAcknowledgingFailure", () => {
+    // 用户问“做完了吗”，assistant 回“好的，继续”但没说明有失败
+    const result = auditCompletion({
+      finalText: "好的，继续处理。",
+      evidence: { kinds: ["test_failure"], failedToolCount: 1 },
+      userAskedForFinal: true,
+    });
+    // isFinalReport=true, claimsCompletion=false
+    // 有失败但没说明 → warn
+    expect(result.action).toBe("warn");
+    expect(result.issues[0]?.id).toBe("final_report_without_acknowledging_failure");
+  });
+
+  test("userAskedForFinal triggers finalReportWithoutAcknowledgingUnverified", () => {
+    // 用户问“进度？”，assistant 回“我修改了文件”但没说没验证
+    const result = auditCompletion({
+      finalText: "我已经修改了相关文件。",
+      evidence: { kinds: ["modification"], modifiedFileCount: 2 },
+      userAskedForFinal: true,
+    });
+    // isFinalReport=true, claimsCompletion=false
+    // 有修改没验证没说明 → warn
+    expect(result.action).toBe("warn");
+    expect(result.issues[0]?.id).toBe("final_report_without_acknowledging_unverified");
+  });
+
+  test("claimsCompletion is stricter than isFinalReport", () => {
+    // assistant 自己说“完成了”，但没验证 → warn/block
+    // 比 userAskedForFinal 更严格
+    const result = auditCompletion({
+      finalText: "修改完成。",
+      evidence: { kinds: ["modification"], modifiedFileCount: 1 },
+      userAskedForFinal: false,
+    });
+    // claimsCompletion=true（匹配“完成”）
+    // 有修改没验证 → warn
+    expect(result.action).toBe("warn");
+    expect(result.issues[0]?.id).toBe("modification_without_verification");
   });
 
   // ─── 自定义 messages 测试 ────────────────────────────────────────────────
@@ -106,6 +163,8 @@ describe("completion auditor", () => {
             completionWithPendingTasks: "CUSTOM_TASK",
             completionAfterFailureWithoutAcknowledgement: "CUSTOM_FAILURE",
             modificationWithoutVerification: "CUSTOM_UNVERIFIED",
+            finalReportWithoutAcknowledgingFailure: "CUSTOM_FINAL_FAILURE",
+            finalReportWithoutAcknowledgingUnverified: "CUSTOM_FINAL_UNVERIFIED",
             injectedHeader: "CUSTOM_HEADER",
           },
           toolResultBudget: {

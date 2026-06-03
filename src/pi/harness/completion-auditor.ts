@@ -167,10 +167,24 @@ export function auditCompletion(
   const agentContext = input.agentContext ?? { role: "main" };
   const isMain = isMainAgent(agentContext);
 
-  // 声称完成检测
-  const claimsCompletion = input.userAskedForFinal || matches(text, patterns.completion);
+  // ─── 完成声明 vs 最终汇报场景 ──────────────────────────────────────────
+  //
+  // cc-haha design: Stop hook 检查 assistant 的 last_assistant_message
+  // 是否与 evidence 相符，而不是根据用户提问判断。
+  //
+  // claimsCompletion: assistant 自己说“完成了” → 检查虚假完成声明
+  // isFinalReport: 当前轮像最终汇报 → 检查是否需要说明未验证/失败/pending
+  //
+  // 区别：用户问“做完了吗” + assistant 回“还没，测试失败” → allow
+  // 因为 claimsCompletion=false（没说完成了），只是 isFinalReport=true
 
-  // ─── 证据缺失检测（所有角色都检查）──────────────────────────────────────
+  const claimsCompletion = matches(text, patterns.completion);
+  const isFinalReport = input.userAskedForFinal || claimsCompletion;
+
+  // ─── 虚假完成声明检测（所有角色都检查）────────────────────────────────
+  //
+  // 只有 claimsCompletion=true 时才检查“声称完成但证据不支持”
+  // 这是 cc-haha 风格的 false claim detection
 
   // 测试通过声明无证据
   if (matches(text, patterns.testPass) && !hasKind(evidence, "test_success")) {
@@ -209,9 +223,13 @@ export function auditCompletion(
   }
 
   // ─── Pending 检测（仅主 agent 检查）──────────────────────────────────────
+  //
+  // claimsCompletion: 声称完成但有 pending → 虚假完成
+  // isFinalReport: 最终汇报时有 pending → 需要说明状态
 
   // 子代理完成自己是正常的，只有主 agent 需要等待所有子代理
   if (isMain) {
+    // 虚假完成：声称完成但有 pending subagent
     if (claimsCompletion && (evidence.pendingSubagentCount ?? 0) > 0) {
       issues.push(
         issue(
@@ -224,6 +242,7 @@ export function auditCompletion(
       );
     }
 
+    // 虚假完成：声称完成但有 pending tasks
     if (claimsCompletion && (evidence.pendingTaskCount ?? 0) > 0) {
       issues.push(
         issue(
@@ -238,7 +257,11 @@ export function auditCompletion(
   }
 
   // ─── 失败后完成检测（所有角色都检查）──────────────────────────────────────
+  //
+  // claimsCompletion: 声称完成但有失败 → 虚假完成
+  // isFinalReport: 最终汇报时有失败但未说明 → 需要说明
 
+  // 虚假完成：声称完成但有失败未说明
   if (
     claimsCompletion &&
     (hasKind(evidence, "tool_failure") ||
@@ -258,8 +281,30 @@ export function auditCompletion(
     );
   }
 
+  // 最终汇报：有失败但未说明（比 false claim 轻一些，用 warn）
+  if (
+    isFinalReport &&
+    !claimsCompletion &&
+    (hasKind(evidence, "tool_failure") ||
+      hasKind(evidence, "test_failure") ||
+      hasKind(evidence, "lint_failure") ||
+      hasKind(evidence, "typecheck_failure")) &&
+    !matches(text, patterns.acknowledgesFailure)
+  ) {
+    issues.push(
+      issue(
+        "final_report_without_acknowledging_failure",
+        "warn",
+        "finalReportWithoutAcknowledgingFailure",
+        messages.completionAuditor.finalReportWithoutAcknowledgingFailure,
+        { failedToolCount: evidence.failedToolCount },
+      ),
+    );
+  }
+
   // ─── 修改后未验证检测（所有角色都检查）──────────────────────────────────────
 
+  // 虚假完成：声称完成但有修改未验证
   if (
     claimsCompletion &&
     hasKind(evidence, "modification") &&
@@ -275,6 +320,28 @@ export function auditCompletion(
         options.blockOnUnverifiedModification ? "block" : "warn",
         "modificationWithoutVerification",
         messages.completionAuditor.modificationWithoutVerification,
+        { modifiedFileCount: evidence.modifiedFileCount },
+      ),
+    );
+  }
+
+  // 最终汇报：有修改未验证但未说明（比 false claim 轻一些，用 warn）
+  if (
+    isFinalReport &&
+    !claimsCompletion &&
+    hasKind(evidence, "modification") &&
+    !hasKind(evidence, "verification") &&
+    !hasKind(evidence, "test_success") &&
+    !hasKind(evidence, "lint_success") &&
+    !hasKind(evidence, "typecheck_success") &&
+    !matches(text, patterns.acknowledgesUnverified)
+  ) {
+    issues.push(
+      issue(
+        "final_report_without_acknowledging_unverified",
+        "warn",
+        "finalReportWithoutAcknowledgingUnverified",
+        messages.completionAuditor.finalReportWithoutAcknowledgingUnverified,
         { modifiedFileCount: evidence.modifiedFileCount },
       ),
     );

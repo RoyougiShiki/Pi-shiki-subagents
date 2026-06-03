@@ -85,7 +85,7 @@ import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../a
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { ORCHESTRATOR_NAME } from "../../config/constants";
 import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
-import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit } from "../harness";
+import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages } from "../harness";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -1128,11 +1128,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (!finalText) return;
 
     // Run harness audit with current evidences
+    // 获取对话历史来检测用户是否请求最终答案
+    const entries = ctx.sessionManager?.getEntries?.() ?? [];
+    const userAskedForFinal = detectFinalRequestFromMessages(entries);
+
     const decision = runHarnessAudit(
       {
         finalText,
         evidences: getEvidences(),
-        userAskedForFinal: false, // TODO: detect from conversation context
+        userAskedForFinal,
       },
       {
         messages: harnessConfig.messages,

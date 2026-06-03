@@ -24,6 +24,10 @@ export const DEFAULT_HARNESS_MESSAGES: HarnessMessageCatalog = {
       "[guard] 检测到失败证据，但最终回复没有说明失败或恢复情况。",
     modificationWithoutVerification:
       "[guard] 检测到修改证据，但没有验证证据。总结时请明确说明尚未验证，或先执行验证。",
+    finalReportWithoutAcknowledgingFailure:
+      "[guard] 检测到失败证据，但回复没有说明失败情况。请在总结中说明当前状态。",
+    finalReportWithoutAcknowledgingUnverified:
+      "[guard] 检测到修改证据但没有验证。请在总结中明确说明“尚未验证”。",
     injectedHeader: "[guard] 完成前审计发现以下问题：",
   },
   toolResultBudget: {
