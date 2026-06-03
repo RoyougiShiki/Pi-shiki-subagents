@@ -20,7 +20,7 @@ import {
   type UserThresholdConfig,
 } from "./thresholds";
 import { DEFAULT_PATTERN_SOURCES, type CompletionClaimPatterns } from "./completion-auditor";
-import type { ToolResultBudgetThresholds } from "./tool-result-budget-state";
+import type { ToolResultBudgetState } from "./tool-result-budget-state";
 import type { HarnessMessageCatalog } from "./types";
 
 // ─── Config Types ────────────────────────────────────────────────────────────

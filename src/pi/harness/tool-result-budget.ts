@@ -17,6 +17,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import {
   createToolResultBudgetState,
+  reconstructToolResultBudgetState,
+  serializeToolResultBudgetState,
   isSeenId,
   markSeenId,
   getReplacement,
@@ -393,4 +395,4 @@ export {
   serializeToolResultBudgetState,
   type ToolResultBudgetState,
   type ToolResultReplacementRecord,
-};
+} from "./tool-result-budget-state";
