@@ -118,6 +118,17 @@ export {
   type HarnessPatternConfig,
 } from "./harness-config";
 
+// Verifier Verdict Parser
+export {
+  parseVerifierVerdict,
+  hasVerifierVerdict,
+  getVerdictStatus,
+  type VerifierVerdict,
+  type VerifierVerdictStatus,
+  type VerifierCheckBlock,
+  type VerifierVerdictParseResult,
+} from "./verifier-verdict-parser";
+
 // Final Request Detector
 export {
   detectFinalRequest,
