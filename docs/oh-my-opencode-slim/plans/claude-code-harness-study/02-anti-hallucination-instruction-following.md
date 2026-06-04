@@ -341,8 +341,6 @@ Claude-specific 但未来可泛化的机制：
 
 ## 7. 第二轮源码复核：Verification 细节修正
 
-第二轮对 cc-haha 源码补充阅读后，需要修正本文件第 3/4 节中“有 bash_success / 测试命令就能代表验证”的简化理解。
-
 ### 7.1 Stop hook 不直接判断验证是否完成
 
 相关文件：
@@ -394,3 +392,43 @@ DEFAULT_VERIFICATION_TOOLS = ["bash"]
 5. 所有 pattern、消息、阈值应保持唯一真源；运行时只传 evidence，不硬编码判断。
 6. 新增/修改规则必须用纯函数测试覆盖普通 bash、验证 bash、verifier verdict、失败恢复、reload 后 evidence reset 等边界。
 
+## 8. 第三来源校准：Stop Hook 与 Verifier 边界
+
+`ClaudeCode-Source-Analysis` 进一步确认：Stop hook 应理解为完成前的通用拦截点，而不是强验证本体。更稳妥的职责划分是：
+
+```txt
+Stop hook / message_end audit
+  - 检查最终表述是否与已有 evidence 冲突
+  - 检查是否缺少验证说明
+  - 必要时注入提醒或阻断总结
+
+Verifier runtime
+  - 独立只读/运行检查
+  - 输出可解析 verdict
+  - 产生比普通工具成功更强的 verification evidence
+```
+
+因此 Pi 文档和实现不要把 `Stop` 命名成“验证器”，也不要把普通 `bash_success` 升级成 verifier PASS。
+
+### 8.1 Completion Auditor 的维护边界
+
+Completion Auditor 仍然有价值，但应保持低复杂度：
+
+- pattern 只用于识别风险表述，不作为事实真源；
+- verification 判断消费 typed evidence / verifier verdict；
+- 提醒文案、pattern、阈值来自唯一配置；
+- runtime 只负责传入 finalText、evidence snapshot、pending state，不写判断逻辑。
+
+### 8.2 Evidence 的持久化边界
+
+后续应优先修复 evidence reload/session 问题，但避免把 transcript 文本解析变成主路径：
+
+```txt
+typed event store 优先
+transcript reconstruction 兜底
+completion auditor 消费 snapshot
+```
+
+这样既能恢复历史证据，又不会让可编辑 transcript 文案成为硬编码依赖。
+
+第二轮对 cc-haha 源码补充阅读后，需要修正本文件第 3/4 节中“有 bash_success / 测试命令就能代表验证”的简化理解。

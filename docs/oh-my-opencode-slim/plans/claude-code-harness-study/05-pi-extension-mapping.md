@@ -490,3 +490,60 @@ Phase 2:
 - **不硬编码 agent/tool 名**：通过 config/defaults/tool groups/agent definitions 提供。
 - **无旧兼容残留**：移除“任何 bash 都是 verification”这类错误兜底，不做多套并存逻辑。
 
+## 13. 第三来源校准后的实施顺序
+
+`ClaudeCode-Source-Analysis` 确认了本地大方向，但也说明当前不宜继续扩大功能面。建议调整为：
+
+```txt
+Phase 0: 文档/设计校准
+  - Stop hook 与 verifier 边界
+  - compact timing
+  - tombstone 语义
+  - ToolSearch/deferred tools
+  - tool_result 两层模型
+  - permission mode 复合状态机
+
+Phase 1: 可靠性修复
+  - evidence tracker session/reload 边界
+  - PostToolUse full rawInput/rawResponse
+  - transcript/session evidence recovery
+  - denied-tool-memory persistence
+
+Phase 1.5: 已有纯函数接入 runtime
+  - verifier verdict parser
+  - verification nudge
+  - completion auditor 消费 verifier verdict
+
+Phase 2: 结构化底座
+  - tool-result-normalizer
+  - tool-result-pairing-fixer
+  - permission-mode-manager
+  - context-pressure per-layer snapshot
+
+Phase 3: 扩展能力
+  - model router
+  - session recall
+  - deferred tool registry discovery
+  - Workbench UI
+```
+
+### 13.1 架构约束
+
+后续实现必须继续遵守：
+
+- **低复杂度**：每个模块只解决一个问题；不要做 Claude Code 1:1 复刻。
+- **纯函数优先**：normalizer、auditor、verdict parser、nudge decision、permission decision 都可单测。
+- **runtime 解耦**：`pi.ts` 只编排 hook/event，不承载业务判断。
+- **唯一真源**：threshold、pattern、messages、tool groups、agent roles 全部来自 typed defaults/config。
+- **不硬编码研究文档**：实现不依赖 markdown 段落、上游压缩名、仓库路径或可编辑数据文件。
+- **可替换 verifier**：核心依赖 verdict schema，不依赖固定 agent 名。
+
+### 13.2 暂缓项
+
+在 P1/P1.5 未稳定前，暂缓：
+
+- Workbench 大 UI；
+- 大量 hook API 外放；
+- 完整 teammate/mailbox runtime；
+- Claude-specific prompt cache/cache editing 深度复刻；
+- 基于自然语言 pattern 继续堆 auditor 规则。

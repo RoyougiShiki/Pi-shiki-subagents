@@ -11,6 +11,7 @@
 | 项目 | GitHub | 本地路径 | 用途 |
 |---|---|---|---|
 | cc-haha | https://github.com/NanmiCoder/cc-haha | `/tmp/pi-github-repos/cc-haha@main` | Claude Code 类 harness / desktop UX / agent loop 研究 |
+| ClaudeCode-Source-Analysis | https://github.com/bcefghj/ClaudeCode-Source-Analysis | 未固定本地路径 | Claude Code source map 逆向分析；作为 cc-haha 之外的第二校准来源 |
 | Pi Session Manager | https://github.com/Dwsy/pi-session-manager | `/tmp/pi-github-repos/Dwsy/pi-session-manager` | Pi WebUI/Desktop、session/search/live/terminal/PSM 插件能力参考 |
 | 当前项目 | 当前工作区 | `/home/h/projects/aiprojects/oh-my-opencode-slim` | Pi 扩展落地目标 |
 
@@ -82,6 +83,9 @@ src/utils/toolResultStorage.ts
 | `05-pi-extension-mapping.md` | 映射到当前 Pi 扩展的落地设计 |
 | `06-psm-and-desktop-workbench-notes.md` | PSM 与 cc-haha UI/UX 对 Pi WebUI/Desktop 的参考 |
 | `07-future-study-backlog.md` | 后续继续学习清单，不丢弃 Claude-specific 特性 |
+| `08-implementation-progress.md` | 当前 Pi harness 实现进度、测试状态、已知缺口 |
+| `09-implementation-review-2026-06-04.md` | 对照 cc-haha 后的实现风险审查 |
+| `10-claude-code-source-analysis-calibration.md` | 基于 `bcefghj/ClaudeCode-Source-Analysis` 的第二来源校准补充 |
 
 ## 当前结论摘要
 

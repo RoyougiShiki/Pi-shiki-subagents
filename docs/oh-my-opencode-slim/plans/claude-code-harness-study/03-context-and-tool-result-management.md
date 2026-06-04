@@ -323,8 +323,6 @@ work_budget
 
 ## 11. 第二轮源码复核：Tool Result Budget 已验证，Verification 不属于本层
 
-第二轮源码对比和 Pi 集成测试确认：
-
 ### 11.1 Tool Result Budget 对齐 cc-haha 且已在 Pi 触发
 
 cc-haha 关键文件：
@@ -373,3 +371,56 @@ Pi 后续修正时不要因为 tool result budget 已经记录了 bash 输出，
 
 ---
 
+## 12. 第三来源校准：Tool Result 两层模型
+
+`ClaudeCode-Source-Analysis` 强化了一个设计点：tool result 不应只有“写进 transcript 的文本”。更稳妥的模型是两层：
+
+```txt
+raw tool response
+  ↓
+StructuredToolResult（内部证据/审计/恢复使用）
+  ↓
+TranscriptToolResultBlock（给模型上下文/UI 使用）
+```
+
+### 12.1 Normalizer 优先于散落适配
+
+建议新增或强化 `tool-result-normalizer` 纯函数模块，统一处理：
+
+- `toolUseId` / `toolName`
+- 完整 `rawInput` / `rawResponse`
+- `success` / semantic result
+- shell `commandText` / `exitCode`
+- edit/write `affectedFiles`
+- large output `persistedRawRef`
+- 给模型看的 preview / message
+
+runtime hook 只调用 normalizer，不在 `pi.ts` 中到处写工具名、退出码和文案判断。
+
+### 12.2 Pairing Fixer 独立于 Verification
+
+需要单独的 pairing fixer 概念：
+
+```txt
+missing tool_result -> synthetic error result
+orphan tool_result -> 标记/归档，避免污染下一轮
+重复 tool_result -> 按策略折叠
+fallback/abort -> 清理半截 assistant/tool buffer
+```
+
+注意：pairing fixer 只修复 transcript/API 结构完整性，不代表任务验证成功。
+
+### 12.3 Compact 时序校准
+
+compact 相关文档应避免写成“compact 同阶段立即重新加载全部 instructions”。更安全的抽象：
+
+```txt
+compact request
+  -> pre compact / summarize / compact session event / post compact
+next fresh request
+  -> 重新组装 instructions/context
+```
+
+Pi 实现只需要维护清晰阶段边界：compact 产物进入 session/context store；下一次模型请求从 store 读取，不通过硬编码文案串联阶段。
+
+第二轮源码对比和 Pi 集成测试确认：

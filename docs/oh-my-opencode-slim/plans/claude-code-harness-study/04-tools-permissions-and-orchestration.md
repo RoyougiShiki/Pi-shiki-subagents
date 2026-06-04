@@ -360,8 +360,6 @@ external effect: ask
 
 ## 11. 第二轮源码复核：Verification Agent / Task Nudge 是编排重点
 
-第二轮 cc-haha 源码阅读后，本文件需要补充：tools/permissions/orchestration 与 completion verification 的关系不是“Bash 成功即可”，而是围绕独立 verifier 与 task/todo 节点做结构化编排。
-
 ### 11.1 Verification Agent 的工具权限边界
 
 相关文件：
@@ -443,3 +441,68 @@ Bash exitCode=0 -> command_success
 
 普通 `git status`、`grep`、`echo`、`ls` 成功不是 verification。
 
+## 12. 第三来源校准：Permission Mode / ToolSearch / Hook Surface
+
+`ClaudeCode-Source-Analysis` 对本文件的工具与权限设计有三点补充。
+
+### 12.1 Permission mode 是复合状态机
+
+不要把 permission mode 只建模成简单 enum。建议拆成两层：
+
+```txt
+PermissionModeState
+  - 当前模式：ask / plan / accept_edits / auto / bypass
+  - 进入模式前状态：prePlanMode / previousMode
+  - 临时风险变换：strippedDangerousRules
+
+PermissionDecision
+  - allow / ask / deny
+  - reason / source / risk
+```
+
+这样后续才能支持：
+
+- plan 与 auto 的耦合；
+- auto 期间临时剥离危险 allow rules；
+- 退出 auto 后恢复；
+- classifier 失败时降级 ask/deny。
+
+实现约束：危险规则、tool group、模式开关都来自 typed config；runtime 不散落 `rm -rf`、`bash`、`PowerShell` 等硬编码判断。
+
+### 12.2 ToolSearch 是 deferred tool registry discovery
+
+ToolSearch 不应理解为普通内容搜索。更适合 Pi 的抽象是：
+
+```txt
+ToolRegistry.search(query/capability)
+  -> tool references
+next request/tool assembly
+  -> inject selected tool schemas
+```
+
+收益：MCP/扩展工具很多时，不必把所有工具 schema 常驻上下文。
+
+实现约束：返回 tool reference / capability，不返回可编辑文档片段；工具 schema 注入由 request builder 统一处理。
+
+### 12.3 Hook surface 暂不冻结
+
+上游分析显示 hook event 面比第一轮假设更大。Pi 当前应继续把 hook API 标记为 experimental：
+
+- 内部 policy 先用 typed event；
+- 外部扩展 API 先小范围暴露；
+- 不为了“对齐数量”一次性增加大量空 hook；
+- 等 runtime 真实需要时再添加事件。
+
+### 12.4 Subagent 分类
+
+后续 subagent 文档应区分：
+
+| 类型 | 语义 | Pi 建议 |
+|---|---|---|
+| implicit fork | 共享部分父上下文，适合临时分支探索 | 限制可重入，避免 fork 内再 fork |
+| typed subagent | 按角色 fresh start，如 verifier/search/fixer | 明确工具边界和输出 contract |
+| teammate | 更长期协作/任务队列/mailbox | 放入后续 Workbench/多 agent 设计 |
+
+当前优先实现 typed verifier，而不是完整 teammate runtime。
+
+第二轮 cc-haha 源码阅读后，本文件需要补充：tools/permissions/orchestration 与 completion verification 的关系不是“Bash 成功即可”，而是围绕独立 verifier 与 task/todo 节点做结构化编排。

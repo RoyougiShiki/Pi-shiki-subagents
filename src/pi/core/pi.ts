@@ -42,6 +42,7 @@ import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "..
 import { checkClarification } from "../policy/clarification-policy";
 import { recordEvidence, getEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
+import { interpretCommandSemantic } from "../policy/command-semantics";
 import {
   recordDeniedToolCall,
   isDeniedToolCall,
@@ -1100,6 +1101,32 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const content = (event as any).content ?? (event as any).result;
     const isError = (event as any).isError ?? (event as any).success === false;
     const exitCode = toolName === "bash" ? extractExitCodeFromContent(content) : undefined;
+
+    // ── Command Semantics: 语义化 model-facing message ─────────────────────
+    // 如果 bash 命令有语义化 message，且原始输出为空或只有错误消息，才替换
+    // grep exit 1 → "No matches found" (而不是 "Command exited with code 1")
+    // diff exit 1 → 保留原始输出（差异信息），不替换
+    // find exit 1 → 保留原始输出，或用 "Some directories were inaccessible" 补充
+    if (toolName === "bash" && exitCode !== undefined && typeof args?.command === "string") {
+      const semantic = interpretCommandSemantic(args.command, exitCode);
+      if (!semantic.isError && semantic.message) {
+        // 检查原始输出是否为空或只有 "Command exited with code X" 或 "(no output)"
+        const contentText = extractTextFromContentParts(Array.isArray(content) ? content : []);
+        const isOnlyExitMessage = /^\s*\(no output\)\s*\n?\s*Command exited with code \d+\s*$/.test(contentText) ||
+                                   /^\s*Command exited with code \d+\s*$/.test(contentText) ||
+                                   /^\s*\(no output\)\s*$/.test(contentText);
+        
+        if (!contentText.trim() || isOnlyExitMessage) {
+          // 原始输出为空或只有错误消息，替换为语义化消息
+          const newContent = [{ type: "text", text: semantic.message }];
+          recordEvidence(toolName, toolCallId, args, newContent, true, exitCode);
+          auditEvidence("recorded", toolName, toolCallId);
+          return { content: newContent, details: (event as any).details, isError: false };
+        }
+        // 否则保留原始输出，但标记为非错误
+        // 已经通过 evidence-adapter 的 command-semantics 调用处理了
+      }
+    }
 
     if (toolName) {
       // Record evidence for completion auditor

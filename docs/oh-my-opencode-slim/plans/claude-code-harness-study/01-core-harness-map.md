@@ -311,8 +311,6 @@ before_final_answer:
 
 ## 8. 第二轮源码复核：Verification 不是简单 Bash 成功
 
-第二轮对 cc-haha 源码补充阅读后，需要修正第一轮理解：completion / verification 相关机制不能只从 Stop hook 大纲推导。
-
 ### 8.1 Stop hook 的实际职责
 
 相关文件：
@@ -390,3 +388,29 @@ DEFAULT_VERIFICATION_TOOLS = ["bash"]
 3. 独立 verifier verdict 应作为更强证据类型。
 4. todo/task 关闭提醒应参考 cc-haha 的结构化 nudge。
 5. 所有判定规则应在纯函数模块中实现，默认 pattern/message/阈值来自唯一真源，runtime 层只编排，不硬编码。
+
+## 9. 第三来源校准：ClaudeCode-Source-Analysis（2026-06-04）
+
+新增第二校准来源：
+
+```txt
+https://github.com/bcefghj/ClaudeCode-Source-Analysis
+```
+
+本次只吸收可泛化的 harness 工程模式，不复制上游文案、压缩函数名或实现布局。详细校准记录见：
+
+```txt
+10-claude-code-source-analysis-calibration.md
+```
+
+需要同步到本文件的核心修正：
+
+1. 主循环可理解为事件流/异步生成器模型，输出包括 stream、assistant、tool、progress、system、tombstone 等不同事件。
+2. `tombstone` 是 live output 一致性信号，用于清理半截输出；不是普通提示文本。
+3. `transition` 只作为分支标记理解，不应成为 Pi runtime 的核心控制流依赖。
+4. compact 后的 instructions reload 应视为下一次 fresh request 的输入准备，不要写成同阶段立即重载。
+5. tool result 需要区分内部结构化结果与 transcript-facing block，并有 pairing fixer 兜底。
+
+Pi 设计约束：这些修正只进入 typed state、normalizer、policy decision 等低耦合模块；runtime 不硬编码上游文档片段或可编辑数据文件。
+
+第二轮对 cc-haha 源码补充阅读后，需要修正第一轮理解：completion / verification 相关机制不能只从 Stop hook 大纲推导。

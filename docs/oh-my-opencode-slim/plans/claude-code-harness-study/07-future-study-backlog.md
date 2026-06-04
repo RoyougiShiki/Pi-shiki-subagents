@@ -213,6 +213,13 @@ Pi skills / workflow prompts
 
 ### 2.8 Tool Search / Deferred Tools
 
+参考来源：
+
+```txt
+https://github.com/bcefghj/ClaudeCode-Source-Analysis
+HitCC/docs/02-execution/01-tools-hooks-and-permissions/01-tool-execution-core.md
+```
+
 路径：
 
 ```txt
@@ -222,16 +229,20 @@ src/utils/toolSearch.ts
 
 待研究问题：
 
-- 大量工具时如何延迟暴露
-- 模型如何搜索可用工具
-- deferred tool delta 如何注入
+- ToolSearch 如何返回 tool reference，而不是普通搜索结果
+- request builder 如何根据 reference 注入 deferred tool schema
+- 大量 MCP/扩展工具时如何避免工具描述常驻上下文
+- 工具发现结果如何缓存、失效、审计
 
 对 Pi 潜在价值：
 
 ```txt
 减少 system prompt 工具描述长度
 多 MCP 场景下动态工具发现
+按 capability 暴露工具，而不是硬编码工具名
 ```
+
+迁移约束：ToolSearch 在 Pi 中应抽象为 registry discovery；不要依赖上游文档片段、压缩符号名或固定工具列表。
 
 ### 2.9 LSP 机制（明确不作为当前迁移目标）
 
