@@ -13,7 +13,7 @@
 | 7 | `tool-result-budget.ts` | threshold 静态配置,无 GrowthBook 动态覆盖 | `PERSIST_THRESHOLD_OVERRIDE_FLAG` | ⚠️ 低风险 | P2 | 当前阈值来自 config,不支持运行时 flag |
 | 8 | `final-request-detector.ts` | 纯 pattern 检测用户是否请求最终答案 | cc-haha Stop hook 不做"用户意图"判断 | ⚠️ 合理偏差 | P2 | 我们用 pattern,cc-haha 不在此层判断 |
 | 9 | `denied-tool-memory.ts` | 会话级 memory,reload 后丢失 | cc-haha permission memory + session 持久化 | ⚠️ 风险 | P1 | 需对照 cc-haha permission memory 机制 |
-| 10 | `completion-auditor.ts` pattern | 过度依赖自然语言 pattern 检测"完成/未验证" | cc-haha 也用 prompt contract,但有 verifier verdict | ⚠️ 中风险 | P1.5 | pattern 可配置,但不是最终解 |
+| 10 | `completion-auditor.ts` pattern/scope | 过度依赖自然语言 pattern，且 evidence scope 过宽；咨询/建议型回复可能消费历史修改证据并提示“修改后未验证” | cc-haha Stop hook 每轮有 transcript/context，可按会话边界重建 | ⚠️ 中高风险 | P1 | 需 scoped evidence snapshot；pattern 可配置但不是最终解 |
 | 11 | `PostToolUse hook` | **部分修**: 缺完整 `tool_input/tool_response` 语义 | `PostToolUseHookInput` 包含完整输入输出 | ⚠️ 部分修 | P1 | 已加 exitCode,仍缺 rawInput/rawResponse/affectedFiles |
 | 12 | `Stop hook` transcript | **缺失**: 无法从 transcript 重建 evidence | Stop hook 输入包含 `transcript_path` | ❌ 缺失 | P1 | reload 后 evidence memory 清空,无 transcript 恢复 |
 | 13 | `verification-evidence-policy.ts` | **已修**: 通用 guard 在 finalText 承认后仍警告 | Stop hook 不做粗暴 verification 判断 | ✅ 已修 | done | 通过 `acknowledgesMissingValidation` 调用 |
@@ -31,6 +31,7 @@
 ### P2: 核心功能完善(对齐后做)
 
 - #3 evidence-tracker 全局状态 + session 边界
+- #10 completion-auditor evidence scope 过宽导致旧修改证据误触发 warning
 - #9 denied-tool-memory reload 后丢失
 - #11 PostToolUse 保留完整 tool_input/tool_response
 - #12 Stop hook transcript 恢复 evidence

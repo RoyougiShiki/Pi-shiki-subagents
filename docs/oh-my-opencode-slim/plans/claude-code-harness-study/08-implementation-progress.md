@@ -199,6 +199,7 @@ bun test 2>&1 | tail -5
 
 需要测试场景：
 - [ ] 真实 Pi agent session 中触发 completion auditor
+- [ ] 当前 turn 只有读取/建议回复、没有 edit/write 时，不应因历史 modification evidence 触发高强度“修改后未验证” warning
 - [ ] 大 tool result 触发 budget 机制
 - [ ] denied tool 后重试被拦截
 - [ ] 用户问"做完了吗"后 auditor 正确响应
@@ -292,7 +293,8 @@ bun test 2>&1 | tail -5
 
 ### 6.2 对齐后做 (P2 核心功能完善)
 
-- [ ] evidence-tracker session 边界
+- [ ] evidence-tracker session/turn/task 边界
+- [ ] completion-auditor scoped evidence snapshot，避免历史修改证据在咨询回复中误触发 warning
 - [ ] denied-tool-memory 持久化
 - [ ] PostToolUse 完整证据
 - [ ] Stop hook transcript 恢复
