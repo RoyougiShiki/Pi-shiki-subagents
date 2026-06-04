@@ -7,7 +7,7 @@
 | 项目 | 本地路径 | 参考重点 |
 |---|---|---|
 | Pi Session Manager | `/tmp/pi-github-repos/Dwsy/pi-session-manager` | Pi session/search/live/terminal/data/backend |
-| cc-haha | `/tmp/pi-github-repos/NanmiCoder/cc-haha@main` | active coding workbench UX、diff、permissions、tool rendering |
+| cc-haha | `/tmp/pi-github-repos/cc-haha@main` | active coding workbench UX、diff、permissions、tool rendering |
 
 ## 2. 不建议现在拆独立项目
 

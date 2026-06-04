@@ -5,7 +5,7 @@
 ## 1. 关键源码
 
 ```txt
-/tmp/pi-github-repos/NanmiCoder/cc-haha@main
+/tmp/pi-github-repos/cc-haha@main
 ```
 
 | 机制 | 文件 | 关键函数 |
@@ -357,4 +357,89 @@ external effect: ask
 | streaming tool execution | `streamingToolExecutor` |
 | thinking-aware retry | `reasoningTraceCapability` |
 | coordinator/swarm permission forwarding | `delegatedPermissionChannel` |
+
+## 11. 第二轮源码复核：Verification Agent / Task Nudge 是编排重点
+
+第二轮 cc-haha 源码阅读后，本文件需要补充：tools/permissions/orchestration 与 completion verification 的关系不是“Bash 成功即可”，而是围绕独立 verifier 与 task/todo 节点做结构化编排。
+
+### 11.1 Verification Agent 的工具权限边界
+
+相关文件：
+
+- `src/tools/AgentTool/built-in/verificationAgent.ts`
+
+源码事实：
+
+```txt
+verification agent:
+- disallowedTools: Agent, ExitPlanMode, Edit, Write, NotebookEdit
+- 允许 read/search/bash/web 等验证行为
+- 可在 /tmp 写临时脚本，但禁止修改项目目录
+- 必须输出 VERDICT: PASS | FAIL | PARTIAL
+```
+
+Pi 映射：
+
+```txt
+verifier/oracle 子代理应有明确工具边界：
+- 禁止 write/edit
+- 允许 read/search/bash/context/codebase-memory
+- 允许临时目录脚本（如后续支持，需要独立策略）
+- 输出结构必须可解析
+```
+
+### 11.2 Task/Todo 完成时的 verification nudge
+
+相关文件：
+
+- `src/tools/TodoWriteTool/TodoWriteTool.ts`
+- `src/tools/TaskUpdateTool/TaskUpdateTool.ts`
+
+源码事实：主线程关闭 3+ 个 task/todo，且没有 verification step 时，tool result 追加提醒：最终总结前 spawn verification agent，不能 self-assign PARTIAL。
+
+Pi 映射：
+
+```txt
+todo/task update hook:
+  if main agent closes all tasks
+  and task count >= threshold
+  and no verification task/verifier verdict:
+    inject structured reminder into tool result or UI warning
+```
+
+注意：threshold、提醒文案、verification step 识别 pattern 都应来自唯一真源；runtime 层不硬编码。
+
+### 11.3 PostToolUse 的证据输入应保留完整语义
+
+cc-haha `PostToolUseHookInput` 包含完整 `tool_input` / `tool_response`。这说明 Pi evidence tracker 也应保留：
+
+```txt
+- toolName
+- toolCallId
+- normalized input
+- raw/summary response
+- success/failure
+- command text / exit code（如果是 shell）
+- affected files（如果是 edit/write）
+```
+
+否则后续无法判断“这个输出是否真是 verification”。
+
+### 11.4 修正本文件第 9.3 的简化说法
+
+本文件早期写法：
+
+```txt
+Bash exitCode=0 -> command_success
+```
+
+只能表示 command success，不应直接升级为 verification。verification 至少需要满足以下之一：
+
+```txt
+- 明确测试/构建/类型检查/验证命令成功，且命令与任务相关
+- verifier agent 给出 VERDICT: PASS/PARTIAL/FAIL
+- 自定义 verifier skill/tool 给出结构化证据
+```
+
+普通 `git status`、`grep`、`echo`、`ls` 成功不是 verification。
 

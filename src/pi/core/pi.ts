@@ -85,7 +85,7 @@ import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../a
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { ORCHESTRATOR_NAME } from "../../config/constants";
 import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
-import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages } from "../harness";
+import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages, compilePatterns, DEFAULT_PATTERN_SOURCES } from "../harness";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -1118,6 +1118,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Compliance: message_end hook for completion auditor ───────────────────
   // P0: 只做 notify/followUp 提醒，不改写消息，不 block。
+  // cc-haha design: Stop hook 只在声称完成或最终汇报时审计，不每轮都检查。
   pi.on("message_end", async (event, ctx) => {
     if (!harnessConfig.completionAuditor.enabled) return;
 
@@ -1127,10 +1128,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const finalText = extractTextFromContentParts(message?.content ?? []);
     if (!finalText) return;
 
-    // Run harness audit with current evidences
     // 获取对话历史来检测用户是否请求最终答案
     const entries = ctx.sessionManager?.getEntries?.() ?? [];
     const userAskedForFinal = detectFinalRequestFromMessages(entries);
+
+    // cc-haha Stop hook 只在以下场景审计：
+    // 1. assistant 声称完成（claimsCompletion）
+    // 2. 用户请求最终答案（userAskedForFinal）
+    // 其他中间步骤不审计，避免每轮都弹警告
+    const patterns = compilePatterns(DEFAULT_PATTERN_SOURCES);
+    const claimsCompletion = patterns.completion.some((p) => p.test(finalText));
+    const isFinalReport = userAskedForFinal || claimsCompletion;
+    if (!isFinalReport) return;
 
     const decision = runHarnessAudit(
       {

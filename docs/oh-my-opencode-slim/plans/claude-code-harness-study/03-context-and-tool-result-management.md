@@ -7,7 +7,7 @@
 本地源码：
 
 ```txt
-/tmp/pi-github-repos/NanmiCoder/cc-haha@main
+/tmp/pi-github-repos/cc-haha@main
 ```
 
 关键文件：
@@ -320,4 +320,56 @@ work_budget
 | P2 | auto summary compact | 较复杂，但长期必要 |
 | P2 | reactive compact retry | 需要与模型调用层深度结合 |
 | P3 | cache editing | Claude-specific，未来抽象 provider capability |
+
+## 11. 第二轮源码复核：Tool Result Budget 已验证，Verification 不属于本层
+
+第二轮源码对比和 Pi 集成测试确认：
+
+### 11.1 Tool Result Budget 对齐 cc-haha 且已在 Pi 触发
+
+cc-haha 关键文件：
+
+- `src/utils/toolResultStorage.ts`
+  - `persistToolResult`
+  - `buildLargeToolResultMessage`
+  - `processToolResultBlock`
+  - `maybePersistLargeToolResult`
+  - `applyToolResultBudget`
+
+Pi 集成测试中，大 grep 输出已被持久化到：
+
+```txt
+/home/h/.pi/tool-results/session-.../grep-call_....txt
+```
+
+返回给模型的是：
+
+```txt
+<persisted-output>
+Output too large (...). Full output saved to: ...
+Preview (...):
+...
+</persisted-output>
+```
+
+这说明 Pi 的 tool result budget 机制已经真实生效，且行为与 cc-haha 的大输出持久化思路一致。
+
+### 11.2 不要把 Context/Tool Result 管理和 Verification 混为一层
+
+cc-haha 源码显示：
+
+- Tool Result Budget 解决的是“大输出污染上下文 / 截断误导模型”。
+- Verification 解决的是“最终报告是否有可审计、可复跑、与任务相关的验证证据”。
+- 两者都能降低幻觉，但不是同一层机制。
+
+Pi 后续修正时不要因为 tool result budget 已经记录了 bash 输出，就把“普通 bash 成功”当成 verification。verification evidence 应由独立 evidence adapter / verifier verdict 模块判断。
+
+### 11.3 文档修正
+
+本文件第 3 节的 Tool Result Budget 迁移方向仍然成立；但 Completion/Verification 的细节应参考：
+
+- `02-anti-hallucination-instruction-following.md` 第 7 节
+- `08-implementation-progress.md` 第 10.2 节
+
+---
 

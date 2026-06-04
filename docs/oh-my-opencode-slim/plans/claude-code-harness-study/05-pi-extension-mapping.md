@@ -421,3 +421,72 @@ src/pi/core/pi.ts
 src/pi/subagent/pi-chat-bridge.ts
 ```
 
+## 12. 第二轮源码复核后的设计修正
+
+### 12.1 Completion Auditor 不能只依赖 `bash_success`
+
+本文件第 3 节 P0 Completion Auditor 的方向仍成立，但 evidence 判定需要修正：
+
+```txt
+普通 bash 成功 ≠ verification evidence
+```
+
+cc-haha 源码显示：
+
+- Stop hook 只提供 `last_assistant_message` / `transcript_path`，不内置粗暴验证判定。
+- PostToolUse hook 保留完整 `tool_input` / `tool_response`，允许按语义判断。
+- 强验证来自独立 verification agent 的 `VERDICT: PASS|FAIL|PARTIAL`。
+
+因此 Pi 的 `CompletionAuditInput` 应扩展/明确：
+
+```ts
+interface CompletionAuditInput {
+  finalText: string
+  evidenceState: VerificationEvidenceState
+  verificationVerdicts?: VerificationVerdict[]
+  recentToolResults: ToolResultEvidence[]
+  changedFiles: string[]
+  pendingSubagents: string[]
+  todos?: TodoState[]
+  userAskedForFinal?: boolean
+}
+
+interface VerificationVerdict {
+  source: 'verifier_agent' | 'verification_tool' | 'manual_user'
+  verdict: 'PASS' | 'FAIL' | 'PARTIAL'
+  commandBlocks?: Array<{
+    command: string
+    outputObserved: string
+    result: 'PASS' | 'FAIL'
+  }>
+  timestamp: number
+}
+```
+
+### 12.2 Verifier Agent 优先级应上调
+
+本文件原先把 Verifier Agent 放在 P2。第二轮源码显示 cc-haha 的 verification 精髓在 verifier agent、task nudge 与 prompt contract，而不是简单 evidence tracker。
+
+建议调整：
+
+```txt
+Phase 1.5:
+  - 修正 evidence-adapter：普通 bash 不算 verification
+  - 定义 VerificationVerdict 类型和 parser（纯函数）
+  - 设计 verifier/oracle 输出格式（Command run / Output observed / VERDICT）
+
+Phase 2:
+  - verifier agent runtime 接入
+  - todo/task 完成时缺 verification step 的结构化提醒
+```
+
+### 12.3 架构底线
+
+实现时必须继续保持：
+
+- **唯一真源**：verification pattern、verdict 文案、threshold 不散落在 runtime。
+- **纯函数优先**：`evidence -> verification state`、`verifier output -> verdict`、`todo state -> nudge decision` 都应是纯函数。
+- **runtime 解耦**：`pi.ts` 只负责 hook 编排与 UI notify，不承载判定逻辑。
+- **不硬编码 agent/tool 名**：通过 config/defaults/tool groups/agent definitions 提供。
+- **无旧兼容残留**：移除“任何 bash 都是 verification”这类错误兜底，不做多套并存逻辑。
+

@@ -37,24 +37,12 @@ describe('default workflows and agent tool matrix', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
     const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; delegates?: string[] }>;
 
-    expect(defs.coordinator?.tools).toEqual([
-      'ask_user_question',
-      'todo',
-      'switch_mode',
-      'omo_subagent',
-      'omo_council',
-    ]);
+    // coordinator 使用工具组引用
+    expect(defs.coordinator?.tools).toEqual(['@交互', '@子代理']);
     expect(defs.coordinator?.delegates).toEqual(['search', 'oracle']);
 
-    expect(defs.fallback?.tools).toEqual(expect.arrayContaining([
-      'read',
-      'write',
-      'edit',
-      'bash',
-      'omo_subagent',
-      'omo_council',
-      'todo',
-    ]));
+    // fallback 使用 "*" 表示全部工具
+    expect(defs.fallback?.tools).toEqual(['*']);
     const subagents = Object.entries(defs)
       .filter(([name, def]) => name !== 'fallback' && (def.type === 'subagent' || def.type === 'both'))
       .map(([name]) => name);

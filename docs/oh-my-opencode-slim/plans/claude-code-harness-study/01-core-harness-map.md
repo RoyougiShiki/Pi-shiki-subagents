@@ -7,7 +7,7 @@
 cc-haha 本地源码路径：
 
 ```txt
-/tmp/pi-github-repos/NanmiCoder/cc-haha@main
+/tmp/pi-github-repos/cc-haha@main
 ```
 
 第一轮重点阅读文件：
@@ -309,3 +309,84 @@ before_final_answer:
   - if blocking error, inject meta message and continue
 ```
 
+## 8. 第二轮源码复核：Verification 不是简单 Bash 成功
+
+第二轮对 cc-haha 源码补充阅读后，需要修正第一轮理解：completion / verification 相关机制不能只从 Stop hook 大纲推导。
+
+### 8.1 Stop hook 的实际职责
+
+相关文件：
+
+- `src/utils/hooks.ts`
+- `src/query/stopHooks.ts`
+- `src/entrypoints/sdk/coreSchemas.ts`
+
+源码事实：
+
+```txt
+StopHookInput / SubagentStopHookInput 包含：
+- hook_event_name: Stop | SubagentStop
+- stop_hook_active
+- last_assistant_message
+- transcript_path
+- agent_transcript_path（子代理）
+```
+
+Stop hook 本体是通用 hook 框架：它把最后助手消息和 transcript 路径交给 hook，而不是内置“某个工具成功就是已验证”的判断。
+
+### 8.2 PostToolUse 提供完整输入/输出
+
+相关文件：
+
+- `src/utils/hooks.ts`
+- `src/entrypoints/sdk/coreSchemas.ts`
+
+`PostToolUseHookInput` 包含：
+
+```txt
+- tool_name
+- tool_input
+- tool_response
+- tool_use_id
+```
+
+这意味着 verification 判定应该基于工具输入/输出语义和任务上下文，而不是只看工具名。
+
+### 8.3 独立 verification agent 才是核心验证设计
+
+相关文件：
+
+- `src/tools/AgentTool/built-in/verificationAgent.ts`
+- `src/constants/prompts.ts`
+- `src/tools/TodoWriteTool/TodoWriteTool.ts`
+- `src/tools/TaskUpdateTool/TaskUpdateTool.ts`
+
+cc-haha 的关键设计不是“Bash 成功 = verified”，而是：
+
+```txt
+非平凡实现完成前，需要 independent adversarial verification。
+实现者自己的检查、caveat、自我声明不能替代 verifier。
+verifier 必须给出 VERDICT: PASS | FAIL | PARTIAL。
+PASS 检查必须有 Command run 与 Output observed。
+Reading code is not verification。
+```
+
+Todo/Task 完成路径还有结构化 nudge：当主线程关闭 3+ 个 task/todo 且没有 verification step 时，tool result 会提醒最终总结前 spawn verification agent，且不能 self-assign PARTIAL。
+
+### 8.4 对 Pi 迁移的修正
+
+第一版 Pi harness 的风险点：
+
+```txt
+DEFAULT_VERIFICATION_TOOLS = ["bash"]
+```
+
+该设计会把 `git status`、`grep`、`echo` 等普通 bash 成功误判为 verification，属于只学到机制大纲、没有学到 cc-haha 细节精髓的幼稚设计。
+
+后续 Pi 设计必须遵守：
+
+1. 普通工具成功不等于 verification。
+2. verification evidence 应是结构化、可复跑、与任务相关的证据。
+3. 独立 verifier verdict 应作为更强证据类型。
+4. todo/task 关闭提醒应参考 cc-haha 的结构化 nudge。
+5. 所有判定规则应在纯函数模块中实现，默认 pattern/message/阈值来自唯一真源，runtime 层只编排，不硬编码。

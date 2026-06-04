@@ -286,6 +286,46 @@ Pi Workbench remote mode
 IM 远程控制 session
 ```
 
+### 2.11 Verification Agent / Evidence Contract（二轮后优先级上调）
+
+第二轮已重点阅读：
+
+```txt
+src/tools/AgentTool/built-in/verificationAgent.ts
+src/constants/prompts.ts
+src/tools/TodoWriteTool/TodoWriteTool.ts
+src/tools/TaskUpdateTool/TaskUpdateTool.ts
+src/utils/hooks.ts
+src/entrypoints/sdk/coreSchemas.ts
+```
+
+已确认的设计精髓：
+
+```txt
+- Stop hook 框架只提供 last_assistant_message / transcript_path，不直接等同工具成功与验证完成。
+- PostToolUse hook 提供 tool_input / tool_response，保留语义判断空间。
+- 强验证来自独立 verification agent，输出必须包含 Command run / Output observed / VERDICT。
+- Reading code is not verification。
+- 实现者自己的检查、caveat、自我声明不能替代 verifier。
+- Todo/Task 关闭 3+ 项且无 verification step 时，tool result 注入提醒。
+```
+
+后续待研究问题：
+
+- verification agent 结果在 AgentTool 父线程中如何回传和展示
+- 是否有解析 `VERDICT: PASS|FAIL|PARTIAL` 的调用方或主要依赖 prompt contract
+- verifier 与 Plan/ExitPlanMode/VerifyPlanExecution 的关系
+- verifier skill / custom verifier 如何发现和调用
+- 如何把 verifier verdict 映射到 Pi 的 evidence tracker 和 completion auditor
+
+对 Pi 的优先价值：
+
+```txt
+把 verifier_agent 从原 P2 上调到 Phase 1.5 / Phase 2。
+先修 evidence 判定：普通 bash 不算 verification。
+再设计 verifier verdict parser 与结构化输出格式。
+```
+
 ## 3. 当前不直接迁移但保留的 Claude-specific 特性
 
 | 特性 | 当前不迁移原因 | 未来可能泛化方向 |
@@ -318,14 +358,20 @@ P0:
   completion_auditor
   tool_result_budget
 
+Phase 1.5:
+  修正 evidence-adapter：普通 bash 不算 verification
+  verifier verdict parser / evidence type
+  verifier 输出格式设计（Command run / Output observed / VERDICT）
+
 P1:
+  verifier_agent runtime 接入
+  todo/task 缺 verification step 结构化提醒
   diff_guard
   denied_tool_memory
   context_pressure_monitor
 
 P2:
   model_router
-  verifier_agent
   session_recall
 ```
 

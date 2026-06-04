@@ -10,7 +10,7 @@
 
 | 项目 | GitHub | 本地路径 | 用途 |
 |---|---|---|---|
-| cc-haha | https://github.com/NanmiCoder/cc-haha | `/tmp/pi-github-repos/NanmiCoder/cc-haha@main` | Claude Code 类 harness / desktop UX / agent loop 研究 |
+| cc-haha | https://github.com/NanmiCoder/cc-haha | `/tmp/pi-github-repos/cc-haha@main` | Claude Code 类 harness / desktop UX / agent loop 研究 |
 | Pi Session Manager | https://github.com/Dwsy/pi-session-manager | `/tmp/pi-github-repos/Dwsy/pi-session-manager` | Pi WebUI/Desktop、session/search/live/terminal/PSM 插件能力参考 |
 | 当前项目 | 当前工作区 | `/home/h/projects/aiprojects/oh-my-opencode-slim` | Pi 扩展落地目标 |
 
@@ -38,13 +38,38 @@ home-h-projects-aiprojects-oh-my-opencode-slim
   - `isToolAllowed`
   - `auditPayloadTools`
 
-当前没有可用工具直接把 `/tmp/pi-github-repos/NanmiCoder/cc-haha@main` 注册成 codebase graph 项目；后续如果 harness 提供 index/build 工具，应优先把 cc-haha 源码也建立独立 graph 索引。
+当前已确认 Pi fallback reload 后可直接调用 `codebase_memory_index_repository`。当前项目索引已重建；cc-haha 源码如需后续深入图谱查询，应使用同一工具建立独立 graph 索引。
 
 建议未来索引名：
 
 ```txt
 cc-haha-main-local
 ```
+
+## 第二轮源码复核结论（2026-06-04）
+
+第二轮重点复核了 cc-haha 的 verification 相关源码：
+
+```txt
+src/utils/hooks.ts
+src/entrypoints/sdk/coreSchemas.ts
+src/tools/AgentTool/built-in/verificationAgent.ts
+src/constants/prompts.ts
+src/tools/TodoWriteTool/TodoWriteTool.ts
+src/tools/TaskUpdateTool/TaskUpdateTool.ts
+src/utils/toolResultStorage.ts
+```
+
+关键修正：
+
+1. **Stop hook 是通用框架**：提供 `last_assistant_message` 和 `transcript_path`，不内置“工具成功即验证”的粗暴判断。
+2. **PostToolUse 保留完整语义**：提供 `tool_name`、`tool_input`、`tool_response`、`tool_use_id`，后续判断应基于输入/输出语义。
+3. **强验证来自独立 verification agent**：verifier 只读/运行检查，输出 `Command run`、`Output observed`，并以 `VERDICT: PASS|FAIL|PARTIAL` 结束。
+4. **Reading code is not verification**：实现者自己的检查、caveat、自我声明不能替代 verifier。
+5. **Todo/Task completion nudge**：关闭 3+ task/todo 且无 verification step 时，tool result 结构化提醒最终总结前需要 verifier。
+6. **Pi 当前风险**：`DEFAULT_VERIFICATION_TOOLS=["bash"]` 会把 `git status`、`grep`、`echo` 等普通 bash 成功误判为 verification，属于只学机制大纲但未学细节精髓的设计，需要修正。
+
+后续设计必须继续坚持当前项目架构底线：唯一真源、纯函数模块、runtime 解耦、不硬编码工具/agent 名、不保留错误兼容逻辑。
 
 ## 文档结构
 

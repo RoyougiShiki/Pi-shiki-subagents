@@ -2,11 +2,8 @@
   "coordinator": {
     "type": "mode",
     "tools": [
-      "ask_user_question",
-      "todo",
-      "switch_mode",
-      "omo_subagent",
-      "omo_council"
+      "@交互",
+      "@子代理"
     ],
     "delegates": [
       "search",
@@ -70,6 +67,7 @@
     "roles": [
       "读",
       "写",
+      "执行",
       "检索"
     ]
   },
@@ -86,31 +84,7 @@
     "pipelineMode": false,
     "requiresUserCommand": true,
     "tools": [
-      "read",
-      "write",
-      "edit",
-      "bash",
-      "grep",
-      "find",
-      "ls",
-      "web_search",
-      "code_search",
-      "fetch_content",
-      "get_search_content",
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "context_mode_ctx_search",
-      "context_mode_ctx_execute",
-      "context_mode_ctx_execute_file",
-      "context_mode_ctx_index",
-      "context_mode_ctx_batch_execute",
-      "ask_user_question",
-      "switch_mode",
-      "todo",
-      "omo_subagent",
-      "omo_council"
+      "*"
     ],
     "label": "兜底模式（全工具救援）",
     "delegates": [
@@ -125,35 +99,15 @@
     ]
   },
   "_tool_groups": {
-    "读": [
-      "read"
-    ],
-    "检索": [
-      "codebase_memory_search_graph",
-      "codebase_memory_search_code",
-      "codebase_memory_trace_path",
-      "codebase_memory_get_code_snippet",
-      "context_mode_ctx_search"
-    ],
-    "搜索": [
-      "grep",
-      "find",
-      "ls",
-      "web_search",
-      "code_search",
-      "fetch_content",
-      "get_search_content"
-    ],
-    "写": [
-      "write",
-      "edit",
-      "bash"
-    ],
+    "读": ["read"],
+    "写": ["write", "edit"],
+    "执行": ["bash"],
+    "检索": ["codebase_*", "context_mode_ctx_search"],
+    "搜索": ["grep", "find", "ls", "web_search", "code_search", "fetch_content", "get_search_content"],
+    "交互": ["ask_user_question", "switch_mode", "todo"],
+    "子代理": ["omo_subagent", "omo_council"],
     "流程": [],
-    "管理": [
-      "omo_subagent",
-      "omo_council"
-    ]
+    "管理": ["@子代理"]
   },
   "dispatcher": {
     "type": "subagent",

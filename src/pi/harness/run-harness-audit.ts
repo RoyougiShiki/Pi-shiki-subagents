@@ -21,9 +21,12 @@ import {
 } from "../policy/verification-evidence-policy";
 import {
   auditCompletion,
+  acknowledgesMissingValidation,
+  compilePatterns,
   type CompletionAuditorOptions,
   type CompletionEvidenceSummary,
   type CompletionAuditInput,
+  type CompletionClaimPatterns,
 } from "./completion-auditor";
 import {
   toCompletionEvidenceSummary,
@@ -68,6 +71,27 @@ function toIssueFromVerification(
   };
 }
 
+const SUPERSEDED_ISSUES: Readonly<Record<string, readonly string[]>> = {
+  modification_without_verification: ["modified_without_verification"],
+  final_report_without_acknowledging_unverified: ["modified_without_verification"],
+};
+
+function deduplicateIssues(issues: readonly HarnessIssue[]): HarnessIssue[] {
+  const ids = new Set(issues.map((issue) => issue.id));
+  const superseded = new Set<string>();
+
+  for (const issue of issues) {
+    for (const id of SUPERSEDED_ISSUES[issue.id] ?? []) {
+      if (ids.has(id)) superseded.add(id);
+    }
+  }
+
+  return issues.filter((issue, index) => {
+    if (superseded.has(issue.id)) return false;
+    return issues.findIndex((candidate) => candidate.id === issue.id) === index;
+  });
+}
+
 /**
  * 运行整合审计
  *
@@ -89,29 +113,35 @@ export function runHarnessAudit(
 
   // 构建 verification state
   const verificationState = input.verificationState ?? toVerificationEvidenceState(evidenceSummary);
+  const finalTextAcknowledgesMissingValidation = acknowledgesMissingValidation(
+    input.finalText,
+    options.completion?.patterns,
+  );
 
   const issues: HarnessIssue[] = [];
 
   // ─── Verification Evidence Check ────────────────────────────────────────
 
-  const verificationDecision = checkVerificationEvidence(
-    verificationState,
-    input.verificationContext ?? { userAskedForFinal: input.userAskedForFinal },
-    { messages: messages.verificationEvidence },
-  );
-
-  if (
-    verificationDecision.action === "warn" &&
-    verificationDecision.reason &&
-    verificationDecision.hint
-  ) {
-    issues.push(
-      toIssueFromVerification(
-        verificationDecision.reason,
-        verificationDecision.messageKey,
-        verificationDecision.hint,
-      ),
+  if (!finalTextAcknowledgesMissingValidation) {
+    const verificationDecision = checkVerificationEvidence(
+      verificationState,
+      input.verificationContext ?? { userAskedForFinal: input.userAskedForFinal },
+      { messages: messages.verificationEvidence },
     );
+
+    if (
+      verificationDecision.action === "warn" &&
+      verificationDecision.reason &&
+      verificationDecision.hint
+    ) {
+      issues.push(
+        toIssueFromVerification(
+          verificationDecision.reason,
+          verificationDecision.messageKey,
+          verificationDecision.hint,
+        ),
+      );
+    }
   }
 
   // ─── Completion Audit ───────────────────────────────────────────────────
@@ -135,15 +165,17 @@ export function runHarnessAudit(
 
   // ─── Final Decision ─────────────────────────────────────────────────────
 
-  const action = issues.some((item) => item.action === "block")
+  const deduplicatedIssues = deduplicateIssues(issues);
+
+  const action = deduplicatedIssues.some((item) => item.action === "block")
     ? "block"
-    : issues.length > 0
+    : deduplicatedIssues.length > 0
       ? "warn"
       : "allow";
 
   return {
     action,
-    issues,
-    injectedMessage: buildInjectedGuardMessage(messages, issues),
+    issues: deduplicatedIssues,
+    injectedMessage: buildInjectedGuardMessage(messages, deduplicatedIssues),
   };
 }

@@ -11,11 +11,23 @@ export interface EvidenceAdapterOptions {
 }
 
 const DEFAULT_MODIFICATION_TOOLS = new Set(["write", "edit"]);
-const DEFAULT_VERIFICATION_TOOLS = new Set(["bash"]);
+const DEFAULT_VERIFICATION_TOOLS = new Set<string>();
 
-const TEST_COMMAND_PATTERN = /\b(test|spec|vitest|jest|mocha|pytest|bun\s+test|npm\s+test|pnpm\s+test|yarn\s+test)\b/i;
-const LINT_COMMAND_PATTERN = /\b(lint|biome\s+check|eslint)\b/i;
-const TYPECHECK_COMMAND_PATTERN = /\b(typecheck|type-check|tsc\s+(?:--noEmit|-b)|vue-tsc)\b/i;
+const COMMAND_START = String.raw`(?:^|(?:&&|\|\||;)\s*)`;
+const PACKAGE_RUNNER = String.raw`(?:bun|npm|pnpm|yarn)`;
+
+const TEST_COMMAND_PATTERN = new RegExp(
+  String.raw`${COMMAND_START}(?:(?:${PACKAGE_RUNNER})\s+(?:run\s+)?(?:test|spec|vitest|jest|mocha)\b|npx\s+(?:vitest|jest|mocha)\b|(?:vitest|jest|mocha|pytest)\b|go\s+test\b|cargo\s+test\b|mvn\s+test\b|gradle\s+test\b)`,
+  "i",
+);
+const LINT_COMMAND_PATTERN = new RegExp(
+  String.raw`${COMMAND_START}(?:(?:${PACKAGE_RUNNER})\s+(?:run\s+)?(?:lint|eslint|biome\s+check)\b|npx\s+(?:eslint|biome)\b|eslint\b|biome\s+check\b|ruff\s+check\b|flake8\b)`,
+  "i",
+);
+const TYPECHECK_COMMAND_PATTERN = new RegExp(
+  String.raw`${COMMAND_START}(?:(?:${PACKAGE_RUNNER})\s+(?:run\s+)?(?:typecheck|type-check|tsc|vue-tsc)\b|npx\s+(?:tsc|vue-tsc)\b|tsc\s+(?:--noEmit|-b)\b|vue-tsc\b)`,
+  "i",
+);
 
 function normalizeToolName(toolName: string): string {
   return toolName.trim().toLowerCase();
@@ -30,6 +42,23 @@ function getCommandText(evidence: ToolEvidence, resolver?: EvidenceAdapterOption
 
 function addKind(kinds: Set<CompletionEvidenceKind>, kind: CompletionEvidenceKind): void {
   kinds.add(kind);
+}
+
+function addCommandVerificationKinds(kinds: Set<CompletionEvidenceKind>, commandText: string, suffix: "success" | "failure"): boolean {
+  let matched = false;
+  if (TEST_COMMAND_PATTERN.test(commandText)) {
+    addKind(kinds, `test_${suffix}`);
+    matched = true;
+  }
+  if (LINT_COMMAND_PATTERN.test(commandText)) {
+    addKind(kinds, `lint_${suffix}`);
+    matched = true;
+  }
+  if (TYPECHECK_COMMAND_PATTERN.test(commandText)) {
+    addKind(kinds, `typecheck_${suffix}`);
+    matched = true;
+  }
+  return matched;
 }
 
 export function toCompletionEvidenceSummary(
@@ -49,9 +78,7 @@ export function toCompletionEvidenceSummary(
     if (!evidence.success) {
       failedToolCount += 1;
       addKind(kinds, "tool_failure");
-      if (TEST_COMMAND_PATTERN.test(commandText)) addKind(kinds, "test_failure");
-      if (LINT_COMMAND_PATTERN.test(commandText)) addKind(kinds, "lint_failure");
-      if (TYPECHECK_COMMAND_PATTERN.test(commandText)) addKind(kinds, "typecheck_failure");
+      addCommandVerificationKinds(kinds, commandText, "failure");
       continue;
     }
 
@@ -60,11 +87,10 @@ export function toCompletionEvidenceSummary(
       modifiedFileCount += 1;
     }
 
-    if (verificationTools.has(toolName)) {
+    const hasVerificationTool = verificationTools.has(toolName);
+    const hasVerificationCommand = addCommandVerificationKinds(kinds, commandText, "success");
+    if (hasVerificationTool || hasVerificationCommand) {
       addKind(kinds, "verification");
-      if (TEST_COMMAND_PATTERN.test(commandText)) addKind(kinds, "test_success");
-      if (LINT_COMMAND_PATTERN.test(commandText)) addKind(kinds, "lint_success");
-      if (TYPECHECK_COMMAND_PATTERN.test(commandText)) addKind(kinds, "typecheck_success");
     }
   }
 

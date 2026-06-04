@@ -14,7 +14,7 @@ function evidence(partial: Partial<ToolEvidence>): ToolEvidence {
 }
 
 describe("runHarnessAudit", () => {
-  test("combines verification evidence warning and completion audit", () => {
+  test("deduplicates generic unverified modification warning when completion audit reports the same risk", () => {
     const result = runHarnessAudit({
       finalText: "修复完成。",
       evidences: [evidence({ toolName: "edit" })],
@@ -22,9 +22,20 @@ describe("runHarnessAudit", () => {
     });
 
     expect(result.action).toBe("warn");
-    expect(result.issues.some((issue) => issue.id === "modified_without_verification")).toBe(true);
+    expect(result.issues.some((issue) => issue.id === "modified_without_verification")).toBe(false);
     expect(result.issues.some((issue) => issue.id === "modification_without_verification")).toBe(true);
-    expect(result.injectedMessage).toContain("完成前审计");
+    expect(result.injectedMessage?.match(/未检测到验证证据|没有验证证据/g)?.length).toBe(1);
+  });
+
+  test("allows final report that explicitly acknowledges missing verification", () => {
+    const result = runHarnessAudit({
+      finalText: "已修改文件，但没有运行测试或 typecheck，因此尚未验证。",
+      evidences: [evidence({ toolName: "edit" })],
+      verificationContext: { afterModification: true },
+    });
+
+    expect(result.action).toBe("allow");
+    expect(result.issues).toEqual([]);
   });
 
   test("blocks unsupported test pass claim", () => {

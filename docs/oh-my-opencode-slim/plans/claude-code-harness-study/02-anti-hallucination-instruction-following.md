@@ -21,7 +21,7 @@ Harness 状态机
 源文件：
 
 ```txt
-/tmp/pi-github-repos/NanmiCoder/cc-haha@main/src/constants/prompts.ts
+/tmp/pi-github-repos/cc-haha@main/src/constants/prompts.ts
 ```
 
 关键函数：
@@ -338,4 +338,59 @@ Claude-specific 但未来可泛化的机制：
 - structured output schema retry
 
 不要丢弃，后续可以为兼容模型抽象成 provider capabilities。
+
+## 7. 第二轮源码复核：Verification 细节修正
+
+第二轮对 cc-haha 源码补充阅读后，需要修正本文件第 3/4 节中“有 bash_success / 测试命令就能代表验证”的简化理解。
+
+### 7.1 Stop hook 不直接判断验证是否完成
+
+相关文件：
+
+- `src/utils/hooks.ts`
+- `src/query/stopHooks.ts`
+- `src/entrypoints/sdk/coreSchemas.ts`
+
+源码事实：Stop/SubagentStop hook 输入包含 `last_assistant_message` 和 `transcript_path`，hook 框架只负责把上下文交给 hook；它不把某个工具成功直接等同于 verification。
+
+### 7.2 cc-haha 的强验证来自 verifier，而不是普通 Bash
+
+相关文件：
+
+- `src/tools/AgentTool/built-in/verificationAgent.ts`
+- `src/constants/prompts.ts`
+- `src/tools/TodoWriteTool/TodoWriteTool.ts`
+- `src/tools/TaskUpdateTool/TaskUpdateTool.ts`
+
+源码事实：
+
+```txt
+- 非平凡实现完成前必须 independent adversarial verification。
+- verifier 是只读/运行检查的专职 agent，不能修改项目文件。
+- verifier 报告必须有 Command run、Output observed、Result。
+- verifier 结尾必须是 VERDICT: PASS | FAIL | PARTIAL。
+- Reading code is not verification。
+- 实现者自己的检查、caveat、自我声明不能替代 verifier。
+```
+
+Todo/Task 完成路径会在“关闭 3+ task/todo 且没有 verification step”时注入提醒，避免模型在最后一步直接总结。
+
+### 7.3 对 Pi Completion Auditor 的修正要求
+
+当前 Pi harness 的风险设计：
+
+```txt
+DEFAULT_VERIFICATION_TOOLS = ["bash"]
+```
+
+该设计会把 `git status`、`grep`、`echo` 等普通 bash 成功误判为 verification，压掉“修改后未验证”的提醒。
+
+后续修正应遵守：
+
+1. 普通工具成功不等于 verification。
+2. verification evidence 必须能说明“验证了什么”，最好包含命令、输出、结果或 verifier verdict。
+3. `test/lint/typecheck` 命令只能作为基础验证证据，不等同于独立 adversarial verification。
+4. 独立 verifier `VERDICT: PASS|FAIL|PARTIAL` 应作为更强证据类型。
+5. 所有 pattern、消息、阈值应保持唯一真源；运行时只传 evidence，不硬编码判断。
+6. 新增/修改规则必须用纯函数测试覆盖普通 bash、验证 bash、verifier verdict、失败恢复、reload 后 evidence reset 等边界。
 

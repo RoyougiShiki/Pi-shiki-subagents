@@ -243,7 +243,93 @@ src/config/schema.ts          # HarnessConfigSchema
 
 ---
 
-## 10. 参考资料
+## 10. 新发现问题
+
+### 10.1 工具权限配置与运行时不一致 (2026-06-03) — ✅ 已修复
+
+**问题描述**：
+- 当前 fallback 模式配置了显式 `tools` 列表（白名单模式）
+- 但该列表遗漏了部分 codebase-memory 工具（如 `index_repository`）
+- 导致 fallback 模式下工具不可用，与预期的"全部工具救援"不符
+
+**根本原因分析**：
+1. **白名单模式维护成本高**：每个 mode 需显式列出所有工具
+2. **新工具加入时易遗漏**：MCP 工具、扩展工具更新后需手动同步配置
+3. **多数据源 merge 不完整**：用户配置 + 默认配置合并逻辑可能有缺口
+4. **逻辑判断不稳定**：`toolList.length > 0 || agent.roles ? toolList : all` 依赖隐式推断
+
+**修复方案**：
+1. 新增 `resolveToolsExpression()` 纯函数，支持三种语法：
+   - `"*"` — 全部工具
+   - `"@组名"` — 引用 `_tool_groups` 中的组
+   - `"prefix_*"` — 通配符匹配
+2. `applyAgentTools()` 在获取 `allTools` 后缓存到 `_cachedAllTools`（唯一真源）
+3. `agents-default.json` 改用新语法：
+   - `fallback.tools = ["*"]` — 全部工具
+   - `coordinator.tools = ["@交互", "@子代理"]` — 组引用
+   - `_tool_groups` 支持通配符（如 `"检索": ["codebase_*"]`）
+
+**代码变更**：
+- `src/pi/core/pi-modes.ts` — 新增 `resolveToolsExpression()`、修改 `resolveConfiguredTools()`、`applyAgentTools()` 缓存 allTools
+- `src/adapters/agents-default.json` — 使用新语法
+- `src/config/workflows-and-tools.test.ts` — 更新测试
+
+**验证**：
+- ✅ `bun run typecheck` 通过
+- ✅ `bun test` 434 pass
+- ✅ reload 后 fallback 模式启动显示 `[tools:43]`，且 `codebase_memory_index_repository` 可直接调用
+
+**关键设计原则**：
+- **配置文件是唯一真源**：不依赖 `getAllTools()` 的时机
+- **显式标记优于隐式推断**：用语法明确表达意图
+- **向后兼容**：现有字面量格式仍有效
+- **无残留兼容代码**：清理旧逻辑，避免维护困难
+
+### 10.2 Completion/Verification 证据判定设计过粗 (2026-06-04) — ⚠️ 待修复
+
+**触发背景**：
+- 集成测试时，启用 `harness.completionAuditor.enabled=true` 后，assistant 声称完成没有触发完成审计提醒。
+- 排查发现 `src/pi/harness/evidence-adapter.ts` 默认把所有成功 `bash` 都计为 verification：
+  - `DEFAULT_VERIFICATION_TOOLS = new Set(["bash"])`
+  - 因此 `git status`、`grep`、`echo` 这类普通命令成功后也会让 `hasVerification=true`，压掉“修改后未验证”的提醒。
+- 同时 reload 会清空 runtime evidence，说明仅靠内存 evidence 和工具名推断不够稳健。
+
+**cc-haha 源码对比事实**：
+1. **Stop hook 是通用框架，不内置粗暴验证判定**
+   - `src/utils/hooks.ts` 构造 Stop/SubagentStop 输入，包含 `last_assistant_message` 与 `transcript_path`。
+   - Stop hook 负责把上下文交给 hook，不把“某个工具成功”直接等同于验证完成。
+2. **PostToolUse hook 提供完整工具输入/输出**
+   - `PostToolUseHookInput` 包含 `tool_name`、`tool_input`、`tool_response`、`tool_use_id`。
+   - 这说明判断 verification 应基于具体工具输入/输出语义，而不是仅看工具名。
+3. **cc-haha 的核心验证机制是独立 verification agent**
+   - `src/tools/AgentTool/built-in/verificationAgent.ts` 要求 verifier 只读/运行检查，不修改项目。
+   - verifier 输出必须包含 `Command run`、`Output observed`、`Result`，并以 `VERDICT: PASS|FAIL|PARTIAL` 结束。
+   - 明确写着“Reading code is not verification”，实现者自己的检查、caveat、自我声明都不能替代 verifier。
+4. **cc-haha 在任务关闭时结构化提醒 verification**
+   - `TodoWriteTool.ts` / `TaskUpdateTool.ts`：主线程关闭 3+ 个 task/todo 且没有 verification step 时，把提醒注入 tool result。
+   - 提醒内容强调最终总结前需要 spawn verification agent，不能 self-assign PARTIAL。
+5. **prompt 层也有 verification contract**
+   - `src/constants/prompts.ts`：非平凡实现完成前必须 independent adversarial verification；报告者 owns the gate；PASS 后还要 spot-check verifier 的命令输出。
+
+**结论**：
+- 之前 Pi harness 只学习了 cc-haha 的机制大纲（Stop hook、tool result budget、完成审计），但没有充分吸收细节精髓。
+- 尤其 verification 不是“工具调用成功”问题，而是“是否存在可审计、可复跑、与任务相关的验证证据/独立验证 verdict”。
+- 当前 `DEFAULT_VERIFICATION_TOOLS=["bash"]` 属于不成熟设计，需要修正。
+
+**修复方向（需保持 Pi 架构底线）**：
+1. **短期最小修复**：普通 `bash` 不再天然等同 verification；仅明确验证语义的命令或显式 verifier verdict 才算 verification。
+2. **中期设计 verifier agent**：新增或复用只读 verifier/oracle 机制，要求结构化输出 `VERDICT: PASS|FAIL|PARTIAL`，并保留命令和输出证据。
+3. **任务关闭提醒**：参考 cc-haha，在 todo/task 全部完成且无 verification step 时，注入结构化提醒。
+4. **证据判定解耦**：把“工具 evidence → verification state”的判断拆成纯函数模块；默认 pattern/message/阈值仍由唯一真源提供；避免在 runtime 层硬编码工具/命令字符串。
+5. **避免残留兼容**：不保留“任何 bash 都是 verification”这类旧逻辑；测试覆盖普通 bash、验证 bash、verifier verdict、reload/evidence reset 等边界。
+
+**风险提示**：
+- Harness 其他模块也可能存在类似问题：只照搬 cc-haha 的表层机制，没有充分对照源码细节。
+- 后续每个 harness 特性进入生产前，都应增加一轮“cc-haha 源码事实 → Pi 架构映射 → 纯函数测试 → runtime 集成测试”的复核步骤。
+
+---
+
+## 11. 参考资料
 
 - [05-pi-extension-mapping.md](./05-pi-extension-mapping.md) — 落地设计
 - [07-future-study-backlog.md](./07-future-study-backlog.md) — 后续研究

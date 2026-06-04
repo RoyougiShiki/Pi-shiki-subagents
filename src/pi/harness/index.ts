@@ -86,6 +86,7 @@ export {
 // Completion Auditor
 export {
   auditCompletion,
+  compilePatterns,
   DEFAULT_PATTERN_SOURCES,
   type CompletionEvidenceKind,
   type CompletionEvidenceSummary,

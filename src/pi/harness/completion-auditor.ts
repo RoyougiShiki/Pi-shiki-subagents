@@ -60,6 +60,13 @@ export interface CompletionAuditInput {
   agentContext?: AgentContext;
 }
 
+export function acknowledgesMissingValidation(
+  text: string,
+  patterns?: Partial<CompletionClaimPatterns>,
+): boolean {
+  return matches(text, mergePatterns(patterns).acknowledgesUnverified);
+}
+
 // ─── Patterns ──────────────────────────────────────────────────────────────
 
 /**
@@ -101,7 +108,7 @@ const DEFAULT_PATTERN_SOURCES: Record<keyof CompletionClaimPatterns, readonly st
 /**
  * 编译 pattern（从 string 到 RegExp）
  */
-function compilePatterns(sources: Record<keyof CompletionClaimPatterns, readonly string[]>): CompletionClaimPatterns {
+export function compilePatterns(sources: Record<keyof CompletionClaimPatterns, readonly string[]>): CompletionClaimPatterns {
   return {
     completion: sources.completion.map((s) => new RegExp(s, "i")),
     testPass: sources.testPass.map((s) => new RegExp(s, "i")),
