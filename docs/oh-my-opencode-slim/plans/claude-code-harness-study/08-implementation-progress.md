@@ -7,6 +7,27 @@
 
 ---
 
+## 0. 当前状态（2026-06-04）
+
+**Sprint 1 minimal 已完成**（`aa8e555 feat(harness): add scoped tool evidence pipeline`）。
+
+已落地的最小闭环：
+
+- `tool-result-normalizer`：统一 normalizer，复用 `command-semantics` 作为唯一真源。
+- `evidence-session-store`：记录 normalized tool evidence，并为 auditor 提供 session snapshot。
+- `completion-audit-scope`：read-only/advisory turn 可缩小到 current turn；明确 completion claim 强制回到 current session。
+- `pi.ts` runtime：只负责收集 hook payload、调用纯函数、记录 evidence、选择 audit window。
+
+下一阶段进入 **Phase 1.5**，按小切片推进：
+
+1. verifier verdict evidence ingestion：识别已有 `VERDICT: PASS|FAIL|PARTIAL` 输出并记录为 structured evidence。
+2. verification nudge runtime：关闭 3+ task/todo 且无 verification/verdict 时只做 notify/warning。
+3. completion auditor consumes verdict：让 PASS/FAIL/PARTIAL 影响完成声明审计。
+
+暂不做：自动 spawn verifier、强 block、把 `oracle` 硬编码成 verifier。
+
+---
+
 ## 1. 已完成实现
 
 ### 1.1 P0 核心特性
