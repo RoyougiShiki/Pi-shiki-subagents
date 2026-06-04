@@ -42,6 +42,7 @@ import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "..
 import { checkClarification } from "../policy/clarification-policy";
 import type { ToolEvidence } from "../policy/evidence-tracker";
 import { recordEvidence, getEvidences } from "../policy/evidence-tracker";
+import type { RuntimeTaskItem } from "../harness";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
 import {
   recordDeniedToolCall,
@@ -86,7 +87,7 @@ import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../a
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { ORCHESTRATOR_NAME } from "../../config/constants";
 import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
-import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages, compilePatterns, DEFAULT_PATTERN_SOURCES, normalizeToolResult, createEvidenceSessionStore, selectCompletionAuditEvidence } from "../harness";
+import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages, compilePatterns, DEFAULT_PATTERN_SOURCES, normalizeToolResult, createEvidenceSessionStore, selectCompletionAuditEvidence, ingestVerifierVerdict, detectVerificationNudge, formatNudgeMessage, updateTaskStateFromToolResult, applyVerifierVerdictsToEvidenceSummary, toCompletionEvidenceSummary } from "../harness";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -612,6 +613,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   const harnessSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const evidenceSessionStore = createEvidenceSessionStore();
   let currentTurnEvidences: ToolEvidence[] = [];
+  let runtimeTasks: RuntimeTaskItem[] = [];
 
   // ── Compliance state (session-level, in-memory) ──────────────────────
   let complianceState: ComplianceState = createComplianceState();
@@ -743,6 +745,23 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         } catch {}
       }
       if (event.type === "completed") {
+        const sessionId = (ctx.sessionManager as any)?.getSessionId?.() ?? harnessSessionId;
+        if (event.response) {
+          const verdictIngestion = ingestVerifierVerdict({
+            text: event.response,
+            source: "subagent",
+            verifier: event.agentName,
+          });
+          if (verdictIngestion.ingested && verdictIngestion.evidence) {
+            evidenceSessionStore.recordVerifierVerdict(sessionId, verdictIngestion.evidence);
+            try {
+              ctx.ui.notify(
+                `[harness] verifier verdict captured: ${verdictIngestion.evidence.verdict}`,
+                verdictIngestion.evidence.verdict === "PASS" ? "info" : "warning",
+              );
+            } catch {}
+          }
+        }
         try {
           pi.sendMessage({
             customType: "pool_completed",
@@ -1148,6 +1167,24 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         },
       ];
 
+      const taskState = updateTaskStateFromToolResult(runtimeTasks, {
+        toolName,
+        rawInput: args,
+        contentText: extractTextFromContentParts(Array.isArray(normalized.modelFacingMessage) ? normalized.modelFacingMessage : [normalized.modelFacingMessage]),
+      });
+      if (taskState.changed) {
+        const oldTasks = runtimeTasks;
+        runtimeTasks = taskState.tasks;
+        const sessionId = (ctx as any)?.sessionManager?.getSessionId?.() ?? harnessSessionId;
+        const hasVerifierVerdict = evidenceSessionStore.getVerifierVerdicts(sessionId).length > 0;
+        const nudge = detectVerificationNudge(oldTasks, runtimeTasks);
+        if (nudge.needed && !hasVerifierVerdict) {
+          try {
+            (ctx as any)?.ui?.notify?.(`[harness] ${formatNudgeMessage(nudge.closedCount)}`, "warning");
+          } catch {}
+        }
+      }
+
       let outputContent = normalized.modelFacingMessage;
       const outputIsError = evidence.success ? false : isError;
 
@@ -1221,11 +1258,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       currentTurnEvidences,
       forceSessionWindow: claimsCompletion,
     });
+    const evidenceSummary = applyVerifierVerdictsToEvidenceSummary(
+      toCompletionEvidenceSummary(auditEvidenceSelection.evidences),
+      evidenceSessionStore.getVerifierVerdicts(sessionId),
+    );
 
     const decision = runHarnessAudit(
       {
         finalText,
-        evidences: auditEvidenceSelection.evidences,
+        evidenceSummary,
         userAskedForFinal,
       },
       {

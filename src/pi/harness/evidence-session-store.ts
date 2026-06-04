@@ -1,9 +1,12 @@
 import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { VerifierVerdictEvidence } from "./verifier-verdict-evidence";
 import type { SessionArtifactRef, StructuredToolResult } from "./tool-result-normalizer";
 
 export interface EvidenceSessionStore {
   recordEvidence(input: StructuredToolResult): void;
+  recordVerifierVerdict(sessionId: string, evidence: VerifierVerdictEvidence): void;
   getEvidenceSnapshot(sessionId: string, options?: EvidenceSnapshotOptions): ToolEvidence[];
+  getVerifierVerdicts(sessionId: string): VerifierVerdictEvidence[];
   reconstructFromSessionEntries(entries: readonly unknown[]): ToolEvidence[];
   resetEvidence(boundary: "session" | "turn", sessionId?: string): void;
 }
@@ -92,10 +95,20 @@ function reconstructOne(entry: unknown): ToolEvidence | undefined {
 
 export function createEvidenceSessionStore(_options: EvidenceSessionStoreOptions = {}): EvidenceSessionStore {
   let evidences: SessionStoredToolEvidence[] = [];
+  let verifierVerdicts = new Map<string, VerifierVerdictEvidence[]>();
 
   return {
     recordEvidence(input: StructuredToolResult): void {
       evidences.push(toToolEvidence(input));
+    },
+
+    recordVerifierVerdict(sessionId: string, evidence: VerifierVerdictEvidence): void {
+      const current = verifierVerdicts.get(sessionId) ?? [];
+      verifierVerdicts.set(sessionId, [...current, evidence]);
+    },
+
+    getVerifierVerdicts(sessionId: string): VerifierVerdictEvidence[] {
+      return [...(verifierVerdicts.get(sessionId) ?? [])];
     },
 
     getEvidenceSnapshot(sessionId: string, options: EvidenceSnapshotOptions = {}): ToolEvidence[] {
@@ -125,6 +138,8 @@ export function createEvidenceSessionStore(_options: EvidenceSessionStoreOptions
         evidences = sessionId
           ? evidences.filter((evidence) => evidence.sessionId !== sessionId)
           : [];
+        if (sessionId) verifierVerdicts.delete(sessionId);
+        else verifierVerdicts = new Map();
         return;
       }
 

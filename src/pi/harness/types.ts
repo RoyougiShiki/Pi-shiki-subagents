@@ -27,6 +27,8 @@ export interface HarnessMessageCatalog {
     completionWithPendingSubagent: string;
     completionWithPendingTasks: string;
     completionAfterFailureWithoutAcknowledgement: string;
+    completionAgainstVerifierFail: string;
+    completionAgainstVerifierPartial: string;
     modificationWithoutVerification: string;
     finalReportWithoutAcknowledgingFailure: string;
     finalReportWithoutAcknowledgingUnverified: string;

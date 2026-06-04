@@ -59,6 +59,26 @@ describe("evidence-session-store", () => {
     expect(store.getEvidenceSnapshot("s2")).toHaveLength(1);
   });
 
+  test("records verifier verdict evidence per session", () => {
+    const store = createEvidenceSessionStore();
+    store.recordVerifierVerdict("s1", {
+      source: "subagent",
+      verdict: "PASS",
+      summary: "verified",
+      rawText: "VERDICT: PASS",
+      parsed: {
+        verdict: "PASS",
+        checkBlocks: [],
+        hasCommandRun: false,
+        hasOutputObserved: false,
+      },
+      timestamp: 123,
+    });
+
+    expect(store.getVerifierVerdicts("s1")).toHaveLength(1);
+    expect(store.getVerifierVerdicts("s2")).toHaveLength(0);
+  });
+
   test("reconstructs minimal evidence from tool result-like entries", () => {
     const store = createEvidenceSessionStore();
     const reconstructed = store.reconstructFromSessionEntries([

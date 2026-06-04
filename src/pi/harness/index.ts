@@ -129,6 +129,20 @@ export {
   type VerifierVerdictParseResult,
 } from "./verifier-verdict-parser";
 
+// Verifier Verdict Adapter
+export {
+  applyVerifierVerdictsToEvidenceSummary,
+} from "./verifier-verdict-adapter";
+
+// Verifier Verdict Evidence
+export {
+  ingestVerifierVerdict,
+  type VerifierVerdictEvidence,
+  type VerifierVerdictEvidenceSource,
+  type VerifierVerdictIngestionInput,
+  type VerifierVerdictIngestionResult,
+} from "./verifier-verdict-evidence";
+
 // Verification Nudge Detector
 export {
   detectVerificationNudge,
@@ -140,6 +154,14 @@ export {
   type VerificationNudgeConfig,
   type VerificationNudgeResult,
 } from "./verification-nudge";
+
+// Verification Nudge Runtime
+export {
+  updateTaskStateFromToolResult,
+  type RuntimeTaskItem,
+  type TaskToolStateUpdateInput,
+  type TaskToolStateUpdateResult,
+} from "./verification-nudge-runtime";
 
 // Completion Audit Scope
 export {

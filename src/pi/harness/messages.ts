@@ -22,6 +22,10 @@ export const DEFAULT_HARNESS_MESSAGES: HarnessMessageCatalog = {
       "[guard] 仍有未完成任务；不要直接宣称全部完成。",
     completionAfterFailureWithoutAcknowledgement:
       "[guard] 检测到失败证据，但最终回复没有说明失败或恢复情况。",
+    completionAgainstVerifierFail:
+      "[guard] verifier verdict 为 FAIL；不要声称完成，请说明失败项或继续修复。",
+    completionAgainstVerifierPartial:
+      "[guard] verifier verdict 为 PARTIAL；不要无条件声称全部完成，请说明部分完成和剩余风险。",
     modificationWithoutVerification:
       "[guard] 检测到修改证据，但没有验证证据。总结时请明确说明尚未验证，或先执行验证。",
     finalReportWithoutAcknowledgingFailure:

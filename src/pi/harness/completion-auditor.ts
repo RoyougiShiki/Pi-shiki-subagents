@@ -28,6 +28,9 @@ export type CompletionEvidenceKind =
   | "typecheck_success"
   | "typecheck_failure"
   | "tool_failure"
+  | "verifier_pass"
+  | "verifier_fail"
+  | "verifier_partial"
   | "subagent_pending";
 
 export interface CompletionEvidenceSummary {
@@ -36,6 +39,8 @@ export interface CompletionEvidenceSummary {
   pendingTaskCount?: number;
   failedToolCount?: number;
   modifiedFileCount?: number;
+  verifierVerdict?: "PASS" | "FAIL" | "PARTIAL";
+  verifierSummary?: string;
 }
 
 export interface CompletionClaimPatterns {
@@ -261,6 +266,37 @@ export function auditCompletion(
         ),
       );
     }
+  }
+
+  // ─── Verifier verdict 检测（所有角色都检查）───────────────────────────────
+
+  if (claimsCompletion && hasKind(evidence, "verifier_fail") && !matches(text, patterns.acknowledgesFailure)) {
+    issues.push(
+      issue(
+        "completion_against_verifier_fail",
+        "warn",
+        "completionAgainstVerifierFail",
+        messages.completionAuditor.completionAgainstVerifierFail,
+        { verifierSummary: evidence.verifierSummary },
+      ),
+    );
+  }
+
+  if (
+    claimsCompletion &&
+    hasKind(evidence, "verifier_partial") &&
+    !matches(text, patterns.acknowledgesFailure) &&
+    !matches(text, patterns.acknowledgesUnverified)
+  ) {
+    issues.push(
+      issue(
+        "completion_against_verifier_partial",
+        "warn",
+        "completionAgainstVerifierPartial",
+        messages.completionAuditor.completionAgainstVerifierPartial,
+        { verifierSummary: evidence.verifierSummary },
+      ),
+    );
   }
 
   // ─── 失败后完成检测（所有角色都检查）──────────────────────────────────────
