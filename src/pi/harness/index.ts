@@ -129,6 +129,18 @@ export {
   type VerifierVerdictParseResult,
 } from "./verifier-verdict-parser";
 
+// Verification Nudge Detector
+export {
+  detectVerificationNudge,
+  getDefaultNudgeMessage,
+  formatNudgeMessage,
+  DEFAULT_THRESHOLD,
+  DEFAULT_VERIFICATION_STEP_PATTERN,
+  DEFAULT_NUDGE_MESSAGE,
+  type VerificationNudgeConfig,
+  type VerificationNudgeResult,
+} from "./verification-nudge";
+
 // Final Request Detector
 export {
   detectFinalRequest,
