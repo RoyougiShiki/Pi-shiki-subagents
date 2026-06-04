@@ -40,9 +40,9 @@ import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent, rehydrateActiveModeTools, registerModeCommands, registerModeHooks, registerSwitchModeTool } from "./pi-modes";
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
 import { checkClarification } from "../policy/clarification-policy";
+import type { ToolEvidence } from "../policy/evidence-tracker";
 import { recordEvidence, getEvidences } from "../policy/evidence-tracker";
 import { setAuditEnabled, auditClarification, auditApproval, auditEvidence, auditToolScope } from "../policy/runtime-audit";
-import { interpretCommandSemantic } from "../policy/command-semantics";
 import {
   recordDeniedToolCall,
   isDeniedToolCall,
@@ -86,7 +86,7 @@ import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../a
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
 import { ORCHESTRATOR_NAME } from "../../config/constants";
 import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
-import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages, compilePatterns, DEFAULT_PATTERN_SOURCES } from "../harness";
+import { applyToolResultBudget, resolveHarnessConfig, runHarnessAudit, detectFinalRequestFromMessages, compilePatterns, DEFAULT_PATTERN_SOURCES, normalizeToolResult, createEvidenceSessionStore, selectCompletionAuditEvidence } from "../harness";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 export { ensureAgentFiles, getPiAgentsDirForSync } from "../agents/managed-agent-files";
@@ -610,6 +610,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // ── Harness config (completion auditor + tool result budget) ────────────
   const harnessConfig = resolveHarnessConfig(config?.harness);
   const harnessSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const evidenceSessionStore = createEvidenceSessionStore();
+  let currentTurnEvidences: ToolEvidence[] = [];
 
   // ── Compliance state (session-level, in-memory) ──────────────────────
   let complianceState: ComplianceState = createComplianceState();
@@ -792,6 +794,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   pi.on("turn_start", async (_event) => {
     toolExecutedThisTurn = false;
+    currentTurnEvidences = [];
   });
 
   // ── Inject orchestrator system prompt ───────────────────────────────
@@ -1092,50 +1095,70 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     return undefined;
   }
 
-  pi.on("tool_result", async (event) => {
+  pi.on("tool_result", async (event, ctx) => {
     const toolName = (event as any).toolName;
     const toolCallId = (event as any).toolCallId ?? "";
     // Pi ToolResultEvent uses 'input' but legacy code may use 'args'
     const args = (event as any).input ?? (event as any).args ?? {};
     // Pi ToolResultEvent uses 'content' array, legacy may use 'result'
     const content = (event as any).content ?? (event as any).result;
-    const isError = (event as any).isError ?? (event as any).success === false;
+    const isError = Boolean((event as any).isError ?? (event as any).success === false);
     const exitCode = toolName === "bash" ? extractExitCodeFromContent(content) : undefined;
 
-    // ── Command Semantics: 语义化 model-facing message ─────────────────────
-    // 如果 bash 命令有语义化 message，且原始输出为空或只有错误消息，才替换
-    // grep exit 1 → "No matches found" (而不是 "Command exited with code 1")
-    // diff exit 1 → 保留原始输出（差异信息），不替换
-    // find exit 1 → 保留原始输出，或用 "Some directories were inaccessible" 补充
-    if (toolName === "bash" && exitCode !== undefined && typeof args?.command === "string") {
-      const semantic = interpretCommandSemantic(args.command, exitCode);
-      if (!semantic.isError && semantic.message) {
-        // 检查原始输出是否为空或只有 "Command exited with code X" 或 "(no output)"
-        const contentText = extractTextFromContentParts(Array.isArray(content) ? content : []);
-        const isOnlyExitMessage = /^\s*\(no output\)\s*\n?\s*Command exited with code \d+\s*$/.test(contentText) ||
-                                   /^\s*Command exited with code \d+\s*$/.test(contentText) ||
-                                   /^\s*\(no output\)\s*$/.test(contentText);
-        
-        if (!contentText.trim() || isOnlyExitMessage) {
-          // 原始输出为空或只有错误消息，替换为语义化消息
-          const newContent = [{ type: "text", text: semantic.message }];
-          recordEvidence(toolName, toolCallId, args, newContent, true, exitCode);
-          auditEvidence("recorded", toolName, toolCallId);
-          return { content: newContent, details: (event as any).details, isError: false };
-        }
-        // 否则保留原始输出，但标记为非错误
-        // 已经通过 evidence-adapter 的 command-semantics 调用处理了
-      }
-    }
-
     if (toolName) {
-      // Record evidence for completion auditor
-      recordEvidence(toolName, toolCallId, args, content, !isError, exitCode);
+      const sessionId = (ctx as any)?.sessionManager?.getSessionId?.() ?? harnessSessionId;
+      const sessionFile = (ctx as any)?.sessionManager?.getSessionFile?.();
+      const sessionArtifactRef = sessionFile
+        ? { kind: "session_file" as const, sessionId, path: sessionFile }
+        : { kind: "session_entries" as const, sessionId };
+
+      const normalized = normalizeToolResult({
+        toolName,
+        toolCallId,
+        rawInput: args,
+        modelFacingContent: content,
+        isError,
+        exitCode,
+        sessionArtifactRef,
+      });
+      const evidence = normalized.evidence;
+
+      // Record evidence for completion auditor. Use normalized success/message so
+      // command semantics (e.g. grep exit 1) and model-facing content stay aligned.
+      evidenceSessionStore.recordEvidence(evidence);
+      recordEvidence(
+        evidence.toolName,
+        evidence.toolCallId,
+        evidence.rawInput,
+        normalized.modelFacingMessage,
+        evidence.success,
+        evidence.exitCode,
+      );
       auditEvidence("recorded", toolName, toolCallId);
+      currentTurnEvidences = [
+        ...currentTurnEvidences,
+        {
+          toolName: evidence.toolName,
+          toolCallId: evidence.toolCallId,
+          args: evidence.rawInput,
+          result: normalized.modelFacingMessage,
+          timestamp: evidence.timestamp,
+          success: evidence.success,
+          exitCode: evidence.exitCode,
+        },
+      ];
+
+      let outputContent = normalized.modelFacingMessage;
+      const outputIsError = evidence.success ? false : isError;
 
       // ── Tool result budget (optional, large output persistence) ─────────────
       if (harnessConfig.toolResultBudget.enabled) {
-        const contentText = extractTextFromContentParts(Array.isArray(content) ? content : []);
+        const outputParts = Array.isArray(outputContent)
+          ? outputContent
+          : typeof outputContent === "string"
+            ? [{ type: "text", text: outputContent }]
+            : [outputContent];
+        const contentText = extractTextFromContentParts(outputParts);
         if (contentText.length > 0) {
           const storageBaseDir = harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results";
           const expandedBaseDir = expandHomePath(storageBaseDir);
@@ -1144,19 +1167,24 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             {
               thresholds: harnessConfig.toolResultBudget.thresholds,
               previewChars: harnessConfig.toolResultBudget.previewChars,
-              storage: { baseDir: expandedBaseDir, sessionId: harnessSessionId },
+              storage: { baseDir: expandedBaseDir, sessionId },
               messages: harnessConfig.messages,
             },
           );
           if (decision.action === "persist") {
-            // Return modified content to replace original
-            const newContent = replaceFirstTextInContent(
-              Array.isArray(content) ? content : [{ type: "text", text: String(content) }],
-              decision.content,
-            );
-            return { content: newContent, details: (event as any).details, isError }; 
+            const persistedContent = replaceFirstTextInContent(outputParts, decision.content);
+            return { content: persistedContent, details: (event as any).details, isError: outputIsError };
           }
         }
+      }
+
+      if (normalized.messageModified || outputIsError !== isError) {
+        const returnedContent: any[] = Array.isArray(outputContent) ? outputContent : [outputContent];
+        return {
+          content: returnedContent,
+          details: (event as any).details,
+          isError: outputIsError,
+        };
       }
     }
   });
@@ -1186,10 +1214,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     const isFinalReport = userAskedForFinal || claimsCompletion;
     if (!isFinalReport) return;
 
+    const sessionId = (ctx.sessionManager as any)?.getSessionId?.() ?? harnessSessionId;
+    const auditEvidenceSelection = selectCompletionAuditEvidence({
+      sessionId,
+      sessionEvidences: evidenceSessionStore.getEvidenceSnapshot(sessionId),
+      currentTurnEvidences,
+      forceSessionWindow: claimsCompletion,
+    });
+
     const decision = runHarnessAudit(
       {
         finalText,
-        evidences: getEvidences(),
+        evidences: auditEvidenceSelection.evidences,
         userAskedForFinal,
       },
       {

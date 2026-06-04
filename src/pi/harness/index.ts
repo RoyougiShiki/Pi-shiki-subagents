@@ -141,6 +141,33 @@ export {
   type VerificationNudgeResult,
 } from "./verification-nudge";
 
+// Completion Audit Scope
+export {
+  hasModificationEvidence,
+  selectCompletionAuditEvidence,
+  type CompletionAuditScope,
+  type SelectCompletionAuditEvidenceInput,
+  type SelectCompletionAuditEvidenceResult,
+} from "./completion-audit-scope";
+
+// Evidence Session Store
+export {
+  createEvidenceSessionStore,
+  type EvidenceSessionStore,
+  type EvidenceSnapshotOptions,
+  type EvidenceSessionStoreOptions,
+  type SessionStoredToolEvidence,
+} from "./evidence-session-store";
+
+// Tool Result Normalizer
+export {
+  normalizeToolResult,
+  type SessionArtifactRef,
+  type ToolResultNormalizeInput,
+  type StructuredToolResult,
+  type ToolResultNormalizeOutput,
+} from "./tool-result-normalizer";
+
 // Final Request Detector
 export {
   detectFinalRequest,
