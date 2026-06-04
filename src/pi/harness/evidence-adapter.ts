@@ -1,5 +1,6 @@
 import type { ToolEvidence } from "../policy/evidence-tracker";
 import type { VerificationEvidenceState } from "../policy/verification-evidence-policy";
+import { interpretCommandSemantic, type CommandSemanticConfig } from "../policy/command-semantics";
 import type { CompletionEvidenceKind, CompletionEvidenceSummary } from "./completion-auditor";
 
 export interface EvidenceAdapterOptions {
@@ -8,6 +9,7 @@ export interface EvidenceAdapterOptions {
   commandTextResolver?: (evidence: ToolEvidence) => string | undefined;
   verificationToolNames?: readonly string[];
   modificationToolNames?: readonly string[];
+  commandSemantics?: CommandSemanticConfig;
 }
 
 const DEFAULT_MODIFICATION_TOOLS = new Set(["write", "edit"]);
@@ -75,7 +77,17 @@ export function toCompletionEvidenceSummary(
     const toolName = normalizeToolName(evidence.toolName);
     const commandText = getCommandText(evidence, options.commandTextResolver);
 
-    if (!evidence.success) {
+    // 使用 command semantics 重新判断 bash 错误
+    // grep/rg 返回 1 不是错误，find 返回 1 不是错误
+    let effectiveSuccess = evidence.success;
+    if (!evidence.success && toolName === "bash" && evidence.exitCode !== undefined) {
+      const semantic = interpretCommandSemantic(commandText, evidence.exitCode, options.commandSemantics);
+      if (!semantic.isError) {
+        effectiveSuccess = true; // 命令语义说这不是错误
+      }
+    }
+
+    if (!effectiveSuccess) {
       failedToolCount += 1;
       addKind(kinds, "tool_failure");
       addCommandVerificationKinds(kinds, commandText, "failure");

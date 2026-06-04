@@ -16,6 +16,8 @@ export interface ToolEvidence {
   result?: unknown;
   timestamp: number;
   success: boolean;
+  /** Bash 退出码（仅 bash 工具有值） */
+  exitCode?: number;
 }
 
 export interface CompletionClaim {
@@ -59,7 +61,8 @@ export function recordEvidence(
   toolCallId: string,
   args: Record<string, unknown>,
   result?: unknown,
-  success = true
+  success = true,
+  exitCode?: number
 ): void {
   _evidences.push({
     toolName,
@@ -68,6 +71,7 @@ export function recordEvidence(
     result,
     timestamp: Date.now(),
     success,
+    exitCode,
   });
 }
 

@@ -1074,6 +1074,23 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   });
 
   // ── Evidence tracking: 记录工具执行结果 ────────────────────────────
+  // 提取 bash 退出码（从错误消息文本）
+  function extractExitCodeFromContent(content: unknown): number | undefined {
+    if (typeof content === "string") {
+      const match = content.match(/Command exited with code (\d+)/);
+      return match ? parseInt(match[1], 10) : undefined;
+    }
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part?.type === "text" && typeof part.text === "string") {
+          const match = part.text.match(/Command exited with code (\d+)/);
+          return match ? parseInt(match[1], 10) : undefined;
+        }
+      }
+    }
+    return undefined;
+  }
+
   pi.on("tool_result", async (event) => {
     const toolName = (event as any).toolName;
     const toolCallId = (event as any).toolCallId ?? "";
@@ -1082,10 +1099,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     // Pi ToolResultEvent uses 'content' array, legacy may use 'result'
     const content = (event as any).content ?? (event as any).result;
     const isError = (event as any).isError ?? (event as any).success === false;
+    const exitCode = toolName === "bash" ? extractExitCodeFromContent(content) : undefined;
 
     if (toolName) {
       // Record evidence for completion auditor
-      recordEvidence(toolName, toolCallId, args, content, !isError);
+      recordEvidence(toolName, toolCallId, args, content, !isError, exitCode);
       auditEvidence("recorded", toolName, toolCallId);
 
       // ── Tool result budget (optional, large output persistence) ─────────────
