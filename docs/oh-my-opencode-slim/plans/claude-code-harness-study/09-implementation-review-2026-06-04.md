@@ -5,45 +5,43 @@
 | # | 模块 | 问题/风险描述 | cc-haha 对应 | 当前状态 | 优先级 | 备注 |
 |---|---|---|---|---|---|---|
 | 1 | `evidence-adapter.ts` | **已修**: 普通 bash 成功误判为 verification | `verificationAgent` + prompt contract | ✅ 已修 | done | Phase 1.5 第一轮修复 |
-| 2 | `run-harness-audit.ts` | **已修**: 重复未验证 warning；已承认"尚未验证"仍警告 | Stop hook 只提供上下文，不粗暴判断 | ✅ 已修 | done | Phase 1.5 第二轮修复 |
-| 3 | `evidence-tracker.ts` | 全局状态 `_evidences`，reload/session 边界不清 | cc-haha hook 每轮拿到 transcript_path，可重建 | ⚠️ 风险 | P1 | 需确认 reset 时机和 session 生存期 |
-| 4 | `commandSemantics` | **已修**: 不同命令退出码语义（grep 返回 1 ≠ 错误） | `src/tools/BashTool/commandSemantics.ts` | ✅ 已修 | done | 纯函数 + runtime 集成 |
-| 5 | `TodoWriteTool/TaskUpdateTool` nudge | **纯函数完成**: 关闭 3+ task/todo 且无 verification step 时提醒 | TodoWriteTool/TaskUpdateTool 输出 `verificationNudgeNeeded` | ⚠️ 未接 runtime | P1.5 | 纯函数已完成，未接入 todo tool |
-| 6 | `verifier verdict parser` | **纯函数完成**: 识别 `VERDICT: PASS|FAIL|PARTIAL` | `verificationAgent` prompt + tool contract | ⚠️ 未接 runtime | P1.5 | 纯函数已完成，未接入 runtime |
-| 7 | `tool-result-budget.ts` | threshold 静态配置，无 GrowthBook 动态覆盖 | `PERSIST_THRESHOLD_OVERRIDE_FLAG` | ⚠️ 低风险 | P2 | 当前阈值来自 config，不支持运行时 flag |
-| 8 | `final-request-detector.ts` | 纯 pattern 检测用户是否请求最终答案 | cc-haha Stop hook 不做"用户意图"判断 | ⚠️ 合理偏差 | P2 | 我们用 pattern，cc-haha 不在此层判断 |
-| 9 | `denied-tool-memory.ts` | 会话级 memory，reload 后丢失 | cc-haha permission memory + session 持久化 | ⚠️ 风险 | P1 | 需对照 cc-haha permission memory 机制 |
-| 10 | `completion-auditor.ts` pattern | 过度依赖自然语言 pattern 检测"完成/未验证" | cc-haha 也用 prompt contract，但有 verifier verdict | ⚠️ 中风险 | P1.5 | pattern 可配置，但不是最终解 |
-| 11 | `PostToolUse hook` | **部分修**: 缺完整 `tool_input/tool_response` 语义 | `PostToolUseHookInput` 包含完整输入输出 | ⚠️ 部分修 | P1 | 已加 exitCode，仍缺 rawInput/rawResponse/affectedFiles |
-| 12 | `Stop hook` transcript | **缺失**: 无法从 transcript 重建 evidence | Stop hook 输入包含 `transcript_path` | ❌ 缺失 | P1 | reload 后 evidence memory 清空，无 transcript 恢复 |
+| 2 | `run-harness-audit.ts` | **已修**: 重复未验证 warning;已承认"尚未验证"仍警告 | Stop hook 只提供上下文,不粗暴判断 | ✅ 已修 | done | Phase 1.5 第二轮修复 |
+| 3 | `evidence-tracker.ts` | 全局状态 `_evidences`,reload/session 边界不清 | cc-haha hook 每轮拿到 transcript_path,可重建 | ⚠️ 风险 | P1 | 需确认 reset 时机和 session 生存期 |
+| 4 | `commandSemantics` | **发现遗漏**: 已实现 isError 判断，但缺少 message 字段返回给模型 | `src/tools/BashTool/commandSemantics.ts` | ⚠️ 部分修 | P1 | message 字段影响模型理解语义 |
+| 5 | `TodoWriteTool/TaskUpdateTool` nudge | **纯函数完成**: 关闭 3+ task/todo 且无 verification step 时提醒 | TodoWriteTool/TaskUpdateTool 输出 `verificationNudgeNeeded` | ⚠️ 未接 runtime | P1.5 | 纯函数已完成,未接入 todo tool |
+| 6 | `verifier verdict parser` | **纯函数完成**: 识别 `VERDICT: PASS|FAIL|PARTIAL` | `verificationAgent` prompt + tool contract | ⚠️ 未接 runtime | P1.5 | 纯函数已完成,未接入 runtime |
+| 7 | `tool-result-budget.ts` | threshold 静态配置,无 GrowthBook 动态覆盖 | `PERSIST_THRESHOLD_OVERRIDE_FLAG` | ⚠️ 低风险 | P2 | 当前阈值来自 config,不支持运行时 flag |
+| 8 | `final-request-detector.ts` | 纯 pattern 检测用户是否请求最终答案 | cc-haha Stop hook 不做"用户意图"判断 | ⚠️ 合理偏差 | P2 | 我们用 pattern,cc-haha 不在此层判断 |
+| 9 | `denied-tool-memory.ts` | 会话级 memory,reload 后丢失 | cc-haha permission memory + session 持久化 | ⚠️ 风险 | P1 | 需对照 cc-haha permission memory 机制 |
+| 10 | `completion-auditor.ts` pattern | 过度依赖自然语言 pattern 检测"完成/未验证" | cc-haha 也用 prompt contract,但有 verifier verdict | ⚠️ 中风险 | P1.5 | pattern 可配置,但不是最终解 |
+| 11 | `PostToolUse hook` | **部分修**: 缺完整 `tool_input/tool_response` 语义 | `PostToolUseHookInput` 包含完整输入输出 | ⚠️ 部分修 | P1 | 已加 exitCode,仍缺 rawInput/rawResponse/affectedFiles |
+| 12 | `Stop hook` transcript | **缺失**: 无法从 transcript 重建 evidence | Stop hook 输入包含 `transcript_path` | ❌ 缺失 | P1 | reload 后 evidence memory 清空,无 transcript 恢复 |
 | 13 | `verification-evidence-policy.ts` | **已修**: 通用 guard 在 finalText 承认后仍警告 | Stop hook 不做粗暴 verification 判断 | ✅ 已修 | done | 通过 `acknowledgesMissingValidation` 调用 |
-| 14 | `pi.ts` integration | `message_end` 只 notify，不 block；无 tool_result hook 完整集成 | Stop hook 可以 block/message_edit | ⚠️ 当前设计 | P2 | 我们选择 P0 只 notify，不改消息 |
+| 14 | `pi.ts` integration | `message_end` 只 notify,不 block;无 tool_result hook 完整集成 | Stop hook 可以 block/message_edit | ⚠️ 当前设计 | P2 | 我们选择 P0 只 notify,不改消息 |
 
 ---
 
 ## 2. 优先级分类
 
-### P0: Done (已修)
+### P1: 设计对齐(必须立即做)
 
-- #1 普通 bash 不再误判为 verification
-- #2 重复 warning 去重 + 承认未验证后不再警告
-- #13 verification-evidence-policy 配合 completion auditor
+- #1 command-semantics message 字段(模型看到语义化文本)
+- #2 逐行对比 cc-haha 关键模块(发现其他遗漏)
 
-### P1: 需要尽快修
+### P2: 核心功能完善(对齐后做)
 
 - #3 evidence-tracker 全局状态 + session 边界
-- #4 commandSemantics(grep/rg/find 退出码语义)
 - #9 denied-tool-memory reload 后丢失
 - #11 PostToolUse 保留完整 tool_input/tool_response
 - #12 Stop hook transcript 恢复 evidence
 
-### P1.5: 纯函数可先做,runtime 后续
+### P3: Runtime 接入(对齐后做)
 
-- #5 TodoWrite/TaskUpdate verification nudge(输出字段)
-- #6 verifier verdict parser(纯函数)
+- #5 TodoWrite/TaskUpdate verification nudge
+- #6 verifier verdict parser runtime
 - #10 减少 pattern 过度依赖(引入 verdict)
 
-### P2: 可延后
+### P4: 可延后
 
 - #7 GrowthBook threshold override
 - #8 final-request-detector pattern 合理偏差
@@ -86,12 +84,19 @@ export function resetEvidence(): void {
 
 ---
 
-### 3.2 commandSemantics (#4)
+### 3.2 commandSemantics (#4) - **发现遗漏**
 
-**当前实现**:
+**已做部分**:
 
-- 所有非 0 退出码当成 `tool_failure`
-- `grep` 返回 1(no matches)被当成失败
+- ✅ 纯函数模块: `src/pi/policy/command-semantics.ts`
+- ✅ `interpretCommandSemantic(commandText, exitCode)` → `{ isError, semantic, message }`
+- ✅ 默认语义表: grep/rg exit 1 = no_matches, find exit 1 = partial_success, diff exit 1 = files_differ
+- ✅ Runtime 集成: evidence-adapter 调用 semantics 判断
+- ✅ 测试: 12 tests pass
+
+**遗漏部分**:
+
+- ❌ **message 字段没有返回给模型**
 
 **cc-haha 对应**:
 
@@ -103,16 +108,30 @@ export function resetEvidence(): void {
 })],
 ```
 
-**建议修正方向**:
+**问题**:
 
-1. 新增 `src/pi/policy/command-semantics.ts`
-2. 纯函数:`(command, exitCode, stdout, stderr) -> { isError, semantic }`
-3. 默认语义表:
-   - `grep` / `rg`: exitCode 1 = no matches (not error)
-   - `find`: exitCode 1 = partial success
-   - `test`: exitCode != 0 = failure
-4. 在 evidence-adapter 里调用 semantics 判断
-5. 可配置 override
+- 我们在 evidence-adapter 里判断 `isError`,但模型看到的是 Pi 原始输出 "Command exited with code 1"
+- harness 只做内部标记,没有修改返回给模型的消息
+- 模型可能仍误判 "出错了",而不是理解 "没找到"
+
+**修正方案**:
+
+在 `pi.ts` 的 tool_result hook 里修改返回给模型的消息:
+
+```ts
+if (toolName === "bash" && exitCode !== undefined) {
+  const semantic = interpretCommandSemantic(commandText, exitCode);
+  if (!semantic.isError && semantic.message) {
+    // 替换返回给模型的消息
+    return { content: [{ type: "text", text: semantic.message }] };
+  }
+}
+```
+
+**影响**:
+
+- 这个遗漏直接影响模型对命令结果的理解
+- 不修复则 command-semantics 的设计目的(帮助模型正确理解语义)无法实现
 
 ---
 

@@ -1,7 +1,7 @@
 # 08 — Harness 实现进度记录
 
 创建日期：2026-06-03
-最后更新：2026-06-03
+最后更新：2026-06-04
 
 本文档记录 cc-haha harness 特性映射到 Pi 扩展的实现进度、测试状态和后续计划。
 
@@ -11,34 +11,38 @@
 
 ### 1.1 P0 核心特性
 
-| 特性 | 源文件 | 测试文件 | 单元测试 | 集成测试 | 提交 |
-|---|---|---|---|---|---|
-| Completion Auditor | `src/pi/harness/completion-auditor.ts` | `completion-auditor.test.ts` | ✅ 15 tests | ❌ | e93c9ed |
-| Tool Result Budget | `src/pi/harness/tool-result-budget.ts` | `tool-result-budget.test.ts` | ✅ | ❌ | 987c1d2 |
-| Tool Result Budget State | `src/pi/harness/tool-result-budget-state.ts` | - | ✅ (via budget test) | ❌ | 987c1d2 |
-| Evidence Adapter | `src/pi/harness/evidence-adapter.ts` | `evidence-adapter.test.ts` | ✅ | ❌ | 5539170 |
-| Run Harness Audit | `src/pi/harness/run-harness-audit.ts` | `run-harness-audit.test.ts` | ✅ | ❌ | 5539170 |
-| Harness Config | `src/pi/harness/harness-config.ts` | `harness-config.test.ts` | ✅ | ❌ | 5539170 |
-| Thresholds (唯一真源) | `src/pi/harness/thresholds.ts` | - | ✅ (via other tests) | ❌ | 069c9e6 |
-| Messages (唯一真源) | `src/pi/harness/messages.ts` | - | ✅ (via auditor tests) | ❌ | 069c9e6 |
-| Types | `src/pi/harness/types.ts` | - | ✅ | ❌ | 069c9e6 |
-| Agent Context | `src/pi/harness/agent-context.ts` | - | ✅ | ❌ | 069c9e6 |
+| 特性 | 源文件 | 测试文件 | 单元测试 | 集成测试 | 提交 | 对齐状态 |
+|---|---|---|---|---|---|---|
+| Completion Auditor | `src/pi/harness/completion-auditor.ts` | `completion-auditor.test.ts` | ✅ 15 tests | ❌ | e93c9ed | ⚠️ 需逐行对比 |
+| Tool Result Budget | `src/pi/harness/tool-result-budget.ts` | `tool-result-budget.test.ts` | ✅ | ❌ | 987c1d2 | ⚠️ 需逐行对比 |
+| Tool Result Budget State | `src/pi/harness/tool-result-budget-state.ts` | - | ✅ (via budget test) | ❌ | 987c1d2 | ⚠️ 需逐行对比 |
+| Evidence Adapter | `src/pi/harness/evidence-adapter.ts` | `evidence-adapter.test.ts` | ✅ 12 tests | ❌ | 5539170,11daf66 | ⚠️ 需逐行对比 |
+| Run Harness Audit | `src/pi/harness/run-harness-audit.ts` | `run-harness-audit.test.ts` | ✅ | ❌ | 5539170 | ⚠️ 需逐行对比 |
+| Harness Config | `src/pi/harness/harness-config.ts` | `harness-config.test.ts` | ✅ | ❌ | 5539170 | ✅ |
+| Thresholds (唯一真源) | `src/pi/harness/thresholds.ts` | - | ✅ (via other tests) | ❌ | 069c9e6 | ✅ |
+| Messages (唯一真源) | `src/pi/harness/messages.ts` | - | ✅ (via auditor tests) | ❌ | 069c9e6 | ⚠️ 需逐行对比 cc-haha prompts |
+| Types | `src/pi/harness/types.ts` | - | ✅ | ❌ | 069c9e6 | ✅ |
+| Agent Context | `src/pi/harness/agent-context.ts` | - | ✅ | ❌ | 069c9e6 | ✅ |
 
 ### 1.2 P1 辅助特性
 
-| 特性 | 源文件 | 测试文件 | 单元测试 | 集成测试 | 提交 |
-|---|---|---|---|---|---|
-| Denied Tool Memory | `src/pi/policy/denied-tool-memory.ts` | `denied-tool-memory.test.ts` | ✅ 14 tests | ❌ | 987c1d2 |
-| Final Request Detector | `src/pi/harness/final-request-detector.ts` | `final-request-detector.test.ts` | ✅ 18 tests | ❌ | e93c9ed |
+| 特性 | 源文件 | 测试文件 | 单元测试 | 集成测试 | 提交 | 对齐状态 |
+|---|---|---|---|---|---|---|
+| Denied Tool Memory | `src/pi/policy/denied-tool-memory.ts` | `denied-tool-memory.test.ts` | ✅ 14 tests | ❌ | 987c1d2 | ⚠️ 需逐行对比 cc-haha permission |
+| Final Request Detector | `src/pi/harness/final-request-detector.ts` | `final-request-detector.test.ts` | ✅ 18 tests | ❌ | e93c9ed | ⚠️ cc-haha 不在此层判断 |
+| Command Semantics | `src/pi/policy/command-semantics.ts` | `command-semantics.test.ts` | ✅ 12 tests | ❌ | 7c7ea31,11daf66 | ❌ **缺少 message 字段** |
+| Verifier Verdict Parser | `src/pi/harness/verifier-verdict-parser.ts` | `verifier-verdict-parser.test.ts` | ✅ 14 tests | ❌ | faf8d03 | ⚠️ 需逐行对比 |
+| Verification Nudge | `src/pi/harness/verification-nudge.ts` | `verification-nudge.test.ts` | ✅ 13 tests | ❌ | fdb6d0b | ⚠️ 需逐行对比 TodoWriteTool |
 
 ### 1.3 运行时集成
 
-| 集成点 | 文件 | 状态 | 提交 |
-|---|---|---|---|
-| tool_result hook → applyToolResultBudget | `src/pi/core/pi.ts` | ✅ | 987c1d2 |
-| message_end hook → runHarnessAudit | `src/pi/core/pi.ts` | ✅ | e93c9ed |
-| detectFinalRequestFromMessages 接入 | `src/pi/core/pi.ts` | ✅ | e93c9ed |
-| Config schema (HarnessConfigSchema) | `src/config/schema.ts` | ✅ | 5539170 |
+| 集成点 | 文件 | 状态 | 对齐状态 | 提交 |
+|---|---|---|---|---|
+| tool_result hook → applyToolResultBudget | `src/pi/core/pi.ts` | ✅ | ⚠️ 需对比 cc-haha PostToolUse |
+| tool_result hook → recordEvidence | `src/pi/core/pi.ts` | ✅ | ⚠️ 缺 rawInput/rawResponse |
+| message_end hook → runHarnessAudit | `src/pi/core/pi.ts` | ✅ | ⚠️ 需对比 cc-haha Stop hook |
+| detectFinalRequestFromMessages 接入 | `src/pi/core/pi.ts` | ✅ | ⚠️ cc-haha 不在此层判断 |
+| Config schema (HarnessConfigSchema) | `src/config/schema.ts` | ✅ | ✅ |
 
 ---
 
@@ -80,23 +84,116 @@ Types/Defaults Layer (唯一真源)
 
 ---
 
-## 3. 测试状态
+## 3. 发现的遗漏问题 (2026-06-04)
 
-### 3.1 单元测试
+### 3.1 Command Semantics 缺少 message 字段
+
+**问题**：
+
+cc-haha 的 commandSemantics 不仅返回 `isError` 判断，还返回 `message` 字段给模型看：
+
+```ts
+['grep', (exitCode, _stdout, _stderr) => ({
+  isError: exitCode >= 2,
+  message: exitCode === 1 ? 'No matches found' : undefined,
+})]
+```
+
+**我们的实现**：
+
+- ✅ `isError` 判断：grep exitCode 1 不当成 tool_failure
+- ❌ `message` 字段：模型仍然看到 "Command exited with code 1"
+
+**影响**：
+
+- 模型可能仍误判 "出错了"，而不是理解 "没找到"
+- harness 只做内部标记，没有帮助模型理解语义
+
+**修复方案**：
+
+在 `pi.ts` 的 tool_result hook 里修改返回给模型的消息：
+
+```ts
+if (toolName === "bash" && exitCode !== undefined) {
+  const semantic = interpretCommandSemantic(commandText, exitCode);
+  if (!semantic.isError && semantic.message) {
+    return { content: [{ type: "text", text: semantic.message }] };  }
+}
+```
+
+### 3.2 可能还有其他遗漏
+
+**问题**：
+
+对比 cc-haha 源码是"浏览式"的，不是"逐行对齐"。可能还有类似遗漏。
+
+**需要逐行对比的模块**：
+
+| cc-haha 源文件 | 对应实现 | 对比状态 |
+|---|---|---|
+| `BashTool/commandSemantics.ts` | `command-semantics.ts` | ❌ 发现遗漏 |
+| `AgentTool/verificationAgent.ts` | `verifier-verdict-parser.ts` | ❓ 未逐行对比 |
+| `TodoWriteTool/TodoWriteTool.ts` | `verification-nudge.ts` | ❓ 未逐行对比 |
+| `TaskUpdateTool/TaskUpdateTool.ts` | - | ❓ 未逐行对比 |
+| `utils/hooks.ts` (Stop/PostToolUse) | `pi.ts` hooks | ❓ 未逐行对比 |
+| `utils/toolResultStorage.ts` | `tool-result-budget.ts` | ❓ 未逐行对比 |
+| `constants/prompts.ts` | `messages.ts` | ❓ 未逐行对比 |
+
+---
+
+## 4. 优先级重新排序 (2026-06-04)
+
+**原则**：先确保核心行为对齐 cc-haha，再做扩展功能。
+
+### P1: 设计对齐（必须立即做）
+
+| # | 内容 | 原优先级 | 原因 |
+|---|---|---|---|
+| 1 | command-semantics message 字段 | done | 直接影响模型理解 |
+| 2 | 逐行对比 cc-haha 关键模块 | - | 可能还有其他遗漏 |
+
+### P2: 核心功能完善（对齐后做）
+
+| # | 内容 | 原优先级 | 原因 |
+|---|---|---|---|
+| 3 | evidence-tracker session 边界 | P1 | 先确保核心行为对齐 |
+| 4 | denied-tool-memory 持久化 | P1 | 先确保核心行为对齐 |
+| 5 | PostToolUse 完整证据 | P1 | 先确保核心行为对齐 |
+| 6 | Stop hook transcript 恢复 | P1 | 先确保核心行为对齐 |
+
+### P3: Runtime 接入（对齐后做）
+
+| # | 内容 | 原优先级 | 原因 |
+|---|---|---|---|
+| 7 | verification-nudge runtime | P1.5 | 先确保核心行为对齐 |
+| 8 | verifier-verdict runtime | P1.5 | 先确保核心行为对齐 |
+
+### P4: 可延后
+
+| # | 内容 | 原优先级 | 原因 |
+|---|---|---|---|
+| 9 | GrowthBook threshold override | P2 | 静态配置够用 |
+| 10 | message_end block 能力 | P2 | 当前 notify 设计够用 |
+
+---
+
+## 5. 测试状态
+
+### 5.1 单元测试
 
 **状态**: ✅ 全部通过
 
 ```
-434 tests pass across 42 files
+482 tests pass across 45 files
 ```
 
 最近运行：
 ```bash
 bun test 2>&1 | tail -5
-# 434 pass, 0 fail, 1018 expect() calls
+# 482 pass, 0 fail, 1158 expect() calls
 ```
 
-### 3.2 集成测试
+### 5.2 集成测试
 
 **状态**: ❌ 未执行
 
@@ -106,14 +203,36 @@ bun test 2>&1 | tail -5
 - [ ] denied tool 后重试被拦截
 - [ ] 用户问"做完了吗"后 auditor 正确响应
 - [ ] 子代理场景下 pending 检查正确跳过
+- [ ] grep 返回 1 → 模型看到 "No matches found"
+- [ ] assistant 虚假声称完成 → harness 阻止或警告
 
-### 3.3 E2E 测试
+### 5.3 E2E 测试
 
 **状态**: ❌ 未规划
 
+### 5.4 验证机制是否降低幻觉
+
+**问题**: 用户关心 harness 是否真的在降低幻觉，需要验证机制。
+
+**缺少的验证**：
+
+- ❌ 对比数据：有 harness vs 无 harness，模型幻觉率是否下降
+- ❌ 真实场景记录：assistant 是否曾试图虚假声称完成，被 harness 阻止
+- ❌ 错误模式统计：哪些幻觉类型被捕获，哪些漏掉了
+
+**建议**：
+
+主动测试边界场景，验证 harness 是否能捕获幻觉：
+
+1. 让 assistant 假装完成（说"已完成"但没证据）
+2. 让 assistant 假装测试通过（说"测试通过"但没跑测试）
+3. 让 assistant 假装修改（说"修改了文件"但只 grep）
+4. 让 assistant 在 grep 返回 2（真错误）后声称完成
+5. 让 assistant 在 reload 后声称完成
+
 ---
 
-## 4. 暂缓特性
+## 6. 暂缓特性
 
 ### 4.1 Diff Guard
 
@@ -152,27 +271,58 @@ bun test 2>&1 | tail -5
 
 ## 6. 后续计划
 
-### 6.1 短期 (本迭代)
+### 6.1 立即做 (P1 设计对齐)
 
-- [ ] 编写集成测试脚本
-- [ ] 在真实 Pi session 中验证 harness 行为
-- [ ] 更新 Codebase Graph 索引（包含新 harness 模块）
+- [ ] **command-semantics message 字段**
+  - 修改 tool_result hook，返回语义化文本给模型
+  - grep exitCode 1 → "No matches found"
+  - find exitCode 1 → "Partial success"
+  - diff exitCode 1 → "Files differ"
+  - 添加测试验证模型看到的消息内容
 
-### 6.2 中期
+- [ ] **逐行对比 cc-haha 关键模块**
+  - `BashTool/commandSemantics.ts` → 已发现遗漏
+  - `AgentTool/verificationAgent.ts`
+  - `TodoWriteTool/TodoWriteTool.ts`
+  - `TaskUpdateTool/TaskUpdateTool.ts`
+  - `utils/hooks.ts` (Stop/PostToolUse)
+  - `utils/toolResultStorage.ts`
+  - `constants/prompts.ts`
 
-- [ ] 研究 AgentTool/Subagent 架构
-- [ ] 设计 Pi 扩展的 verifier agent 机制
-- [ ] 评估 Diff Guard 的 UI 层实现（Tauri）
+### 6.2 对齐后做 (P2 核心功能完善)
 
-### 6.3 长期
+- [ ] evidence-tracker session 边界
+- [ ] denied-tool-memory 持久化
+- [ ] PostToolUse 完整证据
+- [ ] Stop hook transcript 恢复
 
-- [ ] 多模型 API 层抽象
-- [ ] Workbench 输入协议设计
-- [ ] harness 特性跨模型兼容
+### 6.3 Runtime 接入 (P3)
+
+- [ ] verification-nudge runtime
+- [ ] verifier-verdict runtime
+
+### 6.4 验证降低幻觉效果
+
+- [ ] 主动测试边界场景
+- [ ] 记录真实场景中的 harness 捕获情况
+- [ ] 统计错误模式
 
 ---
 
 ## 7. 提交历史
+
+### 2026-06-04 Session
+
+```
+4c5ee5e docs: add session review and value verification concerns
+11daf66 feat(harness): integrate command semantics into runtime evidence pipeline
+fdb6d0b feat(harness): add verification nudge detector for task completion
+faf8d03 feat(harness): add verifier verdict parser
+7c7ea31 feat(policy): add command-semantics module for exit code interpretation
+5274359 fix(harness): align completion auditor with cc-haha Stop hook semantics
+```
+
+### 2026-06-03 Session
 
 ```
 e93c9ed fix(harness): userAskedForFinal 作为辅助信号而非完成声明
