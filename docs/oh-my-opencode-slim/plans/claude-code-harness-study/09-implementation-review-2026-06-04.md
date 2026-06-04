@@ -7,7 +7,7 @@
 | 1 | `evidence-adapter.ts` | **已修**: 普通 bash 成功误判为 verification | `verificationAgent` + prompt contract | ✅ 已修 | done | Phase 1.5 第一轮修复 |
 | 2 | `run-harness-audit.ts` | **已修**: 重复未验证 warning;已承认"尚未验证"仍警告 | Stop hook 只提供上下文,不粗暴判断 | ✅ 已修 | done | Phase 1.5 第二轮修复 |
 | 3 | `evidence-tracker.ts` | 全局状态 `_evidences`,reload/session 边界不清 | cc-haha hook 每轮拿到 transcript_path,可重建 | ⚠️ 风险 | P1 | 需确认 reset 时机和 session 生存期 |
-| 4 | `commandSemantics` | **发现遗漏**: 已实现 isError 判断，但缺少 message 字段返回给模型 | `src/tools/BashTool/commandSemantics.ts` | ⚠️ 部分修 | P1 | message 字段影响模型理解语义 |
+| 4 | `commandSemantics` | **已修**: `message` 字段已返回给模型；不只影响内部 isError 判断 | `src/tools/BashTool/commandSemantics.ts` | ✅ 已修 | done | P0 hotfix；后续收编到 `tool-result-normalizer` |
 | 5 | `TodoWriteTool/TaskUpdateTool` nudge | **纯函数完成**: 关闭 3+ task/todo 且无 verification step 时提醒 | TodoWriteTool/TaskUpdateTool 输出 `verificationNudgeNeeded` | ⚠️ 未接 runtime | P1.5 | 纯函数已完成,未接入 todo tool |
 | 6 | `verifier verdict parser` | **纯函数完成**: 识别 `VERDICT: PASS|FAIL|PARTIAL` | `verificationAgent` prompt + tool contract | ⚠️ 未接 runtime | P1.5 | 纯函数已完成,未接入 runtime |
 | 7 | `tool-result-budget.ts` | threshold 静态配置,无 GrowthBook 动态覆盖 | `PERSIST_THRESHOLD_OVERRIDE_FLAG` | ⚠️ 低风险 | P2 | 当前阈值来自 config,不支持运行时 flag |
@@ -25,8 +25,8 @@
 
 ### P1: 设计对齐(必须立即做)
 
-- #1 command-semantics message 字段(模型看到语义化文本)
-- #2 逐行对比 cc-haha 关键模块(发现其他遗漏)
+- #1 command-semantics message 字段(模型看到语义化文本) ✅ 已修
+- #2 contract-level audit cc-haha 关键模块(发现其他遗漏；不做无限逐行复刻)
 
 ### P2: 核心功能完善(对齐后做)
 

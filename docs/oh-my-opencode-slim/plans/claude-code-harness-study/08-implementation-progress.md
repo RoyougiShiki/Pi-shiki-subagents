@@ -149,8 +149,8 @@ if (toolName === "bash" && exitCode !== undefined) {
 
 | # | 内容 | 原优先级 | 原因 |
 |---|---|---|---|
-| 1 | command-semantics message 字段 | done | 直接影响模型理解 |
-| 2 | 逐行对比 cc-haha 关键模块 | - | 可能还有其他遗漏 |
+| 1 | command-semantics message 字段 | done | 直接影响模型理解；P0 hotfix 已让模型看到语义化消息 |
+| 2 | contract-level audit cc-haha 关键模块 | - | 可能还有其他遗漏；只审行为契约，不做无限逐行复刻 |
 
 ### P2: 核心功能完善（对齐后做）
 
@@ -273,15 +273,16 @@ bun test 2>&1 | tail -5
 
 ### 6.1 立即做 (P1 设计对齐)
 
-- [ ] **command-semantics message 字段**
-  - 修改 tool_result hook，返回语义化文本给模型
+- [x] **command-semantics message 字段**
+  - tool_result hook 已返回语义化文本给模型
   - grep exitCode 1 → "No matches found"
-  - find exitCode 1 → "Partial success"
-  - diff exitCode 1 → "Files differ"
-  - 添加测试验证模型看到的消息内容
+  - grep exitCode 2 → 保留错误输出
+  - diff exitCode 1 → 保留实际差异信息
+  - 已补测试验证模型看到的消息内容
 
-- [ ] **逐行对比 cc-haha 关键模块**
-  - `BashTool/commandSemantics.ts` → 已发现遗漏
+- [ ] **contract-level audit cc-haha 关键模块**
+  - 审计表：`11-contract-audit.md`
+  - `BashTool/commandSemantics.ts` → P0 gap 已修并记录
   - `AgentTool/verificationAgent.ts`
   - `TodoWriteTool/TodoWriteTool.ts`
   - `TaskUpdateTool/TaskUpdateTool.ts`
