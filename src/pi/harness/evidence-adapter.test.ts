@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { auditCompletion } from "./completion-auditor";
 import { toCompletionEvidenceSummary, toVerificationEvidenceState } from "./evidence-adapter";
-import { interpretCommandSemantic } from "../policy/command-semantics";
 import type { ToolEvidence } from "../policy/evidence-tracker";
 
 function evidence(partial: Partial<ToolEvidence>): ToolEvidence {
@@ -113,6 +112,24 @@ describe("evidence adapter", () => {
     // grep exit code 1 = no matches, not error
     expect(summary.kinds).not.toContain("tool_failure");
     expect(summary.failedToolCount).toBe(0);
+  });
+
+  test("uses command semantics to treat piped grep exit code 1 as success", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({ toolName: "bash", args: { command: "cat file.txt | grep pattern" }, success: false, exitCode: 1 }),
+    ]);
+
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(0);
+  });
+
+  test("keeps quoted fake pipeline as tool failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({ toolName: "bash", args: { command: "python -c \"print('| grep pattern')\"" }, success: false, exitCode: 1 }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(1);
   });
 
   test("still treats grep exit code 2 as tool_failure", () => {

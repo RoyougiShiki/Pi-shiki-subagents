@@ -39,6 +39,98 @@ describe("command semantics", () => {
     expect(result.semantic).toBe("error");
   });
 
+  test("uses the last pipeline segment for grep semantics", () => {
+    const result = interpretCommandSemantic("cat file.txt | grep pattern", 1);
+    expect(result.isError).toBe(false);
+    expect(result.semantic).toBe("no_matches");
+    expect(result.message).toBe("No matches found");
+  });
+
+  test("uses the last pipeline segment for rg semantics", () => {
+    const result = interpretCommandSemantic("printf foo | rg missing", 1);
+    expect(result.isError).toBe(false);
+    expect(result.semantic).toBe("no_matches");
+  });
+
+  test("uses the last pipeline segment for diff semantics", () => {
+    const result = interpretCommandSemantic("cat old.txt | diff - new.txt", 1);
+    expect(result.isError).toBe(false);
+    expect(result.semantic).toBe("files_differ");
+  });
+
+  test("uses the last pipeline segment for test semantics", () => {
+    const result = interpretCommandSemantic("echo path | test -f missing_file", 1);
+    expect(result.isError).toBe(false);
+    expect(result.semantic).toBe("condition_false");
+  });
+
+  test("still treats piped grep exit code 2 as error", () => {
+    const result = interpretCommandSemantic("cat file.txt | grep pattern", 2);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not apply middle-stage grep semantics", () => {
+    const result = interpretCommandSemantic("grep missing file.txt | wc -l", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split pipes inside quoted arguments", () => {
+    const result = interpretCommandSemantic("grep 'left|right' file.txt", 1);
+    expect(result.isError).toBe(false);
+    expect(result.semantic).toBe("no_matches");
+  });
+
+  test("does not split fake pipelines inside quoted arguments", () => {
+    const result = interpretCommandSemantic("python -c \"print('| grep pattern')\"", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("treats control chains conservatively", () => {
+    const result = interpretCommandSemantic("grep pattern file.txt && false", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+    expect(result.message).toContain("exit code 1");
+  });
+
+  test("does not split logical-or chains into grep semantics", () => {
+    const result = interpretCommandSemantic("cmd || grep pattern file.txt", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split pipefail command chains into grep semantics", () => {
+    const result = interpretCommandSemantic("set -o pipefail; cat file.txt | grep pattern", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split background control chains into grep semantics", () => {
+    const result = interpretCommandSemantic("sleep 1 & cat file.txt | grep pattern", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split malformed pipelines into grep semantics", () => {
+    const result = interpretCommandSemantic("| grep pattern", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split trailing malformed pipelines into grep semantics", () => {
+    const result = interpretCommandSemantic("cat file.txt |", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
+  test("does not split malformed pipelines with empty middle segments into grep semantics", () => {
+    const result = interpretCommandSemantic("cat file.txt | | grep pattern", 1);
+    expect(result.isError).toBe(true);
+    expect(result.semantic).toBe("error");
+  });
+
   test("treats rg (ripgrep) same as grep", () => {
     const result = interpretCommandSemantic("rg pattern src", 1);
     expect(result.isError).toBe(false);

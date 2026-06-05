@@ -72,6 +72,28 @@ describe("register-harness-hooks", () => {
     });
   });
 
+  test("normalizes piped grep exit 1 through tool_result hook", async () => {
+    resetEvidence();
+    const { pi, hooks } = createPiMock();
+    const { ctx } = createCtx();
+    registerHarnessHooks(pi as any, {});
+
+    const result = await hooks.tool_result?.[0]?.({
+      toolName: "bash",
+      toolCallId: "call-1",
+      input: { command: "cat file.txt | grep missing" },
+      content: [{ type: "text", text: "(no output)\nCommand exited with code 1" }],
+      isError: true,
+      details: { ok: true },
+    }, ctx as any);
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "No matches found" }],
+      details: { ok: true },
+      isError: false,
+    });
+  });
+
   test("does not let earlier verifier verdict suppress later task nudge", async () => {
     resetEvidence();
     const dir = await mkdtemp(join(tmpdir(), "omo-verdict-nudge-"));

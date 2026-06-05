@@ -26,6 +26,28 @@ describe("tool-result-normalizer", () => {
     expect(result.modelFacingMessage).toEqual({ type: "text", text: "No matches found" });
   });
 
+  test("normalizes piped grep exit code 1 as success", () => {
+    const result = normalizeToolResult(input({
+      rawInput: { command: "cat file.txt | grep pattern" },
+      exitCode: 1,
+    }));
+
+    expect(result.evidence.success).toBe(true);
+    expect(result.evidence.semantic).toBe("no_matches");
+    expect(result.messageModified).toBe(true);
+    expect(result.modelFacingMessage).toEqual({ type: "text", text: "No matches found" });
+  });
+
+  test("keeps middle-stage grep exit code 1 as failure", () => {
+    const result = normalizeToolResult(input({
+      rawInput: { command: "grep pattern file.txt | wc -l" },
+      exitCode: 1,
+    }));
+
+    expect(result.evidence.success).toBe(false);
+    expect(result.evidence.semantic).toBe("error");
+  });
+
   test("surfaces semantic message without depending on Pi exit-message formatting", () => {
     const result = normalizeToolResult(input({
       rawInput: { command: "grep pattern file.txt" },

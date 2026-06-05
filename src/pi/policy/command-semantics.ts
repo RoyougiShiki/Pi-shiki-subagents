@@ -77,12 +77,99 @@ const DEFAULT_COMMAND_SEMANTICS: CommandSemanticConfig = {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /**
+ * 提取用于解释退出码的命令片段。
+ *
+ * 只对“简单 pipeline”取最后一段：`cat file | grep x` 的退出码语义应由 `grep` 解释。
+ * 一旦看到顶层 `;` / `&&` / `||` / 换行等控制链，或遇到 malformed pipeline，就放弃
+ * 命令专属语义，回到默认的非零即错误判断。
+ *
+ * 这不是安全解析器；只用于 evidence/model-facing 的退出码解释，不能用于权限或安全决策。
+ */
+function extractSemanticCommandSegment(commandText: string): string {
+  const trimmed = commandText.trim();
+  if (!trimmed) return "";
+
+  let quote: "single" | "double" | undefined;
+  let escaped = false;
+  let parenDepth = 0;
+  let segmentStart = 0;
+  let sawPipeline = false;
+
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote === "single") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+
+    if (quote === "double") {
+      if (char === "\"") quote = undefined;
+      continue;
+    }
+
+    if (char === "'") {
+      quote = "single";
+      continue;
+    }
+
+    if (char === "\"") {
+      quote = "double";
+      continue;
+    }
+
+    if (char === "(") {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (char === ")" && parenDepth > 0) {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (parenDepth > 0) continue;
+
+    const next = trimmed[i + 1];
+
+    if ((char === "|" && next === "|") || (char === "&" && next === "&") || char === "&" || char === ";" || char === "\n") {
+      return "";
+    }
+
+    if (char === "|") {
+      if (i === 0) return "";
+
+      const previousSegment = trimmed.slice(segmentStart, i).trim();
+      if (!previousSegment) return "";
+
+      segmentStart = next === "&" ? i + 2 : i + 1;
+      if (next === "&") i += 1;
+      sawPipeline = true;
+    }
+  }
+
+  if (!sawPipeline) return trimmed;
+
+  const segment = trimmed.slice(segmentStart).trim();
+  return segment || "";
+}
+
+/**
  * 提取命令基础名（第一个词）
  */
 function extractBaseCommand(commandText: string): string {
-  const trimmed = commandText.trim();
-  if (!trimmed) return "";
-  const firstWord = trimmed.split(/\s+/)[0] ?? "";
+  const segment = extractSemanticCommandSegment(commandText);
+  const firstWord = segment.split(/\s+/)[0] ?? "";
   return firstWord;
 }
 
