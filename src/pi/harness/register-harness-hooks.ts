@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { recordEvidence, type ToolEvidence } from "../policy/evidence-tracker";
@@ -23,6 +24,8 @@ import {
   type RuntimeTaskItem,
   type ResolvedHarnessConfig,
 } from "../harness";
+import { createToolResultBudgetState, type ToolResultBudgetState } from "./tool-result-budget-state";
+import { loadBudgetState, saveBudgetState } from "./tool-result-budget-persistence";
 import type { HarnessConfig } from "../../config/schema";
 
 export interface RegisterHarnessHooksOptions {
@@ -42,6 +45,16 @@ function expandHomePath(filepath: string): string {
     return path.join(homedir(), filepath.slice(1));
   }
   return filepath;
+}
+
+function stableSessionId(ctx: ExtensionContext, fallback: string): string {
+  const sessionId = (ctx.sessionManager as any)?.getSessionId?.();
+  if (typeof sessionId === "string" && sessionId.trim()) return sessionId;
+  const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.();
+  if (typeof sessionFile === "string" && sessionFile.trim()) {
+    return `file-${createHash("sha256").update(sessionFile).digest("hex").slice(0, 16)}`;
+  }
+  return fallback;
 }
 
 function extractTextFromContentParts(content: any[]): string {
@@ -93,6 +106,19 @@ export function registerHarnessHooks(
   const evidenceSessionStore = createEvidenceSessionStore();
   let currentTurnEvidences: ToolEvidence[] = [];
   let runtimeTasks: RuntimeTaskItem[] = [];
+  let budgetState: ToolResultBudgetState = createToolResultBudgetState();
+  let budgetStateKey: string | undefined;
+
+  async function resolveBudgetStorage(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
+    const baseDir = expandHomePath(harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results");
+    const sessionId = stableSessionId(ctx, harnessSessionId);
+    const key = `${baseDir}\n${sessionId}`;
+    if (budgetStateKey !== key) {
+      budgetState = await loadBudgetState(baseDir, sessionId) ?? createToolResultBudgetState();
+      budgetStateKey = key;
+    }
+    return { baseDir, sessionId };
+  }
 
   function ingestPoolCompleted(event: { agentName: string; response?: string }, ctx: ExtensionContext): void {
     const sessionId = (ctx.sessionManager as any)?.getSessionId?.() ?? harnessSessionId;
@@ -198,18 +224,19 @@ export function registerHarnessHooks(
           : [outputContent];
       const contentText = extractTextFromContentParts(outputParts);
       if (contentText.length > 0) {
-        const storageBaseDir = harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results";
-        const expandedBaseDir = expandHomePath(storageBaseDir);
+        const budgetStorage = await resolveBudgetStorage(ctx);
         const decision = await applyToolResultBudget(
           { toolName, toolCallId, content: contentText },
           {
+            state: budgetState,
             thresholds: harnessConfig.toolResultBudget.thresholds,
             previewChars: harnessConfig.toolResultBudget.previewChars,
-            storage: { baseDir: expandedBaseDir, sessionId },
+            storage: budgetStorage,
             messages: harnessConfig.messages,
           },
         );
-        if (decision.action === "persist") {
+        await saveBudgetState(budgetState, budgetStorage.baseDir, budgetStorage.sessionId);
+        if (decision.action === "persist" || decision.action === "reapply") {
           const persistedContent = replaceFirstTextInContent(outputParts, decision.content);
           return { content: persistedContent, details: (event as any).details, isError: outputIsError };
         }

@@ -553,11 +553,11 @@ bun run build
 - ✅ verification nudge 不再只发 UI notify；在 task/todo tool_result 中追加模型可见提醒，让模型下一步能看到。
 - ✅ 保留 UI notify 作为人类可见信号，但不再作为唯一效果。
 - ✅ Command semantics 模型可见消息不再依赖 Pi exit message 字符串格式；有 non-error semantic message 时由 normalizer 稳定输出，`files_differ` 保留 diff 内容。
+- ✅ Tool result budget replacement state 写入 companion file；reload 后可重用已有大输出替换，避免重复处理。
 
 **仍待修正**：
 
 - [ ] Evidence persistence：reload 后 evidence/verdict 不能丢。
-- [ ] Tool result budget reconstruction：恢复 replacement state，避免 reload 后重复处理。
 - [ ] Pipeline command semantics：对 `cat file | grep pattern` 这类命令按最后管道段判断。
 
 **优先级**：先稳定已实现 harness 契约，再进入搜索、TUI、Tauri 等扩展功能。

@@ -31,6 +31,12 @@ export interface ToolResultBudgetState {
   records: ToolResultReplacementRecord[];
 }
 
+export interface ToolResultBudgetPersistenceJson {
+  version: 1;
+  seenIds: string[];
+  replacements: Record<string, string>;
+}
+
 /**
  * 创建初始状态
  */
@@ -164,6 +170,35 @@ export function reconstructToolResultBudgetState(
     }
   }
 
+  return state;
+}
+
+export function toToolResultBudgetPersistenceJson(
+  state: ToolResultBudgetState,
+): ToolResultBudgetPersistenceJson {
+  return {
+    version: 1,
+    seenIds: [...state.seenIds],
+    replacements: Object.fromEntries(state.replacements),
+  };
+}
+
+export function fromToolResultBudgetPersistenceJson(
+  json: unknown,
+): ToolResultBudgetState | null {
+  if (!json || typeof json !== "object") return null;
+  const record = json as Record<string, unknown>;
+  if (record.version !== 1) return null;
+  if (!Array.isArray(record.seenIds) || !record.seenIds.every((id) => typeof id === "string")) return null;
+  if (!record.replacements || typeof record.replacements !== "object" || Array.isArray(record.replacements)) return null;
+
+  const state = createToolResultBudgetState();
+  for (const id of record.seenIds) state.seenIds.add(id);
+  for (const [id, replacement] of Object.entries(record.replacements as Record<string, unknown>)) {
+    if (typeof replacement !== "string") return null;
+    state.seenIds.add(id);
+    state.replacements.set(id, replacement);
+  }
   return state;
 }
 

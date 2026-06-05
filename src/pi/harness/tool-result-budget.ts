@@ -343,7 +343,7 @@ export async function applyPerMessageBudget(
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function safeSegment(value: string): string {
+export function safeSegment(value: string): string {
   const trimmed = value.trim();
   const normalized = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -356,6 +356,12 @@ function buildToolResultPath(
   const tool = safeSegment(input.toolName);
   const call = safeSegment(input.toolCallId);
   return path.join(storage.baseDir, safeSegment(storage.sessionId), `${tool}-${call}.txt`);
+}
+
+export function buildToolResultBudgetSessionDir(
+  storage: { baseDir: string; sessionId: string },
+): string {
+  return path.join(storage.baseDir, safeSegment(storage.sessionId));
 }
 
 function previewContent(content: string, previewChars: number): { preview: string; hasMore: boolean } {

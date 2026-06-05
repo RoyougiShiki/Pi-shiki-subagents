@@ -15,6 +15,7 @@ import {
   type ToolResultBudgetState,
   type ToolResultReplacementRecord,
 } from "./index";
+import { fromToolResultBudgetPersistenceJson, toToolResultBudgetPersistenceJson } from "./tool-result-budget-state";
 
 describe("tool result budget", () => {
   test("keeps small output", async () => {
@@ -222,6 +223,33 @@ describe("tool result budget state", () => {
     // call-3 是新的
     expect(fresh.length).toBe(1);
     expect(fresh[0]?.toolUseId).toBe("call-3");
+  });
+
+  test("serializes replacement state for companion persistence", () => {
+    const state = createToolResultBudgetState();
+    state.seenIds.add("call-2");
+    recordReplacement(state, {
+      kind: "tool-result",
+      toolUseId: "call-1",
+      toolName: "bash",
+      originalSize: 100,
+      replacement: "REPLACED",
+      filepath: "/tmp/1.txt",
+      createdAt: 123,
+    });
+
+    const restored = fromToolResultBudgetPersistenceJson(toToolResultBudgetPersistenceJson(state));
+
+    expect(restored?.seenIds.has("call-1")).toBe(true);
+    expect(restored?.seenIds.has("call-2")).toBe(true);
+    expect(restored?.replacements.get("call-1")).toBe("REPLACED");
+    expect(restored?.records).toEqual([]);
+  });
+
+  test("rejects invalid persisted replacement state", () => {
+    expect(fromToolResultBudgetPersistenceJson({ version: 2, seenIds: [], replacements: {} })).toBeNull();
+    expect(fromToolResultBudgetPersistenceJson({ version: 1, seenIds: [1], replacements: {} })).toBeNull();
+    expect(fromToolResultBudgetPersistenceJson({ version: 1, seenIds: [], replacements: { a: 1 } })).toBeNull();
   });
 });
 
