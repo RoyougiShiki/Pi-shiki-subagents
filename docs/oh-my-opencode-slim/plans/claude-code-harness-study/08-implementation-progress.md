@@ -1,7 +1,7 @@
 # 08 — Harness 实现进度记录
 
 创建日期：2026-06-03
-最后更新：2026-06-04
+最后更新：2026-06-05
 
 本文档记录 cc-haha harness 特性映射到 Pi 扩展的实现进度、测试状态和后续计划。
 
@@ -18,14 +18,15 @@
 - `completion-audit-scope`：read-only/advisory turn 可缩小到 current turn；明确 completion claim 强制回到 current session。
 - `pi.ts` runtime：只负责收集 hook payload、调用纯函数、记录 evidence、选择 audit window。
 
-下一阶段进入 **Phase 1.5**，按小切片推进：
+**Phase 1.5 已完成，P0 runtime regression 已开始**：
 
-1. verifier verdict evidence ingestion：识别已有 `VERDICT: PASS|FAIL|PARTIAL` 输出并记录为 structured evidence。
-2. verification nudge runtime：关闭 3+ task/todo 且无 verification/verdict 时只做 notify/warning。
-3. completion auditor consumes verdict：让 PASS/FAIL/PARTIAL 影响完成声明审计。
+已补充自动化回归覆盖：
+
+1. verifier verdict ingestion：子代理输出 `VERDICT: PASS|FAIL|PARTIAL` 可记录为 structured evidence。
+2. verification nudge runtime：关闭 3+ task/todo 且无 verifier verdict 时产生 warning；已有 PASS verdict 时 suppress。
+3. completion auditor consumes verdict：FAIL 会触发完成审计提醒；PASS 可满足修改后的完成审计。
 
 暂不做：自动 spawn verifier、强 block、把 `oracle` 硬编码成 verifier。
-
 ---
 
 ## 1. 已完成实现
@@ -502,6 +503,43 @@ src/config/schema.ts          # HarnessConfigSchema
 - 后续每个 harness 特性进入生产前，都应增加一轮“cc-haha 源码事实 → Pi 架构映射 → 纯函数测试 → runtime 集成测试”的复核步骤。
 
 ---
+
+### 10.3 P0 runtime regression update (2026-06-05) — ✅ 自动化回归通过
+
+**本轮目标**：不扩功能，只确认 Phase 1.5 在 runtime hook 层有最小可回归覆盖。
+
+**新增覆盖**：
+
+- `register-harness-hooks.test.ts`：关闭 3 个 todo 且无 verifier verdict 时会发 verification nudge。
+- `register-harness-hooks.test.ts`：verifier `VERDICT: PASS` 可满足修改后的 message_end completion audit，不产生完成审计 warning。
+
+**已验证命令**：
+
+```bash
+bun test src/pi/harness/register-harness-hooks.test.ts
+npx tsc --noEmit
+bun test
+git diff --check
+bun run build
+```
+
+**结果**：
+
+- ✅ focused harness tests pass
+- ✅ typecheck pass
+- ✅ full test suite pass
+- ✅ build pass
+- ✅ diff check pass
+
+**仍需真实 Pi session 手测**：
+
+- [ ] 真实子代理返回 `VERDICT: PASS` 后，UI notify 与 audit 行为符合预期。
+- [ ] 真实子代理返回 `VERDICT: FAIL` 后，最终总结出现完成审计提醒。
+- [ ] 真实 todo 工具关闭 3+ task/todo 且无 verifier verdict 时出现 nudge。
+- [ ] 当前 turn 只咨询/评估、没有 edit/write 时，不因历史修改 evidence 出现高强度误报。
+- [ ] 大工具输出触发 tool result budget，模型只看到 preview/ref。
+
+**下一步建议**：先完成上述真实 session 手测，再进入 evidence/session scoped audit 小切片。
 
 ## 11. 参考资料
 

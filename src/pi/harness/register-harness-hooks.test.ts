@@ -17,7 +17,7 @@ function createPiMock() {
   };
 }
 
-function createCtx() {
+function createCtx(entries: unknown[] = []) {
   const notifications: Array<{ message: string; level?: string }> = [];
   return {
     notifications,
@@ -25,7 +25,7 @@ function createCtx() {
       sessionManager: {
         getSessionId: () => "s1",
         getSessionFile: () => "/tmp/session.json",
-        getEntries: () => [],
+        getEntries: () => entries,
       },
       ui: {
         notify: (message: string, level?: string) => {
@@ -125,5 +125,60 @@ describe("register-harness-hooks", () => {
 
     expect(notifications.some((item) => item.message.includes("verifier verdict captured: FAIL"))).toBe(true);
     expect(notifications.some((item) => item.message.includes("verifier verdict 为 FAIL"))).toBe(true);
+  });
+
+  test("notifies when multiple tasks close without verifier verdict", async () => {
+    resetEvidence();
+    const { pi, hooks } = createPiMock();
+    const { ctx, notifications } = createCtx();
+    registerHarnessHooks(pi as any, {});
+
+    for (const id of [1, 2, 3]) {
+      await hooks.tool_result?.[0]?.({
+        toolName: "todo",
+        toolCallId: `todo-${id}`,
+        input: { action: "create", id, subject: `task ${id}`, status: "in_progress" },
+        content: [{ type: "text", text: `Created #${id}` }],
+        isError: false,
+      }, ctx as any);
+    }
+    for (const id of [1, 2, 3]) {
+      await hooks.tool_result?.[0]?.({
+        toolName: "todo",
+        toolCallId: `todo-${id}-done`,
+        input: { action: "update", id, status: "completed" },
+        content: [{ type: "text", text: `Updated #${id}` }],
+        isError: false,
+      }, ctx as any);
+    }
+
+    expect(notifications.some((item) => item.message.includes("closed out"))).toBe(true);
+  });
+
+  test("verifier PASS satisfies message_end audit after modification", async () => {
+    resetEvidence();
+    const { pi, hooks } = createPiMock();
+    const { ctx, notifications } = createCtx();
+    const runtime = registerHarnessHooks(pi as any, {
+      config: { completionAuditor: { enabled: true } },
+    });
+
+    await hooks.tool_result?.[0]?.({
+      toolName: "edit",
+      toolCallId: "edit-1",
+      input: { path: "file.ts" },
+      content: [{ type: "text", text: "edited" }],
+      isError: false,
+    }, ctx as any);
+    runtime.ingestPoolCompleted({
+      agentName: "reviewer",
+      response: "Command run: bun test\nOutput observed: pass\nResult: PASS\nVERDICT: PASS",
+    }, ctx as any);
+    await hooks.message_end?.[0]?.({
+      message: { role: "assistant", content: [{ type: "text", text: "已完成，测试通过。" }] },
+    }, ctx as any);
+
+    expect(notifications.some((item) => item.message.includes("verifier verdict captured: PASS"))).toBe(true);
+    expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(false);
   });
 });
