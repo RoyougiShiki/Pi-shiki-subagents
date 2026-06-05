@@ -1,4 +1,4 @@
-import { PRIMARY_MODE_AGENT_NAME } from "../../config/constants";
+import { MODEL_PLACEHOLDER, PRIMARY_MODE_AGENT_NAME } from "../../config/constants";
 export interface PresetSwitchConfig {
   presets?: Record<string, Record<string, { model?: string; thinking?: string } | unknown> | undefined>;
 }
@@ -28,6 +28,10 @@ export function parsePiModelId(modelId: string): { provider: string; model: stri
   return { provider: trimmed.slice(0, slash), model: trimmed.slice(slash + 1) };
 }
 
+export function isModelPlaceholder(modelId: string | undefined): boolean {
+  return modelId?.trim() === MODEL_PLACEHOLDER;
+}
+
 export function resolvePresetSwitchPlan(
   config: PresetSwitchConfig | null,
   presetName: string,
@@ -36,8 +40,12 @@ export function resolvePresetSwitchPlan(
     const available = Object.keys(config?.presets ?? {}).join(", ") || "(none)";
     return { error: `Preset "${presetName}" not found. Available presets: ${available}` };
   }
+  const model = getPresetModelForPrimaryMode(config, presetName);
+  if (isModelPlaceholder(model)) {
+    return { error: `Preset "${presetName}" still contains ${MODEL_PLACEHOLDER}; configure a real provider/model first.` };
+  }
   return {
-    model: getPresetModelForPrimaryMode(config, presetName),
+    model,
     thinking: getPresetThinkingForPrimaryMode(config, presetName),
   };
 }

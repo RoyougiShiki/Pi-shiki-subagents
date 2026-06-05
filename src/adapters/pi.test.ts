@@ -738,6 +738,21 @@ describe('Pi adapter preset helpers', () => {
     expect(plan).toEqual({ model: 'openai/gpt-4o', thinking: 'high' });
   });
 
+  test('reports placeholder model in preset switch plan', async () => {
+    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
+
+    const plan = resolvePresetSwitchPlan({
+      presets: {
+        cheap: {
+          coordinator: { model: '<YOUR_MODEL>' },
+        },
+      },
+    } as any, 'cheap');
+
+    expect(plan.error).toContain('still contains <YOUR_MODEL>');
+    expect(plan.error).toContain('configure a real provider/model first');
+  });
+
   test('reports missing preset with available names', async () => {
     const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
 

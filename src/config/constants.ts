@@ -19,6 +19,8 @@ export const ALL_AGENT_NAMES = [
 
 export const PRIMARY_MODE_AGENT_NAME = 'coordinator' as const;
 
+export const MODEL_PLACEHOLDER = '<YOUR_MODEL>' as const;
+
 export const PRESET_CONFIGURABLE_AGENT_NAMES = ALL_AGENT_NAMES.filter(
   (name) => name !== 'fallback',
 );

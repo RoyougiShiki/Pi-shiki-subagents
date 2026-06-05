@@ -84,7 +84,7 @@ import type { WorkflowStageRecoveryCandidate } from "../policy/workflow-stage-ru
 import { formatWorkflowStageResumeNotice, parseWorkflowStageMarkersFromEntries } from "../policy/workflow-stage-marker";
 import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../agents/managed-agent-files";
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
-import { getPresetCompletions, getPresetModelForPrimaryMode, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
+import { getPresetCompletions, getPresetModelForPrimaryMode, isModelPlaceholder, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
 import { registerHarnessHooks } from "../harness/register-harness-hooks";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
@@ -1322,6 +1322,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       modelRef = selectedModel;
     }
 
+    if (isModelPlaceholder(modelRef)) {
+      ctx.ui.notify(`This preset still contains ${modelRef}; configure a real provider/model first.`, "error");
+      return;
+    }
     const normalizedModelRef = normalizeModelReference(modelRef);
     if (!normalizedModelRef) {
       ctx.ui.notify(`Invalid model id "${modelRef}". Expected provider/model.`, "error");

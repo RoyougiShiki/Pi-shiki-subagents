@@ -10,6 +10,7 @@ import {
   isOpenCodeInstalled,
   writeLiteConfig,
 } from './config-manager';
+import { MODEL_PLACEHOLDER } from '../config/constants';
 import { CUSTOM_SKILLS, installCustomSkill } from './custom-skills';
 import { getExistingLiteConfigPath } from './paths';
 import { installSkill, RECOMMENDED_SKILLS } from './skills';
@@ -237,8 +238,9 @@ async function runInstall(config: InstallConfig): Promise<number> {
   console.log('  2. Refresh the models OpenCode can see:');
   console.log(`     ${BLUE}$ opencode models --refresh${RESET}`);
   console.log();
-  console.log('  3. Review your generated config:');
+  console.log(`  3. Edit your generated config and replace ${MODEL_PLACEHOLDER}:`);
   console.log(`     ${BLUE}${configPath}${RESET}`);
+  console.log('     Use a real provider/model that appears in opencode models.');
   console.log();
   console.log('  4. Start OpenCode:');
   console.log(`     ${BLUE}$ opencode${RESET}`);
@@ -248,7 +250,7 @@ async function runInstall(config: InstallConfig): Promise<number> {
   console.log();
 
   const modelsInfo =
-    'Default configuration uses OpenAI models (gpt-5.5 / gpt-5.4-mini).';
+    `Generated presets use ${MODEL_PLACEHOLDER} placeholders; no provider/model is selected automatically.`;
   console.log(`${modelsInfo}`);
   const altProviders = 'For the full configuration reference, see:';
   console.log(altProviders);
