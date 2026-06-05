@@ -243,6 +243,184 @@ describe("register-harness-hooks", () => {
     }
   });
 
+  test("reloads recovered modification summary for completion audit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-evidence-summary-reload-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "evidence-summary-session").ctx;
+      registerHarnessHooks(first.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await first.hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-before-reload",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, firstCtx as any);
+
+      expect(await readFile(join(dir, "evidence-summary-session", ".evidence-summary.json"), "utf8")).toContain("modification");
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "evidence-summary-session");
+      registerHarnessHooks(second.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await second.hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, secondCtx as any);
+
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reloads recovered verification summary after modification", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-evidence-summary-verified-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "evidence-summary-verified").ctx;
+      registerHarnessHooks(first.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await first.hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-before-test",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, firstCtx as any);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await first.hooks.tool_result?.[0]?.({
+        toolName: "bash",
+        toolCallId: "test-before-reload",
+        input: { command: "bun test" },
+        content: [{ type: "text", text: "pass" }],
+        isError: false,
+      }, firstCtx as any);
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "evidence-summary-verified");
+      registerHarnessHooks(second.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await second.hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, secondCtx as any);
+
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not let current stale test success satisfy later edit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-current-stale-test-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "current-stale-test");
+      registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await hooks.tool_result?.[0]?.({
+        toolName: "bash",
+        toolCallId: "test-before-edit",
+        input: { command: "bun test" },
+        content: [{ type: "text", text: "pass" }],
+        isError: false,
+      }, ctx as any);
+      await hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-after-test",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, ctx as any);
+      await hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, ctx as any);
+
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not let current stale lint success survive newer test success", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-current-stale-lint-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "current-stale-lint");
+      registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await hooks.tool_result?.[0]?.({
+        toolName: "bash",
+        toolCallId: "lint-before-edit",
+        input: { command: "bun run lint" },
+        content: [{ type: "text", text: "pass" }],
+        isError: false,
+      }, ctx as any);
+      await hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-after-lint",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, ctx as any);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await hooks.tool_result?.[0]?.({
+        toolName: "bash",
+        toolCallId: "test-after-edit",
+        input: { command: "bun test" },
+        content: [{ type: "text", text: "pass" }],
+        isError: false,
+      }, ctx as any);
+      await hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成，lint 通过" }] },
+      }, ctx as any);
+
+      expect(notifications.some((item) => item.message.includes("lint 通过声明"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("serializes concurrent evidence summary updates", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-evidence-summary-concurrent-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx } = createCtx([], "evidence-summary-concurrent");
+      registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+
+      await Promise.all([
+        hooks.tool_result?.[0]?.({
+          toolName: "edit",
+          toolCallId: "edit-concurrent",
+          input: { path: "file.ts" },
+          content: [{ type: "text", text: "edited" }],
+          isError: false,
+        }, ctx as any),
+        hooks.tool_result?.[0]?.({
+          toolName: "bash",
+          toolCallId: "test-concurrent",
+          input: { command: "bun test" },
+          content: [{ type: "text", text: "pass" }],
+          isError: false,
+        }, ctx as any),
+      ]);
+
+      const persisted = await readFile(join(dir, "evidence-summary-concurrent", ".evidence-summary.json"), "utf8");
+      expect(persisted).toContain("modification");
+      expect(persisted).toContain("test_success");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("serialized verifier ingestion prevents immediate audit race", async () => {
     const dir = await mkdtemp(join(tmpdir(), "omo-verifier-race-"));
     try {

@@ -19,7 +19,6 @@ import {
   resolveHarnessConfig,
   runHarnessAudit,
   selectCompletionAuditEvidence,
-  toCompletionEvidenceSummary,
   updateTaskStateFromToolResult,
   type RuntimeTaskItem,
   type ResolvedHarnessConfig,
@@ -28,6 +27,14 @@ import { createToolResultBudgetState, type ToolResultBudgetState } from "./tool-
 import { loadBudgetState, saveBudgetState } from "./tool-result-budget-persistence";
 import { loadVerifierVerdicts, saveVerifierVerdicts } from "./verifier-verdict-persistence";
 import type { VerifierVerdictEvidence } from "./verifier-verdict-evidence";
+import {
+  createRecoveredEvidenceSummaryState,
+  mergeRecoveredCompletionEvidenceSummary,
+  updateRecoveredEvidenceSummaryState,
+  toTemporalCompletionEvidenceSummary,
+  type RecoveredEvidenceSummaryState,
+} from "./evidence-summary-state";
+import { loadEvidenceSummaryState, saveEvidenceSummaryState } from "./evidence-summary-persistence";
 import type { HarnessConfig } from "../../config/schema";
 
 export interface RegisterHarnessHooksOptions {
@@ -130,6 +137,31 @@ export function registerHarnessHooks(
   let budgetStateKey: string | undefined;
   let verifierVerdictsKey: string | undefined;
   let verifierVerdictsQueue: Promise<void> = Promise.resolve();
+  let recoveredEvidenceSummaryState: RecoveredEvidenceSummaryState = createRecoveredEvidenceSummaryState();
+  let recoveredEvidenceSummaryKey: string | undefined;
+  let recoveredEvidenceSummaryQueue: Promise<void> = Promise.resolve();
+
+  async function ensureRecoveredEvidenceSummaryLoaded(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
+    const storage = await resolveHarnessStateStorage(ctx);
+    const key = `${storage.baseDir}\n${storage.sessionId}`;
+    if (recoveredEvidenceSummaryKey !== key) {
+      recoveredEvidenceSummaryState = await loadEvidenceSummaryState(storage.baseDir, storage.sessionId) ?? createRecoveredEvidenceSummaryState();
+      recoveredEvidenceSummaryKey = key;
+    }
+    return storage;
+  }
+
+  async function withRecoveredEvidenceSummary<T>(
+    ctx: ExtensionContext,
+    action: (storage: { baseDir: string; sessionId: string }) => Promise<T>,
+  ): Promise<T> {
+    const run = recoveredEvidenceSummaryQueue.then(async () => {
+      const storage = await ensureRecoveredEvidenceSummaryLoaded(ctx);
+      return action(storage);
+    });
+    recoveredEvidenceSummaryQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
 
   async function resolveHarnessStateStorage(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
     const baseDir = expandHomePath(harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results");
@@ -248,6 +280,18 @@ export function registerHarnessHooks(
         exitCode: evidence.exitCode,
       },
     ];
+    await withRecoveredEvidenceSummary(ctx, async (storage) => {
+      recoveredEvidenceSummaryState = updateRecoveredEvidenceSummaryState(recoveredEvidenceSummaryState, {
+        toolName: evidence.toolName,
+        toolCallId: evidence.toolCallId,
+        args: evidence.rawInput,
+        result: normalized.modelFacingMessage,
+        timestamp: evidence.timestamp,
+        success: evidence.success,
+        exitCode: evidence.exitCode,
+      });
+      await saveEvidenceSummaryState(recoveredEvidenceSummaryState, storage.baseDir, storage.sessionId);
+    });
 
     let nudgeMessage: string | undefined;
     const taskState = updateTaskStateFromToolResult(runtimeTasks, {
@@ -327,15 +371,24 @@ export function registerHarnessHooks(
 
     const verifierStorage = await withVerifierVerdicts(ctx, async (storage) => storage);
     const sessionId = verifierStorage.sessionId;
+    await withRecoveredEvidenceSummary(ctx, async () => undefined);
     const auditEvidenceSelection = selectCompletionAuditEvidence({
       sessionId,
       sessionEvidences: evidenceSessionStore.getEvidenceSnapshot(sessionId),
       currentTurnEvidences,
       forceSessionWindow: claimsCompletion,
     });
+    const latestRelevantModificationAt = Math.max(
+      latestModificationTimestamp(auditEvidenceSelection.evidences) ?? -Infinity,
+      recoveredEvidenceSummaryState.lastModifiedAt ?? -Infinity,
+    );
+    const currentEvidenceSummary = toTemporalCompletionEvidenceSummary(auditEvidenceSelection.evidences);
     const evidenceSummary = applyVerifierVerdictsToEvidenceSummary(
-      toCompletionEvidenceSummary(auditEvidenceSelection.evidences),
-      verifierVerdictsAfter(evidenceSessionStore.getVerifierVerdicts(sessionId), latestModificationTimestamp(auditEvidenceSelection.evidences)),
+      mergeRecoveredCompletionEvidenceSummary(currentEvidenceSummary, recoveredEvidenceSummaryState),
+      verifierVerdictsAfter(
+        evidenceSessionStore.getVerifierVerdicts(sessionId),
+        latestRelevantModificationAt === -Infinity ? undefined : latestRelevantModificationAt,
+      ),
     );
 
     const decision = runHarnessAudit(
@@ -353,7 +406,7 @@ export function registerHarnessHooks(
       },
     );
 
-    if (decision.action === "warn" && decision.issues.length > 0) {
+    if ((decision.action === "warn" || decision.action === "block") && decision.issues.length > 0) {
       const issueSummary = decision.issues.map(i => `• ${i.message}`).join("\n");
       try {
         ctx.ui.notify(`[harness] 完成审计提醒:\n${issueSummary}`, "warning");
