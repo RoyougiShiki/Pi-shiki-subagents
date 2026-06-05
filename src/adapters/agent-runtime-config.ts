@@ -60,7 +60,7 @@ function normalizeConfigAgents(config: Record<string, any>): Record<string, Runt
 function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinition> {
   const piNativeAgents = normalizeConfigAgents(readJsonFile(getUserConfigPath()));
 
-  const sharedConfig = loadPluginConfig(cwd);
+  const sharedConfig = loadPluginConfig(cwd, { quiet: true });
   const sharedAgents = sharedConfig.agents && typeof sharedConfig.agents === "object"
     ? sharedConfig.agents as Record<string, RuntimeAgentDefinition>
     : {};

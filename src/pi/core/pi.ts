@@ -278,7 +278,7 @@ function getModelCompletionItems(ctx: ExtensionContext, prefix: string): Autocom
 
 export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
   const piNativeConfig = readPiNativeConfig();
-  const sharedConfig = loadPluginConfig(cwd) as OmniMoConfig;
+  const sharedConfig = loadPluginConfig(cwd, { quiet: true }) as OmniMoConfig;
   const config = deepMerge(
     (piNativeConfig as Record<string, unknown>) ?? undefined,
     Object.keys(sharedConfig).length > 0 ? sharedConfig as Record<string, unknown> : undefined,

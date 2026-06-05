@@ -184,6 +184,24 @@ describe('loadPluginConfig', () => {
     expect(loadPluginConfig(projectDir)).toEqual({});
   });
 
+  test('quiet mode suppresses invalid config warnings', () => {
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({ agents: { oracle: { temperature: 5 } } }),
+    );
+
+    const consoleWarnSpy = spyOn(console, 'warn');
+    try {
+      expect(loadPluginConfig(projectDir, { quiet: true })).toEqual({});
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleWarnSpy.mockRestore();
+    }
+  });
+
   test('rejects custom-only prompt fields on built-in agents in config files', () => {
     const projectDir = path.join(tempDir, 'project');
     const projectConfigDir = path.join(projectDir, '.opencode');

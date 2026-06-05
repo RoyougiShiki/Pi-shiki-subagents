@@ -14,7 +14,10 @@ const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
  * @param configPath - Absolute path to the config file
  * @returns Validated config object, or null if loading failed
  */
-function loadConfigFromPath(configPath: string): PluginConfig | null {
+interface LoadPluginConfigOptions {
+  quiet?: boolean;
+}
+function loadConfigFromPath(configPath: string, options?: LoadPluginConfigOptions): PluginConfig | null {
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
     // Use stripJsonComments to support JSONC format (comments and trailing commas)
@@ -22,8 +25,10 @@ function loadConfigFromPath(configPath: string): PluginConfig | null {
     const result = PluginConfigSchema.safeParse(rawConfig);
 
     if (!result.success) {
-      console.warn(`[oh-my-opencode-slim] Invalid config at ${configPath}:`);
-      console.warn(result.error.format());
+      if (!options?.quiet) {
+        console.warn(`[oh-my-opencode-slim] Invalid config at ${configPath}:`);
+        console.warn(result.error.format());
+      }
       return null;
     }
 
@@ -31,6 +36,7 @@ function loadConfigFromPath(configPath: string): PluginConfig | null {
   } catch (error) {
     // File doesn't exist or isn't readable - this is expected and fine
     if (
+      !options?.quiet &&
       error instanceof Error &&
       'code' in error &&
       (error as NodeJS.ErrnoException).code !== 'ENOENT'
@@ -156,7 +162,7 @@ export function deepMerge<T extends Record<string, unknown>>(
  * @param directory - Project directory to search for .opencode config
  * @returns Merged plugin configuration (empty object if no configs found)
  */
-export function loadPluginConfig(directory: string): PluginConfig {
+export function loadPluginConfig(directory: string, options?: LoadPluginConfigOptions): PluginConfig {
   const userConfigPath = findConfigPathInDirs(
     getConfigSearchDirs(),
     'oh-my-opencode-slim',
@@ -172,11 +178,11 @@ export function loadPluginConfig(directory: string): PluginConfig {
   const projectConfigPath = findConfigPath(projectConfigBasePath);
 
   let config: PluginConfig = userConfigPath
-    ? (loadConfigFromPath(userConfigPath) ?? {})
+    ? (loadConfigFromPath(userConfigPath, options) ?? {})
     : {};
 
   const projectConfig = projectConfigPath
-    ? loadConfigFromPath(projectConfigPath)
+    ? loadConfigFromPath(projectConfigPath, options)
     : null;
   if (projectConfig) {
     config = {
