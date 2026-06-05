@@ -14,13 +14,18 @@ interface AgentSyncConfig {
   agents?: Record<string, AgentModelConfig | unknown>;
 }
 
-const FALLBACK_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_MODELS: Record<string, string> = {
+  oracle: "openai/gpt-4.1",
+  fixer: "openai/gpt-4o-mini",
+  designer: "openai/gpt-4o-mini",
+  observer: "openai/gpt-4o-mini",
+};
 
 function getDefaultModel(
   agentName: string,
   config: AgentSyncConfig | null,
 ): string {
-  if (!config) return FALLBACK_MODEL;
+  if (!config) return DEFAULT_MODELS[agentName] ?? "openai/gpt-4o-mini";
   const presetName = config.preset ?? "default";
   const preset = config.presets?.[presetName];
   const agentOverride = preset?.[agentName];
@@ -29,7 +34,8 @@ function getDefaultModel(
   return (
     (agentOverride as any)?.model ??
     (agentsOverride as any)?.model ??
-    FALLBACK_MODEL
+    DEFAULT_MODELS[agentName] ??
+    "openai/gpt-4o-mini"
   );
 }
 
