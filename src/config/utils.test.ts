@@ -32,7 +32,7 @@ describe('getAgentOverride', () => {
   test('returns undefined when no override exists', () => {
     const config = {
       agents: {
-        explorer: { model: 'openai/gpt-5.4-mini' },
+        observer: { model: 'openai/gpt-5.4-mini' },
       },
     } as PluginConfig;
 

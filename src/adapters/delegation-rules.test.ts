@@ -35,7 +35,7 @@ describe('pi delegation rules', () => {
   });
 
   test('blocks leaf agents from spawning more subagents', () => {
-    const result = checkDelegationAllowed({ caller: 'oracle', target: 'explorer', depth: 1, rules });
+    const result = checkDelegationAllowed({ caller: 'oracle', target: 'search', depth: 1, rules });
     expect(result.allowed).toBe(false);
     expect(result.allowedAgents).toEqual([]);
   });
@@ -47,7 +47,7 @@ describe('pi delegation rules', () => {
   });
 
   test('blocks unconfigured target for a configured caller', () => {
-    const result = checkDelegationAllowed({ caller: 'worker', target: 'explorer', depth: 1, rules });
+    const result = checkDelegationAllowed({ caller: 'worker', target: 'search', depth: 1, rules });
     expect(result.allowed).toBe(false);
     expect(result.allowedAgents).toEqual(['fixer', 'oracle']);
   });
@@ -75,10 +75,10 @@ describe('pi delegation rules', () => {
   test('stage allowedSubagents cannot expand configured delegates', () => {
     const result = checkDelegationAllowed({
       caller: 'worker',
-      target: 'explorer',
+      target: 'search',
       depth: 1,
       rules,
-      allowedSubagents: ['oracle', 'explorer'],
+      allowedSubagents: ['oracle', 'search'],
     });
     expect(result.allowed).toBe(false);
     expect(result.allowedAgents).toEqual(['oracle']);
@@ -114,7 +114,7 @@ describe('pi delegation rules', () => {
   });
 
   test('parses OMO_ALLOWED_SUBAGENTS env values', () => {
-    expect(parseAllowedSubagentsEnv('oracle, fixer ,, explorer')).toEqual(['oracle', 'fixer', 'explorer']);
+    expect(parseAllowedSubagentsEnv('oracle, fixer ,, search')).toEqual(['oracle', 'fixer', 'search']);
     expect(parseAllowedSubagentsEnv('')).toEqual([]);
     expect(parseAllowedSubagentsEnv(' , ')).toEqual([]);
     expect(parseAllowedSubagentsEnv(undefined)).toBeUndefined();

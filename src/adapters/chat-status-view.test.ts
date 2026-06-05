@@ -40,13 +40,13 @@ describe('chat status view', () => {
   test('groups status rows by scope order', () => {
     const workflow = createChatStatusView({ name: 'analyst', state: 'working', scope: 'workflow' });
     const pool = createChatStatusView({ name: 'fixer-1', state: 'idle', scope: 'pool' });
-    const standalone = createChatStatusView({ name: 'explorer-1', state: 'idle', scope: 'standalone' });
+    const standalone = createChatStatusView({ name: 'search-1', state: 'idle', scope: 'standalone' });
 
     const groups = groupChatStatusViews([pool, standalone, workflow]);
 
     expect(groups.map((group) => group.title)).toEqual(['Workflow', 'Pool', 'Standalone']);
     expect(groups[0].items[0].listRow).toBe('analyst · working');
     expect(groups[1].items[0].listRow).toBe('fixer-1 · idle');
-    expect(groups[2].items[0].listRow).toBe('explorer-1 · idle');
+    expect(groups[2].items[0].listRow).toBe('search-1 · idle');
   });
 });

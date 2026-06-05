@@ -64,7 +64,7 @@ describe('pi-hub', () => {
     const session2 = createMockSession('bob');
 
     const meeting = hub.registerMeeting('test-1', 'Test Discussion', [
-      { name: 'alice', agentType: 'explorer', session: session1 },
+      { name: 'alice', agentType: 'search', session: session1 },
       { name: 'bob', agentType: 'oracle', session: session2 },
     ]);
 
@@ -77,7 +77,7 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('alice');
     hub.registerMeeting('dup', 'First', [
-      { name: 'alice', agentType: 'explorer', session },
+      { name: 'alice', agentType: 'search', session },
     ]);
 
     expect(() => {
@@ -91,7 +91,7 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('alice');
     hub.registerMeeting('end-test', 'End Test', [
-      { name: 'alice', agentType: 'explorer', session },
+      { name: 'alice', agentType: 'search', session },
     ]);
 
     hub.endMeeting('end-test', 'Final report');
@@ -105,7 +105,7 @@ describe('pi-hub', () => {
     const session1 = createMockSession('alice');
     const session2 = createMockSession('bob');
     hub.registerMeeting('broadcast-test', 'Broadcast', [
-      { name: 'alice', agentType: 'explorer', session: session1 },
+      { name: 'alice', agentType: 'search', session: session1 },
       { name: 'bob', agentType: 'oracle', session: session2 },
     ]);
 
@@ -119,7 +119,7 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('alice');
     hub.registerMeeting('history-test', 'History', [
-      { name: 'alice', agentType: 'explorer', session },
+      { name: 'alice', agentType: 'search', session },
     ]);
 
     await hub.broadcast('history-test', 'Message 1');
@@ -135,7 +135,7 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('alice');
     const meeting = hub.registerMeeting('agent-end-test', 'Agent End', [
-      { name: 'alice', agentType: 'explorer', session },
+      { name: 'alice', agentType: 'search', session },
     ]);
 
     emitAgentEnd(session, 'Hello from alice');
@@ -150,7 +150,7 @@ describe('pi-hub', () => {
     const session1 = createMockSession('alice');
     const session2 = createMockSession('bob');
     const meeting = hub.registerMeeting('relay-test', 'Relay', [
-      { name: 'alice', agentType: 'explorer', session: session1 },
+      { name: 'alice', agentType: 'search', session: session1 },
       { name: 'bob', agentType: 'oracle', session: session2 },
     ]);
 
@@ -164,7 +164,7 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('alice');
     hub.registerMeeting('callback-test', 'Callback', [
-      { name: 'alice', agentType: 'explorer', session },
+      { name: 'alice', agentType: 'search', session },
     ]);
 
     const received: any[] = [];
@@ -185,7 +185,7 @@ describe('pi-hub', () => {
     const onUserMessage = mock(() => Promise.resolve({ response: 'thanks' }));
     hub.registerChat('user-chat', 'User Chat', {
       name: 'chatty',
-      agentType: 'explorer',
+      agentType: 'search',
       session,
     }, onUserMessage);
 

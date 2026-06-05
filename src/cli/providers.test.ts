@@ -1,13 +1,10 @@
 /// <reference types="bun-types" />
 
 import { describe, expect, test } from 'bun:test';
-import { generateLiteConfig, MODEL_MAPPINGS } from './providers';
+import { generateLiteConfig } from './providers';
+import { PRESET_CONFIGURABLE_AGENT_NAMES } from '../config/constants';
 
 describe('providers', () => {
-  test('MODEL_MAPPINGS has exactly 4 providers', () => {
-    const keys = Object.keys(MODEL_MAPPINGS);
-    expect(keys.sort()).toEqual(['copilot', 'kimi', 'openai', 'zai-plan']);
-  });
 
   test('generateLiteConfig generates preset templates with placeholders', () => {
     const config = generateLiteConfig({
@@ -24,8 +21,12 @@ describe('providers', () => {
     expect((config.presets as any)['性能模式']).toBeDefined();
 
     const economy = (config.presets as any)['省钱模式'];
-    expect(economy.analyst.model).toBe('<YOUR_MODEL>');
-    expect(economy.worker.model).toBe('<YOUR_MODEL>');
-    expect(economy.oracle.model).toBe('<YOUR_MODEL>');
+    const performance = (config.presets as any)['性能模式'];
+    expect(Object.keys(economy).sort()).toEqual([...PRESET_CONFIGURABLE_AGENT_NAMES].sort());
+    expect(Object.keys(performance).sort()).toEqual([...PRESET_CONFIGURABLE_AGENT_NAMES].sort());
+    for (const agentName of PRESET_CONFIGURABLE_AGENT_NAMES) {
+      expect(economy[agentName].model).toBe('<YOUR_MODEL>');
+      expect(performance[agentName].model).toBe('<YOUR_MODEL>');
+    }
   });
 });

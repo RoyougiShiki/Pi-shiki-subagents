@@ -3,40 +3,32 @@ export const AGENT_ALIASES: Record<string, string> = {
   'frontend-ui-ux-engineer': 'designer',
 };
 
-export const SUBAGENT_NAMES = [
-  'search',
-  'oracle',
+export const ALL_AGENT_NAMES = [
+  'coordinator',
+  'analyst',
   'designer',
+  'worker',
+  'oracle',
   'fixer',
   'observer',
+  'fallback',
+  'dispatcher',
+  'search',
   'council',
-  'councillor',
 ] as const;
 
-export const ORCHESTRATOR_NAME = 'orchestrator' as const;
+export const PRIMARY_MODE_AGENT_NAME = 'coordinator' as const;
 
-export const ALL_AGENT_NAMES = [ORCHESTRATOR_NAME, ...SUBAGENT_NAMES] as const;
+export const PRESET_CONFIGURABLE_AGENT_NAMES = ALL_AGENT_NAMES.filter(
+  (name) => name !== 'fallback',
+);
 
-// Agent name type (for use in DEFAULT_MODELS)
 export type AgentName = (typeof ALL_AGENT_NAMES)[number];
 
-// Subagent delegation rules: which agents can spawn which subagents
-// orchestrator: can spawn all subagents (full delegation)
-// fixer: leaf node — prompt forbids delegation; use grep/glob for lookups
-// oracle: cannot spawn any subagents (leaf node)
-// Unknown agent types not listed here default to restricted access
-// Which agents each agent type can spawn via delegation.
-// councillor is internal — only CouncilManager spawns it.
-export const ORCHESTRATABLE_AGENTS = [
-  'oracle',
-  'designer',
-  'fixer',
-  'observer',
-  'council',
-] as const;
+// Subagent delegation rules: which agents can spawn which subagents.
+// These are only fallback rules. Runtime prefers agents-default.json / user config.
+export const ORCHESTRATABLE_AGENTS = ['search', 'oracle', 'designer', 'fixer', 'observer', 'council'] as const;
 
-/** Agents that cannot be disabled even if listed in disabled_agents config. */
-export const PROTECTED_AGENTS = new Set(['orchestrator', 'councillor']);
 
 /**
  * Get the list of orchestratable agents, excluding any disabled agents.
@@ -48,21 +40,21 @@ export function getOrchestratableAgents(
   return ORCHESTRATABLE_AGENTS.filter((name) => !disabledAgents?.has(name));
 }
 
-export const SUBAGENT_DELEGATION_RULES: Record<AgentName, readonly string[]> = {
-  orchestrator: ORCHESTRATABLE_AGENTS,
-  fixer: [],
+export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly string[]>> = {
+  coordinator: ORCHESTRATABLE_AGENTS,
   designer: [],
-  search: [],
+  worker: [],
   oracle: [],
+  fixer: [],
   observer: [],
+  dispatcher: [],
+  search: [],
   council: [],
-  councillor: [],
+  fallback: [],
 };
 
-// Default models for each agent
-// orchestrator is undefined so its model is fully resolved at runtime via priority fallback
-// DEFAULT_MODELS is intentionally removed. Only active preset configures models.
-// Ultimate fallback is "openai/gpt-4o-mini" used directly where needed.
+// Default models are intentionally not defined here.
+// Only the active preset configures agent models.
 
 // Polling configuration
 export const POLL_INTERVAL_MS = 500;
@@ -83,7 +75,3 @@ If delegating, do it in the same turn. !END!`;
 
 // Polling stability
 export const STABLE_POLLS_THRESHOLD = 3;
-
-/** Agents that are disabled by default. Users must explicitly enable them
- *  by removing from disabled_agents and configuring an appropriate model. */
-export const DEFAULT_DISABLED_AGENTS: string[] = [];

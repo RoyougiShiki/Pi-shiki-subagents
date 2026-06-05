@@ -29,179 +29,36 @@
     },
     "manualPlan": {
       "type": "object",
-      "properties": {
-        "orchestrator": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        },
-        "oracle": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        },
-        "designer": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        },
-        "explorer": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        },
-        "librarian": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        },
-        "fixer": {
-          "type": "object",
-          "properties": {
-            "primary": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback1": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback2": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            },
-            "fallback3": {
-              "type": "string",
-              "pattern": "^[^/\\s]+\\/[^\\s]+$"
-            }
-          },
-          "required": [
-            "primary",
-            "fallback1",
-            "fallback2",
-            "fallback3"
-          ]
-        }
+      "propertyNames": {
+        "type": "string"
       },
-      "required": [
-        "orchestrator",
-        "oracle",
-        "designer",
-        "explorer",
-        "librarian",
-        "fixer"
-      ],
-      "additionalProperties": false
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "primary": {
+            "type": "string",
+            "pattern": "^[^/\\s]+\\/[^\\s]+$"
+          },
+          "fallback1": {
+            "type": "string",
+            "pattern": "^[^/\\s]+\\/[^\\s]+$"
+          },
+          "fallback2": {
+            "type": "string",
+            "pattern": "^[^/\\s]+\\/[^\\s]+$"
+          },
+          "fallback3": {
+            "type": "string",
+            "pattern": "^[^/\\s]+\\/[^\\s]+$"
+          }
+        },
+        "required": [
+          "primary",
+          "fallback1",
+          "fallback2",
+          "fallback3"
+        ]
+      }
     },
     "presets": {
       "type": "object",
@@ -298,10 +155,6 @@
               "type": "string"
             },
             "prompt": {
-              "type": "string",
-              "minLength": 1
-            },
-            "orchestratorPrompt": {
               "type": "string",
               "minLength": 1
             },
@@ -414,10 +267,6 @@
             "type": "string",
             "minLength": 1
           },
-          "orchestratorPrompt": {
-            "type": "string",
-            "minLength": 1
-          },
           "options": {
             "type": "object",
             "propertyNames": {
@@ -434,7 +283,7 @@
       }
     },
     "disabled_agents": {
-      "description": "Agent names to disable completely. Disabled agents are not instantiated and cannot be delegated to. Orchestrator and council internal agents (councillor) cannot be disabled. All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.",
+      "description": "Agent names to omit from generated AvailableAgents and delegation hints. Agents listed here are not advertised for delegation or mode switching. Use this for optional agents you do not want surfaced in runtime prompts.",
       "type": "array",
       "items": {
         "type": "string"
@@ -660,7 +509,7 @@
         },
         "autoEnable": {
           "default": false,
-          "description": "Automatically enable auto-continue when the orchestrator session has enough todos",
+          "description": "Automatically enable auto-continue when the primary session has enough todos",
           "type": "boolean"
         },
         "autoEnableThreshold": {
@@ -692,56 +541,8 @@
         "chains": {
           "default": {},
           "type": "object",
-          "properties": {
-            "orchestrator": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "oracle": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "designer": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "explorer": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "librarian": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "search": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "fixer": {
-              "minItems": 1,
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
+          "propertyNames": {
+            "type": "string"
           },
           "additionalProperties": {
             "minItems": 1,

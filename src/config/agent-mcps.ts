@@ -2,20 +2,23 @@ import {
   type AgentName,
   getAgentOverride,
   McpNameSchema,
+  PRIMARY_MODE_AGENT_NAME,
   type PluginConfig,
 } from '.';
 
 /** Default MCPs per agent - "*" means all MCPs, "!item" excludes specific MCPs */
 
-export const DEFAULT_AGENT_MCPS: Record<AgentName, string[]> = {
-  orchestrator: ['*', '!context7'],
+export const DEFAULT_AGENT_MCPS: Partial<Record<AgentName, string[]>> = {
+  [PRIMARY_MODE_AGENT_NAME]: ['*', '!context7'],
   designer: [],
+  worker: [],
   oracle: [],
   search: [],
   fixer: [],
   observer: [],
+  dispatcher: [],
   council: [],
-  councillor: [],
+  fallback: [],
 };
 
 /**

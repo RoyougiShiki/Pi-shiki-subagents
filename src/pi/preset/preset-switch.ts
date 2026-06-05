@@ -1,22 +1,23 @@
+import { PRIMARY_MODE_AGENT_NAME } from "../../config/constants";
 export interface PresetSwitchConfig {
   presets?: Record<string, Record<string, { model?: string; thinking?: string } | unknown> | undefined>;
 }
 
-export function getPresetModelForOrchestrator(
+export function getPresetModelForPrimaryMode(
   config: PresetSwitchConfig | null,
   presetName: string,
 ): string | undefined {
   const preset = config?.presets?.[presetName];
-  const override = preset?.orchestrator as { model?: string } | undefined;
+  const override = preset?.[PRIMARY_MODE_AGENT_NAME] as { model?: string } | undefined;
   return override?.model;
 }
 
-function getPresetThinkingForOrchestrator(
+function getPresetThinkingForPrimaryMode(
   config: PresetSwitchConfig | null,
   presetName: string,
 ): string | undefined {
   const preset = config?.presets?.[presetName];
-  const override = preset?.orchestrator as { thinking?: string } | undefined;
+  const override = preset?.[PRIMARY_MODE_AGENT_NAME] as { thinking?: string } | undefined;
   return override?.thinking;
 }
 
@@ -36,8 +37,8 @@ export function resolvePresetSwitchPlan(
     return { error: `Preset "${presetName}" not found. Available presets: ${available}` };
   }
   return {
-    model: getPresetModelForOrchestrator(config, presetName),
-    thinking: getPresetThinkingForOrchestrator(config, presetName),
+    model: getPresetModelForPrimaryMode(config, presetName),
+    thinking: getPresetThinkingForPrimaryMode(config, presetName),
   };
 }
 
@@ -53,8 +54,8 @@ export function getPresetCompletions(
   const items = getPresetNames(config)
     .filter((name) => !normalizedPrefix || name.toLowerCase().includes(normalizedPrefix))
     .map((name) => {
-      const model = getPresetModelForOrchestrator(config, name);
-      const thinking = getPresetThinkingForOrchestrator(config, name);
+      const model = getPresetModelForPrimaryMode(config, name);
+      const thinking = getPresetThinkingForPrimaryMode(config, name);
       const details = [model, thinking ? `thinking:${thinking}` : undefined].filter(Boolean);
       return {
         value: name,

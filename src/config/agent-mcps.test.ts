@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_AGENT_MCPS, parseList } from './agent-mcps';
+import { PRIMARY_MODE_AGENT_NAME } from './constants';
 
 describe('parseList', () => {
   test('empty list returns empty array', () => {
@@ -14,9 +15,9 @@ describe('parseList', () => {
     ]);
   });
 
-  test('orchestrator wildcard excludes context7 but includes custom mcps', () => {
+  test('primary mode wildcard excludes context7 but includes custom mcps', () => {
     expect(
-      parseList(DEFAULT_AGENT_MCPS.orchestrator, [
+      parseList(DEFAULT_AGENT_MCPS[PRIMARY_MODE_AGENT_NAME] ?? [], [
         'websearch',
         'context7',
         'grep_app',

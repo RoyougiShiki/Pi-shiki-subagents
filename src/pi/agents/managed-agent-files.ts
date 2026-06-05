@@ -14,20 +14,13 @@ interface AgentSyncConfig {
   agents?: Record<string, AgentModelConfig | unknown>;
 }
 
-const DEFAULT_MODELS: Record<string, string> = {
-  explorer: "openai/gpt-4o-mini",
-  librarian: "openai/gpt-4o-mini",
-  oracle: "openai/gpt-4.1",
-  fixer: "openai/gpt-4o-mini",
-  designer: "openai/gpt-4o-mini",
-  observer: "openai/gpt-4o-mini",
-};
+const FALLBACK_MODEL = "openai/gpt-4o-mini";
 
 function getDefaultModel(
   agentName: string,
   config: AgentSyncConfig | null,
 ): string {
-  if (!config) return DEFAULT_MODELS[agentName] ?? "openai/gpt-4o-mini";
+  if (!config) return FALLBACK_MODEL;
   const presetName = config.preset ?? "default";
   const preset = config.presets?.[presetName];
   const agentOverride = preset?.[agentName];
@@ -36,8 +29,7 @@ function getDefaultModel(
   return (
     (agentOverride as any)?.model ??
     (agentsOverride as any)?.model ??
-    DEFAULT_MODELS[agentName] ??
-    "openai/gpt-4o-mini"
+    FALLBACK_MODEL
   );
 }
 
@@ -103,8 +95,6 @@ const LEGACY_GENERATED_AGENT_BODY_MARKERS: Record<string, readonly RegExp[]> = {
   "oracle.md": [/You are Oracle - a strategic technical advisor and code reviewer\./],
   "fixer.md": [/You are Fixer\b/, /Fast implementation specialist/],
   "designer.md": [/You are Designer\b/, /UI\/UX design, review, and implementation/],
-  "explorer.md": [/You are Explorer\b/],
-  "librarian.md": [/You are Librarian\b/],
   "observer.md": [/You are Observer\b/],
 };
 

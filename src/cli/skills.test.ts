@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { getSkillPermissionsForAgent } from './skills';
+import { PRIMARY_MODE_AGENT_NAME } from '../config/constants';
 
 describe('skills permissions', () => {
-  it('should allow all skills for orchestrator by default', () => {
-    const permissions = getSkillPermissionsForAgent('orchestrator');
+  it('should allow all skills for primary mode by default', () => {
+    const permissions = getSkillPermissionsForAgent(PRIMARY_MODE_AGENT_NAME);
     expect(permissions['*']).toBe('allow');
   });
 
@@ -24,7 +25,7 @@ describe('skills permissions', () => {
 
   it('should honor explicit skill list overrides', () => {
     // Override with empty list
-    const emptyPerms = getSkillPermissionsForAgent('orchestrator', []);
+    const emptyPerms = getSkillPermissionsForAgent(PRIMARY_MODE_AGENT_NAME, []);
     expect(emptyPerms['*']).toBe('deny');
     expect(Object.keys(emptyPerms).length).toBe(1);
 

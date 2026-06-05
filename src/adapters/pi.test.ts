@@ -440,7 +440,7 @@ describe('Pi adapter config helpers', () => {
             piOnly: true,
           },
         },
-        explorer: { model: 'pi-native/explorer-model' },
+        observer: { model: 'pi-native/observer-model' },
       },
       disabled_agents: ['observer'],
     });
@@ -477,7 +477,7 @@ describe('Pi adapter config helpers', () => {
       piOnly: true,
       userOnly: true,
     });
-    expect(config?.agents?.explorer?.model).toBe('pi-native/explorer-model');
+    expect(config?.agents?.observer?.model).toBe('pi-native/observer-model');
     expect(config?.agents?.fixer?.model).toBe('opencode/fixer-model');
     expect(config?.disabled_agents).toEqual(['observer']);
   });
@@ -723,14 +723,14 @@ describe('Pi adapter preset helpers', () => {
     expect(parsePiModelId('missing-model/')).toBeUndefined();
   });
 
-  test('resolves preset switch plan with orchestrator model and thinking', async () => {
+  test('resolves preset switch plan with primary mode model and thinking', async () => {
     const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
 
     const plan = resolvePresetSwitchPlan({
       presets: {
         powerful: {
-          orchestrator: { model: 'openai/gpt-4o', thinking: 'high' },
-          explorer: { model: 'openai/gpt-4o-mini' },
+          coordinator: { model: 'openai/gpt-4o', thinking: 'high' },
+          observer: { model: 'openai/gpt-4o-mini' },
         },
       },
     } as any, 'powerful');

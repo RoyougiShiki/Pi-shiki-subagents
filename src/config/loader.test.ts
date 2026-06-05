@@ -118,7 +118,7 @@ describe('loadPluginConfig', () => {
       path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
       JSON.stringify({
         manualPlan: {
-          orchestrator: {
+          coordinator: {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
@@ -136,13 +136,13 @@ describe('loadPluginConfig', () => {
             fallback2: 'chutes/kimi-k2.5',
             fallback3: 'opencode/gpt-5-nano',
           },
-          explorer: {
+          observer: {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
             fallback3: 'opencode/gpt-5-nano',
           },
-          librarian: {
+          worker: {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
@@ -283,7 +283,7 @@ describe('deepMerge behavior', () => {
       JSON.stringify({
         agents: {
           oracle: { model: 'user/oracle-model', temperature: 0.5 },
-          explorer: { model: 'user/explorer-model' },
+          observer: { model: 'user/observer-model' },
         },
       }),
     );
@@ -308,8 +308,8 @@ describe('deepMerge behavior', () => {
     expect(config.agents?.oracle?.model).toBe('user/oracle-model');
     expect(config.agents?.oracle?.temperature).toBe(0.8);
 
-    // explorer: from user only
-    expect(config.agents?.explorer?.model).toBe('user/explorer-model');
+    // observer: from user only
+    expect(config.agents?.observer?.model).toBe('user/observer-model');
 
     // designer: from project only
     expect(config.agents?.designer?.model).toBe('project/designer-model');
@@ -402,7 +402,7 @@ describe('deepMerge behavior', () => {
       JSON.stringify({
         fallback: {
           chains: {
-            explorer: ['google/antigravity-gemini-3-flash'],
+            observer: ['google/antigravity-gemini-3-flash'],
           },
         },
       }),
@@ -414,12 +414,12 @@ describe('deepMerge behavior', () => {
       'openai/gpt-5.5',
       'opencode/glm-4.7-free',
     ]);
-    expect(config.fallback?.chains.explorer).toEqual([
+    expect(config.fallback?.chains.observer).toEqual([
       'google/antigravity-gemini-3-flash',
     ]);
   });
 
-  test('preserves fallback chains with additional agent keys', () => {
+  test('preserves fallback chains with current agent keys', () => {
     const projectDir = path.join(tempDir, 'project');
     const projectConfigDir = path.join(projectDir, '.opencode');
     fs.mkdirSync(projectConfigDir, { recursive: true });
@@ -428,14 +428,14 @@ describe('deepMerge behavior', () => {
       JSON.stringify({
         fallback: {
           chains: {
-            writing: ['openai/gpt-5.5'],
+            search: ['openai/gpt-5.5'],
           },
         },
       }),
     );
 
     const config = loadPluginConfig(projectDir);
-    expect(config.fallback?.chains.writing).toEqual(['openai/gpt-5.5']);
+    expect(config.fallback?.chains.search).toEqual(['openai/gpt-5.5']);
   });
 
   test('merges harness config from user and project', () => {
@@ -557,7 +557,7 @@ describe('preset resolution', () => {
         presets: {
           fast: {
             oracle: { model: 'fast-model', temperature: 0.1 },
-            explorer: { model: 'explorer-model' },
+            observer: { model: 'observer-model' },
           },
         },
         agents: {
@@ -569,7 +569,7 @@ describe('preset resolution', () => {
     const config = loadPluginConfig(projectDir);
     expect(config.agents?.oracle?.model).toBe('fast-model');
     expect(config.agents?.oracle?.temperature).toBe(0.9);
-    expect(config.agents?.explorer?.model).toBe('explorer-model');
+    expect(config.agents?.observer?.model).toBe('observer-model');
   });
 
   test('missing preset: preset set but not in presets -> returns empty/root agents', () => {
@@ -939,13 +939,13 @@ describe('JSONC config support', () => {
         /* Multi-line
            comment block */
         "agents": {
-          "explorer": { "model": "explorer-model" }
+          "observer": { "model": "observer-model" }
         }
       }`,
     );
 
     const config = loadPluginConfig(projectDir);
-    expect(config.agents?.explorer?.model).toBe('explorer-model');
+    expect(config.agents?.observer?.model).toBe('observer-model');
   });
 
   test('loads .jsonc file with trailing commas', () => {
@@ -1009,7 +1009,7 @@ describe('JSONC config support', () => {
       path.join(userOpencodeDir, 'oh-my-opencode-slim.jsonc'),
       `{
         // User config with comments
-        "agents": { "librarian": { "model": "user-librarian" } }
+        "agents": { "worker": { "model": "user-worker" } }
       }`,
     );
 
@@ -1017,7 +1017,7 @@ describe('JSONC config support', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const config = loadPluginConfig(projectDir);
-    expect(config.agents?.librarian?.model).toBe('user-librarian');
+    expect(config.agents?.worker?.model).toBe('user-worker');
   });
 
   test('merges user .jsonc with project .jsonc', () => {
@@ -1063,7 +1063,7 @@ describe('JSONC config support', () => {
           "dev": {
             // Development agents
             "oracle": { "model": "dev-oracle", },
-            "explorer": { "model": "dev-explorer", },
+            "observer": { "model": "dev-observer", },
           },
         },
       }`,
@@ -1072,7 +1072,7 @@ describe('JSONC config support', () => {
     const config = loadPluginConfig(projectDir);
     expect(config.preset).toBe('dev');
     expect(config.agents?.oracle?.model).toBe('dev-oracle');
-    expect(config.agents?.explorer?.model).toBe('dev-explorer');
+    expect(config.agents?.observer?.model).toBe('dev-observer');
   });
 });
 

@@ -5,7 +5,7 @@
  *
  * Architecture:
  *   - Agent markdown files are generated in ~/.pi/agents/ on first load
- *   - Constitution/orchestrator prompt is injected via before_agent_start
+ *   - Constitution/coordinator prompt is injected via before_agent_start
  *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
  *   - OMO's custom tools (delegate, council) are registered
  *     as pi tools (webfetch omitted - pi-web-access provides better ones)
@@ -78,13 +78,13 @@ import type { WorkflowsConfig } from "../../core/workflow-types";
 import type { HarnessConfig } from "../../config/schema";
 import { deepMerge, loadPluginConfig } from "../../config/loader";
 import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
+import { PRESET_CONFIGURABLE_AGENT_NAMES, PRIMARY_MODE_AGENT_NAME } from "../../config/constants";
 import { createToolCallGates, createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
 import type { WorkflowStageRecoveryCandidate } from "../policy/workflow-stage-runtime";
 import { formatWorkflowStageResumeNotice, parseWorkflowStageMarkersFromEntries } from "../policy/workflow-stage-marker";
 import { ensureAgentFiles, getPiAgentsDirForSync, updateAgentModels } from "../agents/managed-agent-files";
 import { trimProviderToolDescriptions, trimToolDescriptions } from "../prompt/tool-description-trimmer";
-import { ORCHESTRATOR_NAME } from "../../config/constants";
-import { getPresetCompletions, getPresetModelForOrchestrator, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
+import { getPresetCompletions, getPresetModelForPrimaryMode, parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch";
 import { registerHarnessHooks } from "../harness/register-harness-hooks";
 
 export { createWorkflowStageGateHelpers, shouldRequestPipelineSubagentApproval } from "../policy/tool-call-gates";
@@ -95,7 +95,6 @@ export { parsePiModelId, resolvePresetSwitchPlan } from "../preset/preset-switch
 
 const BASIC_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls"];
 const PRESET_MODEL_SUBCOMMAND = "model";
-const LEGACY_RESERVED_PRESET_KEYS = new Set<string>(["master"]);
 const PRESET_MODEL_SELECTOR_MAX_VISIBLE = 12;
 
 export interface PiCouncilParticipantConfig {
@@ -237,8 +236,7 @@ function getConfigAgentNames(config: OmniMoConfig | null, presetName: string): s
   const names = new Set<string>(Object.keys(AGENT_PROMPTS));
   for (const name of Object.keys(config?.agents ?? {})) names.add(name);
   for (const name of Object.keys(config?.presets?.[presetName] ?? {})) names.add(name);
-  for (const reserved of LEGACY_RESERVED_PRESET_KEYS) names.delete(reserved);
-  return [...names].sort();
+  return [...names].filter((name) => PRESET_CONFIGURABLE_AGENT_NAMES.includes(name as any)).sort();
 }
 
 function normalizeModelReference(model: string): string | undefined {
@@ -288,7 +286,7 @@ export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
   return config && Object.keys(config).length > 0 ? config : null;
 }
 
-// ─── Orchestrator System Prompt Builder ────────────────────────────────────
+// ─── Coordinator System Prompt Builder ─────────────────────────────────────
 
 /** Load agent definitions from agents-default.json (built-in defaults). */
 function loadAgentDefinitions(): Record<string, { type?: string; label?: string; delegates?: string[]; roles?: string[] }> {
@@ -374,7 +372,7 @@ function createToolImplementations(config: OmniMoConfig | null) {
           Type.Array(
             Type.Object({
               name: Type.Optional(Type.String({ description: "Participant display name" })),
-              agent: Type.Optional(Type.String({ description: "OMO agent prompt to use, e.g. oracle/explorer/fixer" })),
+              agent: Type.Optional(Type.String({ description: "OMO agent prompt to use, e.g. oracle/search/fixer" })),
               model: Type.Optional(Type.String({ description: "Optional provider/model override" })),
               prompt: Type.Optional(Type.String({ description: "Optional participant-specific guidance" })),
             }),
@@ -802,7 +800,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     toolExecutedThisTurn = false;
   });
 
-  // ── Inject orchestrator system prompt ───────────────────────────────
+  // ── Inject coordinator system prompt ───────────────────────────────
   pi.on("before_agent_start", async (event, _ctx) => {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
@@ -1346,9 +1344,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (presetName === currentPreset) {
       updateAgentModels(config, presetName);
       effects.push("active agent files updated");
-      if (agentName === ORCHESTRATOR_NAME) {
+      if (agentName === PRIMARY_MODE_AGENT_NAME) {
         const switched = await pi.setModel(model);
-        effects.push(switched ? `${ORCHESTRATOR_NAME} model switched now` : `${ORCHESTRATOR_NAME} model saved but not switched: no API key`);
+        effects.push(switched ? `${PRIMARY_MODE_AGENT_NAME} model switched now` : `${PRIMARY_MODE_AGENT_NAME} model saved but not switched: no API key`);
       }
     }
 
@@ -1396,17 +1394,17 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       if (plan.model) {
         const parsed = parsePiModelId(plan.model);
         if (!parsed) {
-          effects.push(`${ORCHESTRATOR_NAME} model not switched: invalid model id ${plan.model}`);
+          effects.push(`${PRIMARY_MODE_AGENT_NAME} model not switched: invalid model id ${plan.model}`);
         } else {
           const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
           if (!model) {
-            effects.push(`${ORCHESTRATOR_NAME} model not switched: model not found ${plan.model}`);
+            effects.push(`${PRIMARY_MODE_AGENT_NAME} model not switched: model not found ${plan.model}`);
           } else {
             const switched = await pi.setModel(model);
             effects.push(
               switched
-                ? `${ORCHESTRATOR_NAME} model switched to ${plan.model}`
-                : `${ORCHESTRATOR_NAME} model not switched: no API key for ${plan.model}`,
+                ? `${PRIMARY_MODE_AGENT_NAME} model switched to ${plan.model}`
+                : `${PRIMARY_MODE_AGENT_NAME} model not switched: no API key for ${plan.model}`,
             );
           }
         }
@@ -1458,9 +1456,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   // ── Log startup ─────────────────────────────────────────────────────
   const presetName = config?.preset ?? "default";
-  const orchestratorModel = getPresetModelForOrchestrator(config, presetName) ?? "default";
+  const primaryModeModel = getPresetModelForPrimaryMode(config, presetName) ?? "default";
   const startupCapabilities = refreshDelegationCapabilities();
   console.error(
-    `[oh-my-opencode-slim] Pi adapter loaded. Preset: ${presetName}, Orchestrator model: ${orchestratorModel}, capabilities: pi-agents=${startupCapabilities.hasPiAgents ? "yes" : "no"}, subagent=${startupCapabilities.hasSubagent ? "yes" : "no"}, agent_message=${startupCapabilities.hasAgentMessage ? "yes" : "no"}`,
+    `[oh-my-opencode-slim] Pi adapter loaded. Preset: ${presetName}, Primary mode model: ${primaryModeModel}, capabilities: pi-agents=${startupCapabilities.hasPiAgents ? "yes" : "no"}, subagent=${startupCapabilities.hasSubagent ? "yes" : "no"}, agent_message=${startupCapabilities.hasAgentMessage ? "yes" : "no"}`,
   );
 }

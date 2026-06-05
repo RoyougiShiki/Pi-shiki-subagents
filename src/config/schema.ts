@@ -1,23 +1,8 @@
 import { z } from 'zod';
-import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
+import { AGENT_ALIASES, ALL_AGENT_NAMES, PRESET_CONFIGURABLE_AGENT_NAMES } from './constants';
 import { CouncilConfigSchema } from './council-schema';
 import type { WorkflowNode, WorkflowDefinition } from '../core/workflow-types';
 
-const FALLBACK_AGENT_NAMES = [
-  'orchestrator',
-  'oracle',
-  'designer',
-  'search',
-  'fixer',
-] as const;
-
-const MANUAL_AGENT_NAMES = [
-  'orchestrator',
-  'oracle',
-  'designer',
-  'search',
-  'fixer',
-] as const;
 
 export const ProviderModelIdSchema = z
   .string()
@@ -48,36 +33,17 @@ export const ManualAgentPlanSchema = z
     }
   });
 
-export const ManualPlanSchema = z
-  .object({
-    orchestrator: ManualAgentPlanSchema,
-    oracle: ManualAgentPlanSchema,
-    designer: ManualAgentPlanSchema,
-    explorer: ManualAgentPlanSchema,
-    librarian: ManualAgentPlanSchema,
-    fixer: ManualAgentPlanSchema,
-  })
-  .strict();
+export const ManualPlanSchema = z.record(z.string(), ManualAgentPlanSchema);
 
-export type ManualAgentName = (typeof MANUAL_AGENT_NAMES)[number];
+export type ManualAgentName = string;
 export type ManualAgentPlan = z.infer<typeof ManualAgentPlanSchema>;
 export type ManualPlan = z.infer<typeof ManualPlanSchema>;
 
 const AgentModelChainSchema = z.array(z.string()).min(1);
 
-const FallbackChainsSchema = z
-  .object({
-    orchestrator: AgentModelChainSchema.optional(),
-    oracle: AgentModelChainSchema.optional(),
-    designer: AgentModelChainSchema.optional(),
-    explorer: AgentModelChainSchema.optional(),
-    librarian: AgentModelChainSchema.optional(),
-    search: AgentModelChainSchema.optional(),
-    fixer: AgentModelChainSchema.optional(),
-  })
-  .catchall(AgentModelChainSchema);
+const FallbackChainsSchema = z.record(z.string(), AgentModelChainSchema);
 
-export type FallbackAgentName = (typeof FALLBACK_AGENT_NAMES)[number];
+export type FallbackAgentName = string;
 
 // Agent override configuration (distinct from SDK's AgentConfig)
 export const AgentOverrideConfigSchema = z
@@ -109,7 +75,6 @@ export const AgentOverrideConfigSchema = z
     hidden: z.boolean().optional(),
     label: z.string().optional(),
     prompt: z.string().min(1).optional(),
-    orchestratorPrompt: z.string().min(1).optional(),
     options: z.record(z.string(), z.unknown()).optional(), // provider-specific model options (e.g., textVerbosity, thinking budget)
     displayName: z.string().min(1).optional(),
   })
@@ -173,7 +138,7 @@ export const TodoContinuationConfigSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      'Automatically enable auto-continue when the orchestrator session has enough todos',
+      'Automatically enable auto-continue when the primary session has enough todos',
     ),
   autoEnableThreshold: z
     .number()
@@ -361,14 +326,6 @@ function validateCustomOnlyPromptFields(
         message: 'prompt is only supported for custom agents',
       });
     }
-
-    if (override.orchestratorPrompt !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [...pathPrefix, name, 'orchestratorPrompt'],
-        message: 'orchestratorPrompt is only supported for custom agents',
-      });
-    }
   }
 }
 
@@ -397,10 +354,9 @@ export const PluginConfigSchema = z
       .array(z.string())
       .optional()
       .describe(
-        'Agent names to disable completely. ' +
-          'Disabled agents are not instantiated and cannot be delegated to. ' +
-          'Orchestrator and council internal agents (councillor) cannot be disabled. ' +
-          'All agents are enabled by default. To disable observer (image analysis), add it to this list and configure a vision-capable model for the enabled case.',
+        'Agent names to omit from generated AvailableAgents and delegation hints. ' +
+          'Agents listed here are not advertised for delegation or mode switching. ' +
+          'Use this for optional agents you do not want surfaced in runtime prompts.',
       ),
       disabled_mcps: z.array(z.string()).optional(),
 
