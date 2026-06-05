@@ -392,6 +392,30 @@ describe('Pi adapter config helpers', () => {
     expect(config?.workflows?.default).toBe('research-only');
   });
 
+  test('persists selected preset to Pi native config for subagent model resolution', async () => {
+    const piAgentDir = testPiAgentDir;
+    const configPath = path.join(piAgentDir, 'oh-my-opencode-slim.json');
+    writeJson(configPath, {
+      preset: '省钱模式',
+      presets: {
+        '省钱模式': { oracle: { model: 'opencode-go/deepseek-v4-flash' } },
+        '性能模式': { oracle: { model: 'dmxapi-responses/gpt-5.5' } },
+      },
+    });
+
+    const { persistPresetSelectionToPiNativeConfig } = await import('../pi/core/pi');
+    persistPresetSelectionToPiNativeConfig('性能模式', {
+      presets: {
+        '性能模式': { oracle: { model: 'dmxapi-responses/gpt-5.5' } },
+      },
+    } as any);
+
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(saved.preset).toBe('性能模式');
+    expect(saved.presets['性能模式'].oracle.model).toBe('dmxapi-responses/gpt-5.5');
+    expect(saved.presets['省钱模式'].oracle.model).toBe('opencode-go/deepseek-v4-flash');
+  });
+
   test('merges Pi native config as fallback and project config as override', async () => {
     const piAgentDir = testPiAgentDir;
     writeJson(path.join(piAgentDir, 'oh-my-opencode-slim.json'), {
@@ -717,7 +741,7 @@ describe('Pi adapter preset helpers', () => {
     const { parsePiModelId } = await import('../pi/core/pi');
 
     expect(parsePiModelId('openai/gpt-4o')).toEqual({ provider: 'openai', model: 'gpt-4o' });
-    expect(parsePiModelId('dmxapi/gpt-5.5')).toEqual({ provider: 'dmxapi', model: 'gpt-5.5' });
+    expect(parsePiModelId('dmxapi-responses/gpt-5.5')).toEqual({ provider: 'dmxapi-responses', model: 'gpt-5.5' });
     expect(parsePiModelId('missing-slash')).toBeUndefined();
     expect(parsePiModelId('/missing-provider')).toBeUndefined();
     expect(parsePiModelId('missing-model/')).toBeUndefined();

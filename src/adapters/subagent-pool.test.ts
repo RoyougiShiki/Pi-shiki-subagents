@@ -192,6 +192,30 @@ describe('AgentPool basic operations', () => {
     expect(pool.list()).toHaveLength(0);
   });
 
+  test('spawn uses discovered runtime agent model instead of re-reading stale config', async () => {
+    const { session, createSession } = mockCreateSession();
+    const resolvedModel = { provider: 'dmxapi-responses', id: 'gpt-5.5' };
+    const resolveModel = mock((modelId: string) => modelId === 'dmxapi-responses/gpt-5.5' ? resolvedModel : undefined);
+    const pool = new AgentPool({ createSession: createSession as any, resolveModel });
+    const agent = { ...makeAgent('oracle'), model: 'dmxapi-responses/gpt-5.5' };
+
+    const spawnResult = await pool.spawn({
+      id: 'oracle-review',
+      name: 'oracle-review',
+      agent,
+      task: 'review',
+    });
+
+    expect(spawnResult.response).toContain('已启动');
+    expect(resolveModel).toHaveBeenCalledWith('dmxapi-responses/gpt-5.5');
+    expect(createSession.mock.calls[0]?.[0]?.model).toBe(resolvedModel);
+
+    const eventPromise = onNextPoolEvent(pool);
+    session._simulateResponse('review done');
+    await eventPromise;
+    await pool.kill('oracle-review');
+  });
+
   test('sendPrompt sends to an existing agent', async () => {
     const { session, createSession } = mockCreateSession();
     const pool = new AgentPool({ createSession: createSession as any });

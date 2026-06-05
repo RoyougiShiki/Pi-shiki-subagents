@@ -228,6 +228,19 @@ function writePiNativeConfig(config: OmniMoConfig): void {
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
 }
 
+export function persistPresetSelectionToPiNativeConfig(
+  presetName: string,
+  effectiveConfig: OmniMoConfig,
+): void {
+  const nativeConfig = readPiNativeConfig() ?? {};
+  nativeConfig.preset = presetName;
+  if (!nativeConfig.presets?.[presetName] && effectiveConfig.presets?.[presetName]) {
+    nativeConfig.presets ??= {};
+    nativeConfig.presets[presetName] = effectiveConfig.presets[presetName];
+  }
+  writePiNativeConfig(nativeConfig as OmniMoConfig);
+}
+
 function getConfigPresetNames(config: OmniMoConfig | null): string[] {
   return Object.keys(config?.presets ?? {});
 }
@@ -1391,9 +1404,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
       currentPreset = name;
       newConfig.preset = name;
+      persistPresetSelectionToPiNativeConfig(name, newConfig);
       updateAgentModels(newConfig, name);
 
-      const effects: string[] = ["agent .md/.toml files updated"];
+      const effects: string[] = ["active preset saved", "agent .md/.toml files updated"];
 
       if (plan.model) {
         const parsed = parsePiModelId(plan.model);

@@ -90,7 +90,9 @@ function restoreAgentEnv(saved: AgentEnv): void {
   }
 }
 
-const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+function getPiNativeConfigPath(): string {
+  return path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+}
 const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
 const REGISTRY_FILENAME = "pool-registry.json";
 const SESSION_DIR = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
@@ -109,7 +111,7 @@ function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
     mergeGroups(defaults._tool_groups);
   } catch {}
   try {
-    const userConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    const userConfig = JSON.parse(fs.readFileSync(getPiNativeConfigPath(), "utf-8"));
     mergeGroups(userConfig._tool_groups);
   } catch {}
   try {
@@ -315,15 +317,6 @@ interface PoolEntry {
   busy: boolean;
 }
 
-/** Read the active preset's model string for a given agent from the config file. */
-function getPresetModelForAgent(agentName: string): string | undefined {
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
-    const presetName = raw.preset || "省钱模式";
-    return raw.presets?.[presetName]?.[agentName]?.model;
-  } catch {}
-  return undefined;
-}
 
 export interface AgentPoolOptions {
   timeoutMs?: number;
@@ -392,9 +385,11 @@ export class AgentPool {
       if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
       process.env.OMO_AGENT_ID = opts.id;
 
-      // Resolve model from active preset
-      const presetModelStr = opts.agent ? getPresetModelForAgent(opts.agent.name) || opts.model : opts.model;
-      const resolvedModel = presetModelStr && this.resolveModel ? this.resolveModel(presetModelStr) : undefined;
+      // Resolve model from the already-discovered runtime agent config.
+      // /preset persists the active preset before discovery; avoid re-reading
+      // stale config here and overriding the selected preset with an old value.
+      const modelStr = opts.model || opts.agent.model;
+      const resolvedModel = modelStr && this.resolveModel ? this.resolveModel(modelStr) : undefined;
 
       let session: AgentSession | undefined;
       const resolvedTools = resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd);
@@ -430,7 +425,7 @@ export class AgentPool {
           status: "starting",
           startedAt: Date.now(),
           messageCount: 0,
-          model: sessionModel || opts.model || "default",
+          model: sessionModel || modelStr || "default",
           lastResponse: "",
           busy: false,
         };
