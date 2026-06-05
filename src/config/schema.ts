@@ -235,6 +235,8 @@ export const HarnessMessageConfigSchema = z
         completionWithPendingSubagent: z.string().optional(),
         completionWithPendingTasks: z.string().optional(),
         completionAfterFailureWithoutAcknowledgement: z.string().optional(),
+        completionAgainstVerifierFail: z.string().optional(),
+        completionAgainstVerifierPartial: z.string().optional(),
         modificationWithoutVerification: z.string().optional(),
         injectedHeader: z.string().optional(),
       })
