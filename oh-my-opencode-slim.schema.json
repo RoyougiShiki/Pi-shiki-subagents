@@ -894,6 +894,12 @@
                 "completionAfterFailureWithoutAcknowledgement": {
                   "type": "string"
                 },
+                "completionAgainstVerifierFail": {
+                  "type": "string"
+                },
+                "completionAgainstVerifierPartial": {
+                  "type": "string"
+                },
                 "modificationWithoutVerification": {
                   "type": "string"
                 },

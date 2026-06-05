@@ -36,6 +36,7 @@ import type { AutocompleteItem, SelectItem, SelectListTheme } from "@earendil-wo
 import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { loadActiveMode, getModeInstructions, setOnModeChange, setOnBeforeModeChange, validateModeAllowlist, getFirstModeAgent, isCurrentModePipeline, emitModeSwitched, getAgent, rehydrateActiveModeTools, registerModeCommands, registerModeHooks, registerSwitchModeTool } from "./pi-modes";
 import { setToolScope, isToolAllowed, getToolScope, auditPayloadTools } from "../policy/tool-scope-manager";
@@ -550,6 +551,48 @@ function sessionStartTimestamp(ctx: any): number | undefined {
     ? Date.parse(String(firstTimestamp))
     : NaN;
   return Number.isFinite(parsedEntry) ? parsedEntry : undefined;
+}
+
+function parsePiSyncArgs(args: string): string[] | null {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+  const result: string[] = [];
+
+  for (const token of tokens) {
+    if (token === "check") result.push("--check");
+    else if (token === "write") result.push("--write");
+    else if (token === "typecheck") result.push("--typecheck");
+    else if (token === "test") result.push("--test");
+    else if (token === "build") result.push("--build");
+    else if (token === "skip-schema") result.push("--skip-schema");
+    else if (token === "restart-hint") result.push("--restart-hint");
+    else if (token.startsWith("--")) result.push(token);
+    else return null;
+  }
+
+  return result;
+}
+
+function runPiSyncCommand(args: string): { ok: boolean; output: string } {
+  const parsedArgs = parsePiSyncArgs(args);
+  if (!parsedArgs) {
+    return {
+      ok: false,
+      output: "Usage: /pi-sync [check|write|typecheck|test|build|skip-schema|restart-hint]",
+    };
+  }
+
+  const scriptPath = path.join(process.cwd(), "scripts", "pi-dev-sync.ts");
+  const result = spawnSync("bun", ["run", scriptPath, ...parsedArgs], {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+    env: process.env,
+  });
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+  return {
+    ok: !result.error && result.status === 0,
+    output: result.error ? `${output}\n${result.error.message}`.trim() : output,
+  };
 }
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
@@ -1375,6 +1418,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(`Switched to preset: ${name}\n${effects.map((e) => `- ${e}`).join("\n")}`, "success");
+    },
+  });
+
+  pi.registerCommand("pi-sync", {
+    description: "同步/检查 Pi 本地开发环境。用法: /pi-sync [check|write|typecheck|test|build]",
+    handler: async (args, ctx) => {
+      const result = runPiSyncCommand(args);
+      const level = result.ok ? "success" : "error";
+      const output = result.output || (result.ok ? "Pi sync completed." : "Pi sync failed.");
+      ctx.ui.notify(output.length > 4000 ? `${output.slice(0, 4000)}\n...` : output, level);
     },
   });
 
