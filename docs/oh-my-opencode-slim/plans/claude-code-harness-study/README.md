@@ -87,6 +87,7 @@ src/utils/toolResultStorage.ts
 | `09-implementation-review-2026-06-04.md` | 对照 cc-haha 后的实现风险审查 |
 | `10-claude-code-source-analysis-calibration.md` | 基于 `bcefghj/ClaudeCode-Source-Analysis` 的第二来源校准补充 |
 | `11-contract-audit.md` | cc-haha 关键模块行为契约对齐表；记录已知 gap、处理方式和验收测试 |
+| `12-harness-closeout.md` | harness 收口范围、known limitations、旧 gap 归档和后续优先级 |
 
 ## 当前结论摘要
 
