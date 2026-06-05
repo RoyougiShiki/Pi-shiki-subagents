@@ -5,6 +5,7 @@ import type { SessionArtifactRef, StructuredToolResult } from "./tool-result-nor
 export interface EvidenceSessionStore {
   recordEvidence(input: StructuredToolResult): void;
   recordVerifierVerdict(sessionId: string, evidence: VerifierVerdictEvidence): void;
+  hydrateVerifierVerdicts(sessionId: string, evidences: readonly VerifierVerdictEvidence[]): void;
   getEvidenceSnapshot(sessionId: string, options?: EvidenceSnapshotOptions): ToolEvidence[];
   getVerifierVerdicts(sessionId: string): VerifierVerdictEvidence[];
   reconstructFromSessionEntries(entries: readonly unknown[]): ToolEvidence[];
@@ -93,6 +94,20 @@ function reconstructOne(entry: unknown): ToolEvidence | undefined {
   };
 }
 
+function verifierVerdictKey(evidence: VerifierVerdictEvidence): string {
+  return [evidence.timestamp, evidence.source, evidence.verdict, evidence.verifier ?? "", evidence.summary].join("\u0000");
+}
+
+function mergeVerifierVerdicts(
+  current: readonly VerifierVerdictEvidence[],
+  incoming: readonly VerifierVerdictEvidence[],
+): VerifierVerdictEvidence[] {
+  const byKey = new Map<string, VerifierVerdictEvidence>();
+  for (const evidence of current) byKey.set(verifierVerdictKey(evidence), evidence);
+  for (const evidence of incoming) byKey.set(verifierVerdictKey(evidence), evidence);
+  return [...byKey.values()].sort((a, b) => a.timestamp - b.timestamp);
+}
+
 export function createEvidenceSessionStore(_options: EvidenceSessionStoreOptions = {}): EvidenceSessionStore {
   let evidences: SessionStoredToolEvidence[] = [];
   let verifierVerdicts = new Map<string, VerifierVerdictEvidence[]>();
@@ -105,6 +120,11 @@ export function createEvidenceSessionStore(_options: EvidenceSessionStoreOptions
     recordVerifierVerdict(sessionId: string, evidence: VerifierVerdictEvidence): void {
       const current = verifierVerdicts.get(sessionId) ?? [];
       verifierVerdicts.set(sessionId, [...current, evidence]);
+    },
+
+    hydrateVerifierVerdicts(sessionId: string, evidences: readonly VerifierVerdictEvidence[]): void {
+      const current = verifierVerdicts.get(sessionId) ?? [];
+      verifierVerdicts.set(sessionId, mergeVerifierVerdicts(current, evidences));
     },
 
     getVerifierVerdicts(sessionId: string): VerifierVerdictEvidence[] {

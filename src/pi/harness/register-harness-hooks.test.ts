@@ -72,68 +72,81 @@ describe("register-harness-hooks", () => {
     });
   });
 
-  test("ingests pool verifier verdict and suppresses nudge", async () => {
+  test("does not let earlier verifier verdict suppress later task nudge", async () => {
     resetEvidence();
-    const { pi, hooks } = createPiMock();
-    const { ctx, notifications } = createCtx();
-    const runtime = registerHarnessHooks(pi as any, {});
+    const dir = await mkdtemp(join(tmpdir(), "omo-verdict-nudge-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "verdict-suppresses-nudge");
+      const runtime = registerHarnessHooks(pi as any, {
+        config: { toolResultBudget: { storageBaseDir: dir } },
+      });
 
-    runtime.ingestPoolCompleted({ agentName: "reviewer", response: "VERDICT: PASS" }, ctx as any);
+      await runtime.ingestPoolCompleted({ agentName: "reviewer", response: "VERDICT: PASS" }, ctx as any);
 
-    for (const id of [1, 2, 3]) {
-      await hooks.tool_result?.[0]?.({
-        toolName: "todo",
-        toolCallId: `todo-${id}`,
-        input: { action: "create", id, subject: `task ${id}`, status: "in_progress" },
-        content: [{ type: "text", text: `Created #${id}` }],
-        isError: false,
-      }, ctx as any);
+      for (const id of [1, 2, 3]) {
+        await hooks.tool_result?.[0]?.({
+          toolName: "todo",
+          toolCallId: `todo-${id}`,
+          input: { action: "create", id, subject: `task ${id}`, status: "in_progress" },
+          content: [{ type: "text", text: `Created #${id}` }],
+          isError: false,
+        }, ctx as any);
+      }
+      for (const id of [1, 2, 3]) {
+        await hooks.tool_result?.[0]?.({
+          toolName: "todo",
+          toolCallId: `todo-${id}-done`,
+          input: { action: "update", id, status: "completed" },
+          content: [{ type: "text", text: `Updated #${id}` }],
+          isError: false,
+        }, ctx as any);
+      }
+
+      expect(notifications.some((item) => item.message.includes("verifier verdict captured: PASS"))).toBe(true);
+      expect(notifications.some((item) => item.message.includes("closed out"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
-    for (const id of [1, 2, 3]) {
-      await hooks.tool_result?.[0]?.({
-        toolName: "todo",
-        toolCallId: `todo-${id}-done`,
-        input: { action: "update", id, status: "completed" },
-        content: [{ type: "text", text: `Updated #${id}` }],
-        isError: false,
-      }, ctx as any);
-    }
-
-    expect(notifications.some((item) => item.message.includes("verifier verdict captured: PASS"))).toBe(true);
-    expect(notifications.some((item) => item.message.includes("closed out"))).toBe(false);
   });
 
   test("verifier FAIL is consumed by message_end audit", async () => {
     resetEvidence();
-    const { pi, hooks } = createPiMock();
-    const { ctx, notifications } = createCtx();
-    const runtime = registerHarnessHooks(pi as any, {
-      config: { completionAuditor: { enabled: true } },
-    });
+    const dir = await mkdtemp(join(tmpdir(), "omo-verdict-fail-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "verdict-fail-audit");
+      const runtime = registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
 
-    await hooks.tool_result?.[0]?.({
-      toolName: "edit",
-      toolCallId: "edit-1",
-      input: { path: "file.ts" },
-      content: [{ type: "text", text: "edited" }],
-      isError: false,
-    }, ctx as any);
-    runtime.ingestPoolCompleted({
-      agentName: "reviewer",
-      response: "VERDICT: FAIL\nRegression found.",
-    }, ctx as any);
-    await hooks.message_end?.[0]?.({
-      message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
-    }, ctx as any);
+      await hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-1",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, ctx as any);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await runtime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "VERDICT: FAIL\nRegression found.",
+      }, ctx as any);
+      await hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, ctx as any);
 
-    expect(notifications.some((item) => item.message.includes("verifier verdict captured: FAIL"))).toBe(true);
-    expect(notifications.some((item) => item.message.includes("verifier verdict 为 FAIL"))).toBe(true);
+      expect(notifications.some((item) => item.message.includes("verifier verdict captured: FAIL"))).toBe(true);
+      expect(notifications.some((item) => item.message.includes("verifier verdict 为 FAIL"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("notifies when multiple tasks close without verifier verdict", async () => {
     resetEvidence();
     const { pi, hooks } = createPiMock();
-    const { ctx, notifications } = createCtx();
+    const { ctx, notifications } = createCtx([], "no-verdict-nudge");
     registerHarnessHooks(pi as any, {});
 
     for (const id of [1, 2, 3]) {
@@ -162,29 +175,203 @@ describe("register-harness-hooks", () => {
 
   test("verifier PASS satisfies message_end audit after modification", async () => {
     resetEvidence();
-    const { pi, hooks } = createPiMock();
-    const { ctx, notifications } = createCtx();
-    const runtime = registerHarnessHooks(pi as any, {
-      config: { completionAuditor: { enabled: true } },
-    });
+    const dir = await mkdtemp(join(tmpdir(), "omo-verdict-pass-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "verdict-pass-audit");
+      const runtime = registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
 
-    await hooks.tool_result?.[0]?.({
-      toolName: "edit",
-      toolCallId: "edit-1",
-      input: { path: "file.ts" },
-      content: [{ type: "text", text: "edited" }],
-      isError: false,
-    }, ctx as any);
-    runtime.ingestPoolCompleted({
-      agentName: "reviewer",
-      response: "Command run: bun test\nOutput observed: pass\nResult: PASS\nVERDICT: PASS",
-    }, ctx as any);
-    await hooks.message_end?.[0]?.({
-      message: { role: "assistant", content: [{ type: "text", text: "已完成，测试通过。" }] },
-    }, ctx as any);
+      await hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-1",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, ctx as any);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await runtime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "Command run: bun test\nOutput observed: pass\nResult: PASS\nVERDICT: PASS",
+      }, ctx as any);
+      await hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, ctx as any);
 
-    expect(notifications.some((item) => item.message.includes("verifier verdict captured: PASS"))).toBe(true);
-    expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(false);
+      expect(notifications.some((item) => item.message.includes("verifier verdict captured: PASS"))).toBe(true);
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not let stale persisted PASS satisfy new modifications after reload", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-verifier-verdict-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "verdict-session").ctx;
+      const firstRuntime = registerHarnessHooks(first.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await firstRuntime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "Command run: bun test\nOutput observed: pass\nResult: PASS\nVERDICT: PASS",
+      }, firstCtx as any);
+
+      expect(await readFile(join(dir, "verdict-session", ".verifier-verdicts.json"), "utf8")).toContain("PASS");
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "verdict-session");
+      registerHarnessHooks(second.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await second.hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-after-reload",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, secondCtx as any);
+      await second.hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, secondCtx as any);
+
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("serialized verifier ingestion prevents immediate audit race", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-verifier-race-"));
+    try {
+      const { pi, hooks } = createPiMock();
+      const { ctx, notifications } = createCtx([], "verdict-race-session");
+      const runtime = registerHarnessHooks(pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+
+      await hooks.tool_result?.[0]?.({
+        toolName: "edit",
+        toolCallId: "edit-race",
+        input: { path: "file.ts" },
+        content: [{ type: "text", text: "edited" }],
+        isError: false,
+      }, ctx as any);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      const ingesting = runtime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "Command run: bun test\nOutput observed: pass\nResult: PASS\nVERDICT: PASS",
+      }, ctx as any);
+      await hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, ctx as any);
+      await ingesting;
+
+      expect(notifications.some((item) => item.message.includes("完成审计提醒"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not let stale persisted PASS suppress new task nudge after reload", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-verifier-nudge-reload-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "verdict-nudge-reload").ctx;
+      const firstRuntime = registerHarnessHooks(first.pi as any, {
+        config: { toolResultBudget: { storageBaseDir: dir } },
+      });
+      await firstRuntime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "VERDICT: PASS",
+      }, firstCtx as any);
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "verdict-nudge-reload");
+      registerHarnessHooks(second.pi as any, {
+        config: { toolResultBudget: { storageBaseDir: dir } },
+      });
+      for (const id of [1, 2, 3]) {
+        await second.hooks.tool_result?.[0]?.({
+          toolName: "todo",
+          toolCallId: `todo-reload-${id}`,
+          input: { action: "create", id, subject: `task ${id}`, status: "in_progress" },
+          content: [{ type: "text", text: `Created #${id}` }],
+          isError: false,
+        }, secondCtx as any);
+      }
+      for (const id of [1, 2, 3]) {
+        await second.hooks.tool_result?.[0]?.({
+          toolName: "todo",
+          toolCallId: `todo-reload-${id}-done`,
+          input: { action: "update", id, status: "completed" },
+          content: [{ type: "text", text: `Updated #${id}` }],
+          isError: false,
+        }, secondCtx as any);
+      }
+
+      expect(notifications.some((item) => item.message.includes("closed out"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reloads persisted FAIL verifier verdicts for completion audit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-verifier-fail-reload-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "verdict-fail-reload").ctx;
+      const firstRuntime = registerHarnessHooks(first.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await firstRuntime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "VERDICT: FAIL\nRegression found.",
+      }, firstCtx as any);
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "verdict-fail-reload");
+      registerHarnessHooks(second.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await second.hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, secondCtx as any);
+
+      expect(notifications.some((item) => item.message.includes("verifier verdict 为 FAIL"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reloads persisted PARTIAL verifier verdicts for completion audit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "omo-verifier-partial-reload-"));
+    try {
+      const first = createPiMock();
+      const firstCtx = createCtx([], "verdict-partial-reload").ctx;
+      const firstRuntime = registerHarnessHooks(first.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await firstRuntime.ingestPoolCompleted({
+        agentName: "reviewer",
+        response: "VERDICT: PARTIAL\nCould not run integration service.",
+      }, firstCtx as any);
+
+      const second = createPiMock();
+      const { ctx: secondCtx, notifications } = createCtx([], "verdict-partial-reload");
+      registerHarnessHooks(second.pi as any, {
+        config: { completionAuditor: { enabled: true }, toolResultBudget: { storageBaseDir: dir } },
+      });
+      await second.hooks.message_end?.[0]?.({
+        message: { role: "assistant", content: [{ type: "text", text: "已完成" }] },
+      }, secondCtx as any);
+
+      expect(notifications.some((item) => item.message.includes("verifier verdict 为 PARTIAL"))).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("reapplies persisted tool result budget state after hook reload", async () => {

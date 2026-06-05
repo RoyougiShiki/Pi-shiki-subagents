@@ -26,6 +26,8 @@ import {
 } from "../harness";
 import { createToolResultBudgetState, type ToolResultBudgetState } from "./tool-result-budget-state";
 import { loadBudgetState, saveBudgetState } from "./tool-result-budget-persistence";
+import { loadVerifierVerdicts, saveVerifierVerdicts } from "./verifier-verdict-persistence";
+import type { VerifierVerdictEvidence } from "./verifier-verdict-evidence";
 import type { HarnessConfig } from "../../config/schema";
 
 export interface RegisterHarnessHooksOptions {
@@ -33,7 +35,7 @@ export interface RegisterHarnessHooksOptions {
 }
 
 export interface HarnessRuntimeHooks {
-  ingestPoolCompleted(event: { agentName: string; response?: string }, ctx: ExtensionContext): void;
+  ingestPoolCompleted(event: { agentName: string; response?: string }, ctx: ExtensionContext): Promise<void>;
 }
 
 function createHarnessSessionId(): string {
@@ -97,6 +99,24 @@ function extractExitCodeFromContent(content: unknown): number | undefined {
   return undefined;
 }
 
+function latestModificationTimestamp(evidences: readonly ToolEvidence[]): number | undefined {
+  let latest: number | undefined;
+  for (const evidence of evidences) {
+    const toolName = evidence.toolName.trim().toLowerCase();
+    if (toolName !== "edit" && toolName !== "write") continue;
+    latest = latest === undefined ? evidence.timestamp : Math.max(latest, evidence.timestamp);
+  }
+  return latest;
+}
+
+function verifierVerdictsAfter(
+  verdicts: readonly VerifierVerdictEvidence[],
+  timestamp: number | undefined,
+): VerifierVerdictEvidence[] {
+  if (timestamp === undefined) return [...verdicts];
+  return verdicts.filter((verdict) => verdict.timestamp > timestamp);
+}
+
 export function registerHarnessHooks(
   pi: ExtensionAPI,
   options: RegisterHarnessHooksOptions = {},
@@ -108,6 +128,36 @@ export function registerHarnessHooks(
   let runtimeTasks: RuntimeTaskItem[] = [];
   let budgetState: ToolResultBudgetState = createToolResultBudgetState();
   let budgetStateKey: string | undefined;
+  let verifierVerdictsKey: string | undefined;
+  let verifierVerdictsQueue: Promise<void> = Promise.resolve();
+
+  async function resolveHarnessStateStorage(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
+    const baseDir = expandHomePath(harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results");
+    return { baseDir, sessionId: stableSessionId(ctx, harnessSessionId) };
+  }
+
+  async function ensureVerifierVerdictsLoaded(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
+    const storage = await resolveHarnessStateStorage(ctx);
+    const key = `${storage.baseDir}\n${storage.sessionId}`;
+    if (verifierVerdictsKey !== key) {
+      const verdicts = await loadVerifierVerdicts(storage.baseDir, storage.sessionId);
+      evidenceSessionStore.hydrateVerifierVerdicts(storage.sessionId, verdicts ?? []);
+      verifierVerdictsKey = key;
+    }
+    return storage;
+  }
+
+  async function withVerifierVerdicts<T>(
+    ctx: ExtensionContext,
+    action: (storage: { baseDir: string; sessionId: string }) => Promise<T>,
+  ): Promise<T> {
+    const run = verifierVerdictsQueue.then(async () => {
+      const storage = await ensureVerifierVerdictsLoaded(ctx);
+      return action(storage);
+    });
+    verifierVerdictsQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
 
   async function resolveBudgetStorage(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
     const baseDir = expandHomePath(harnessConfig.toolResultBudget.storageBaseDir ?? "~/.pi/tool-results");
@@ -120,8 +170,7 @@ export function registerHarnessHooks(
     return { baseDir, sessionId };
   }
 
-  function ingestPoolCompleted(event: { agentName: string; response?: string }, ctx: ExtensionContext): void {
-    const sessionId = (ctx.sessionManager as any)?.getSessionId?.() ?? harnessSessionId;
+  async function ingestPoolCompleted(event: { agentName: string; response?: string }, ctx: ExtensionContext): Promise<void> {
     if (!event.response) return;
 
     const verdictIngestion = ingestVerifierVerdict({
@@ -129,19 +178,24 @@ export function registerHarnessHooks(
       source: "subagent",
       verifier: event.agentName,
     });
-    if (verdictIngestion.ingested && verdictIngestion.evidence) {
-      evidenceSessionStore.recordVerifierVerdict(sessionId, verdictIngestion.evidence);
+    if (!verdictIngestion.ingested || !verdictIngestion.evidence) return;
+
+    await withVerifierVerdicts(ctx, async (storage) => {
+      evidenceSessionStore.recordVerifierVerdict(storage.sessionId, verdictIngestion.evidence!);
+      const saved = await saveVerifierVerdicts(evidenceSessionStore.getVerifierVerdicts(storage.sessionId), storage.baseDir, storage.sessionId);
       try {
+        const suffix = saved ? "" : " (persistence failed)";
         ctx.ui.notify(
-          `[harness] verifier verdict captured: ${verdictIngestion.evidence.verdict}`,
-          verdictIngestion.evidence.verdict === "PASS" ? "info" : "warning",
+          `[harness] verifier verdict captured: ${verdictIngestion.evidence!.verdict}${suffix}`,
+          saved && verdictIngestion.evidence!.verdict === "PASS" ? "info" : "warning",
         );
       } catch {}
-    }
+    });
   }
 
-  pi.on("turn_start", async (_event) => {
+  pi.on("turn_start", async (_event, ctx) => {
     currentTurnEvidences = [];
+    if (ctx) await withVerifierVerdicts(ctx, async () => undefined).catch(() => undefined);
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -154,7 +208,8 @@ export function registerHarnessHooks(
 
     if (!toolName) return;
 
-    const sessionId = (ctx as any)?.sessionManager?.getSessionId?.() ?? harnessSessionId;
+    const verifierStorage = await withVerifierVerdicts(ctx, async (storage) => storage);
+    const sessionId = verifierStorage.sessionId;
     const sessionFile = (ctx as any)?.sessionManager?.getSessionFile?.();
     const sessionArtifactRef = sessionFile
       ? { kind: "session_file" as const, sessionId, path: sessionFile }
@@ -203,7 +258,7 @@ export function registerHarnessHooks(
     if (taskState.changed) {
       const oldTasks = runtimeTasks;
       runtimeTasks = taskState.tasks;
-      const hasVerifierVerdict = evidenceSessionStore.getVerifierVerdicts(sessionId).length > 0;
+      const hasVerifierVerdict = verifierVerdictsAfter(evidenceSessionStore.getVerifierVerdicts(sessionId), evidence.timestamp).length > 0;
       const nudge = detectVerificationNudge(oldTasks, runtimeTasks);
       if (nudge.needed && !hasVerifierVerdict) {
         nudgeMessage = formatNudgeMessage(nudge.closedCount);
@@ -270,7 +325,8 @@ export function registerHarnessHooks(
     const isFinalReport = userAskedForFinal || claimsCompletion;
     if (!isFinalReport) return;
 
-    const sessionId = (ctx.sessionManager as any)?.getSessionId?.() ?? harnessSessionId;
+    const verifierStorage = await withVerifierVerdicts(ctx, async (storage) => storage);
+    const sessionId = verifierStorage.sessionId;
     const auditEvidenceSelection = selectCompletionAuditEvidence({
       sessionId,
       sessionEvidences: evidenceSessionStore.getEvidenceSnapshot(sessionId),
@@ -279,7 +335,7 @@ export function registerHarnessHooks(
     });
     const evidenceSummary = applyVerifierVerdictsToEvidenceSummary(
       toCompletionEvidenceSummary(auditEvidenceSelection.evidences),
-      evidenceSessionStore.getVerifierVerdicts(sessionId),
+      verifierVerdictsAfter(evidenceSessionStore.getVerifierVerdicts(sessionId), latestModificationTimestamp(auditEvidenceSelection.evidences)),
     );
 
     const decision = runHarnessAudit(

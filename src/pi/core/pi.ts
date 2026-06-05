@@ -759,16 +759,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         } catch {}
       }
       if (event.type === "completed") {
-        harnessRuntime.ingestPoolCompleted(event, ctx);
-        try {
-          pi.sendMessage({
-            customType: "pool_completed",
-            content: event.response
-              ? `[pool] ${event.agentName} 已完成\n\n${event.response}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`
-              : `[pool] ${event.agentName} 已完成\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`,
-            display: true,
-          }, { deliverAs: "followUp", triggerTurn: true });
-        } catch {}
+        void (async () => {
+          await harnessRuntime.ingestPoolCompleted(event, ctx).catch(() => undefined);
+          try {
+            pi.sendMessage({
+              customType: "pool_completed",
+              content: event.response
+                ? `[pool] ${event.agentName} 已完成\n\n${event.response}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`
+                : `[pool] ${event.agentName} 已完成\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`,
+              display: true,
+            }, { deliverAs: "followUp", triggerTurn: true });
+          } catch {}
+        })();
       }
     });
 
