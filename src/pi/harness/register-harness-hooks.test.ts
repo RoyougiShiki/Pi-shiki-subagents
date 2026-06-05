@@ -142,8 +142,9 @@ describe("register-harness-hooks", () => {
         isError: false,
       }, ctx as any);
     }
+    let lastResult: any;
     for (const id of [1, 2, 3]) {
-      await hooks.tool_result?.[0]?.({
+      lastResult = await hooks.tool_result?.[0]?.({
         toolName: "todo",
         toolCallId: `todo-${id}-done`,
         input: { action: "update", id, status: "completed" },
@@ -153,6 +154,7 @@ describe("register-harness-hooks", () => {
     }
 
     expect(notifications.some((item) => item.message.includes("closed out"))).toBe(true);
+    expect(lastResult?.content?.some((part: any) => part.text?.includes("Before writing your final summary"))).toBe(true);
   });
 
   test("verifier PASS satisfies message_end audit after modification", async () => {

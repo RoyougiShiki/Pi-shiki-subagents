@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { recordEvidence, type ToolEvidence } from "../policy/evidence-tracker";
 import { auditEvidence } from "../policy/runtime-audit";
 import {
+  appendNudgeToModelFacingContent,
   applyToolResultBudget,
   applyVerifierVerdictsToEvidenceSummary,
   compilePatterns,
@@ -167,6 +168,7 @@ export function registerHarnessHooks(
       },
     ];
 
+    let nudgeMessage: string | undefined;
     const taskState = updateTaskStateFromToolResult(runtimeTasks, {
       toolName,
       rawInput: args,
@@ -178,13 +180,14 @@ export function registerHarnessHooks(
       const hasVerifierVerdict = evidenceSessionStore.getVerifierVerdicts(sessionId).length > 0;
       const nudge = detectVerificationNudge(oldTasks, runtimeTasks);
       if (nudge.needed && !hasVerifierVerdict) {
+        nudgeMessage = formatNudgeMessage(nudge.closedCount);
         try {
-          (ctx as any)?.ui?.notify?.(`[harness] ${formatNudgeMessage(nudge.closedCount)}`, "warning");
+          (ctx as any)?.ui?.notify?.(`[harness] ${nudgeMessage}`, "warning");
         } catch {}
       }
     }
 
-    let outputContent = normalized.modelFacingMessage;
+    let outputContent = appendNudgeToModelFacingContent(normalized.modelFacingMessage as any, nudgeMessage);
     const outputIsError = evidence.success ? false : isError;
 
     if (harnessConfig.toolResultBudget.enabled) {
@@ -213,7 +216,7 @@ export function registerHarnessHooks(
       }
     }
 
-    if (normalized.messageModified || outputIsError !== isError) {
+    if (normalized.messageModified || outputIsError !== isError || nudgeMessage) {
       const returnedContent: any[] = Array.isArray(outputContent) ? outputContent : [outputContent];
       return {
         content: returnedContent,

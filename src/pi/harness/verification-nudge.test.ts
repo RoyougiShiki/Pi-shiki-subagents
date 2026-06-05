@@ -61,24 +61,30 @@ describe("verification nudge", () => {
     expect(result.hasVerificationStep).toBe(true);
   });
 
-  test("detects verification step with various patterns", () => {
-    const patterns = [
-      "run verification agent",
-      "验证功能",
-      "校验结果",
-      "run tests",
-      "check lint",
-      "typecheck code",
+  test("default verification step pattern is intentionally narrow", () => {
+    const oldTasks = [
+      task("write unit tests", "in_progress"),
+      task("check error handling", "in_progress"),
+      task("lint cleanup", "in_progress"),
+    ];
+    const newTasks = [
+      task("write unit tests", "completed"),
+      task("check error handling", "completed"),
+      task("lint cleanup", "completed"),
     ];
 
-    for (const content of patterns) {
-      const oldTasks = [task(content, "in_progress"), task("other", "in_progress"), task("more", "in_progress")];
-      const newTasks = [task(content, "completed"), task("other", "completed"), task("more", "completed")];
+    const result = detectVerificationNudge(oldTasks, newTasks);
+    expect(result.hasVerificationStep).toBe(false);
+    expect(result.needed).toBe(true);
+  });
 
-      const result = detectVerificationNudge(oldTasks, newTasks);
-      expect(result.hasVerificationStep).toBe(true);
-      expect(result.needed).toBe(false);
-    }
+  test("supports broader verification step patterns via config", () => {
+    const oldTasks = [task("run tests", "in_progress"), task("other", "in_progress"), task("more", "in_progress")];
+    const newTasks = [task("run tests", "completed"), task("other", "completed"), task("more", "completed")];
+
+    const result = detectVerificationNudge(oldTasks, newTasks, { verificationStepPattern: /test/i });
+    expect(result.hasVerificationStep).toBe(true);
+    expect(result.needed).toBe(false);
   });
 
   test("nudges when all tasks are completed", () => {
@@ -154,10 +160,12 @@ describe("verification nudge", () => {
     expect(DEFAULT_THRESHOLD).toBe(3);
   });
 
-  test("DEFAULT_VERIFICATION_STEP_PATTERN matches verification keywords", () => {
+  test("DEFAULT_VERIFICATION_STEP_PATTERN matches only verification wording", () => {
     expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("verify")).toBe(true);
-    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("test")).toBe(true);
-    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("lint")).toBe(true);
+    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("verification")).toBe(true);
+    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("test")).toBe(false);
+    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("lint")).toBe(false);
+    expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("check")).toBe(false);
     expect(DEFAULT_VERIFICATION_STEP_PATTERN.test("implement")).toBe(false);
   });
 });

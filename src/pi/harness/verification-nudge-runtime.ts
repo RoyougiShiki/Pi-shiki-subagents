@@ -16,6 +16,8 @@ export interface TaskToolStateUpdateResult {
   tasks: RuntimeTaskItem[];
 }
 
+export type ModelFacingContent = string | Record<string, unknown> | Array<string | Record<string, unknown>> | undefined;
+
 const DEFAULT_TASK_TOOL_NAMES = new Set(["todo"]);
 
 function isTaskTool(toolName: string, configured?: readonly string[]): boolean {
@@ -48,6 +50,24 @@ function replaceTask(tasks: readonly RuntimeTaskItem[], next: RuntimeTaskItem): 
   const index = tasks.findIndex((task) => task.id === next.id);
   if (index < 0) return [...tasks, next];
   return tasks.map((task, i) => i === index ? next : task);
+}
+
+function nudgeTextPart(message: string): Record<string, unknown> {
+  return { type: "text", text: `\n\n${message}` };
+}
+
+export function appendNudgeToModelFacingContent(
+  content: ModelFacingContent,
+  message?: string,
+): ModelFacingContent {
+  if (!message) return content;
+  if (typeof content === "string") return `${content}\n\n${message}`;
+  if (Array.isArray(content)) return [...content, nudgeTextPart(message)];
+  if (!content) return [nudgeTextPart(message)];
+  if (content.type === "text" && typeof content.text === "string") {
+    return { ...content, text: `${content.text}\n\n${message}` };
+  }
+  return [content, nudgeTextPart(message)];
 }
 
 export function updateTaskStateFromToolResult(

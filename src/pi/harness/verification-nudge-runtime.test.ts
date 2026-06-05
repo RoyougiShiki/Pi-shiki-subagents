@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { updateTaskStateFromToolResult } from "./verification-nudge-runtime";
+import { appendNudgeToModelFacingContent, updateTaskStateFromToolResult } from "./verification-nudge-runtime";
 
 const initialTasks = [
   { id: "1", content: "implement", status: "in_progress" as const },
@@ -46,5 +46,17 @@ describe("verification-nudge-runtime", () => {
 
     expect(result.changed).toBe(true);
     expect(result.tasks[0]?.id).toBe("12");
+  });
+
+  test("appends nudge to model-facing tool content", () => {
+    const result = appendNudgeToModelFacingContent(
+      [{ type: "text", text: "Updated #3" }],
+      "NOTE: verify before final summary",
+    );
+
+    expect(result).toEqual([
+      { type: "text", text: "Updated #3" },
+      { type: "text", text: "\n\nNOTE: verify before final summary" },
+    ]);
   });
 });

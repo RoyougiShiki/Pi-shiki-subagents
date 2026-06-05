@@ -157,7 +157,9 @@ export {
 
 // Verification Nudge Runtime
 export {
+  appendNudgeToModelFacingContent,
   updateTaskStateFromToolResult,
+  type ModelFacingContent,
   type RuntimeTaskItem,
   type TaskToolStateUpdateInput,
   type TaskToolStateUpdateResult,

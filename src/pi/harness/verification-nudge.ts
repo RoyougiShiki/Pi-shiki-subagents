@@ -39,7 +39,7 @@ export interface VerificationNudgeResult {
 
 const DEFAULT_THRESHOLD = 3;
 
-const DEFAULT_VERIFICATION_STEP_PATTERN = /verif|验证|校验|测试|test|check|lint|typecheck/i;
+const DEFAULT_VERIFICATION_STEP_PATTERN = /verif/i;
 
 const DEFAULT_NUDGE_MESSAGE = `NOTE: You just closed out 3+ tasks and none of them was a verification step. Before writing your final summary, run verification commands (test/lint/typecheck) or spawn a verification agent. You cannot self-assign PARTIAL by listing caveats in your summary — only independent verification counts.`;
 

@@ -18,15 +18,17 @@
 - `completion-audit-scope`：read-only/advisory turn 可缩小到 current turn；明确 completion claim 强制回到 current session。
 - `pi.ts` runtime：只负责收集 hook payload、调用纯函数、记录 evidence、选择 audit window。
 
-**Phase 1.5 已完成，P0 runtime regression 已开始**：
+**Phase 1.5 代码骨架已完成；cc-haha contract audit 后进入 P0 修正**：
 
 已补充自动化回归覆盖：
 
 1. verifier verdict ingestion：子代理输出 `VERDICT: PASS|FAIL|PARTIAL` 可记录为 structured evidence。
-2. verification nudge runtime：关闭 3+ task/todo 且无 verifier verdict 时产生 warning；已有 PASS verdict 时 suppress。
+2. verification nudge runtime：关闭 3+ task/todo 且无 verifier verdict 时，nudge 进入模型可见 tool result，并同时发 UI warning；已有 PASS verdict 时 suppress。
 3. completion auditor consumes verdict：FAIL 会触发完成审计提醒；PASS 可满足修改后的完成审计。
 
 暂不做：自动 spawn verifier、强 block、把 `oracle` 硬编码成 verifier。
+
+2026-06-05 cc-haha 源码 contract audit 发现仍需修正：evidence persistence、command semantics 模型可见消息鲁棒性、tool result budget reconstruction。
 ---
 
 ## 1. 已完成实现
@@ -540,6 +542,25 @@ bun run build
 - [ ] 大工具输出触发 tool result budget，模型只看到 preview/ref。
 
 **下一步建议**：先完成上述真实 session 手测，再进入 evidence/session scoped audit 小切片。
+
+### 10.4 cc-haha contract audit follow-up (2026-06-05) — ⚠️ 修正中
+
+对 `/tmp/pi-github-repos/cc-haha@main` 做只读 contract audit 后，确认 Phase 1.5 不是“完全稳定完成”，而是“代码骨架和自动化回归已存在，但仍有关键契约 gap”。
+
+**本轮已修正**：
+
+- ✅ verification step 默认匹配收窄为 `/verif/i`，避免 `test/check/lint` 等普通任务误 suppress nudge。
+- ✅ verification nudge 不再只发 UI notify；在 task/todo tool_result 中追加模型可见提醒，让模型下一步能看到。
+- ✅ 保留 UI notify 作为人类可见信号，但不再作为唯一效果。
+
+**仍待修正**：
+
+- [ ] Evidence persistence：reload 后 evidence/verdict 不能丢。
+- [ ] Command semantics 模型可见消息：避免依赖 Pi exit message 字符串格式。
+- [ ] Tool result budget reconstruction：恢复 replacement state，避免 reload 后重复处理。
+- [ ] Pipeline command semantics：对 `cat file | grep pattern` 这类命令按最后管道段判断。
+
+**优先级**：先稳定已实现 harness 契约，再进入搜索、TUI、Tauri 等扩展功能。
 
 ## 11. 参考资料
 
