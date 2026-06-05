@@ -552,11 +552,11 @@ bun run build
 - ✅ verification step 默认匹配收窄为 `/verif/i`，避免 `test/check/lint` 等普通任务误 suppress nudge。
 - ✅ verification nudge 不再只发 UI notify；在 task/todo tool_result 中追加模型可见提醒，让模型下一步能看到。
 - ✅ 保留 UI notify 作为人类可见信号，但不再作为唯一效果。
+- ✅ Command semantics 模型可见消息不再依赖 Pi exit message 字符串格式；有 non-error semantic message 时由 normalizer 稳定输出，`files_differ` 保留 diff 内容。
 
 **仍待修正**：
 
 - [ ] Evidence persistence：reload 后 evidence/verdict 不能丢。
-- [ ] Command semantics 模型可见消息：避免依赖 Pi exit message 字符串格式。
 - [ ] Tool result budget reconstruction：恢复 replacement state，避免 reload 后重复处理。
 - [ ] Pipeline command semantics：对 `cat file | grep pattern` 这类命令按最后管道段判断。
 

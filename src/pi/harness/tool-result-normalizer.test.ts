@@ -26,6 +26,20 @@ describe("tool-result-normalizer", () => {
     expect(result.modelFacingMessage).toEqual({ type: "text", text: "No matches found" });
   });
 
+  test("surfaces semantic message without depending on Pi exit-message formatting", () => {
+    const result = normalizeToolResult(input({
+      rawInput: { command: "grep pattern file.txt" },
+      modelFacingContent: { type: "text", text: "pi changed its nonzero-exit wording" },
+      exitCode: 1,
+      isError: true,
+    }));
+
+    expect(result.evidence.success).toBe(true);
+    expect(result.evidence.semantic).toBe("no_matches");
+    expect(result.messageModified).toBe(true);
+    expect(result.modelFacingMessage).toEqual({ type: "text", text: "No matches found" });
+  });
+
   test("preserves original message when there's actual output", () => {
     const result = normalizeToolResult(input({
       rawInput: { command: "grep pattern file.txt" },
@@ -140,7 +154,7 @@ describe("tool-result-normalizer", () => {
     expect(result.modelFacingMessage).toEqual({ type: "text", text: "No matches found" });
   });
 
-  test("preserves message when diff has actual output", () => {
+  test("surfaces files differ semantic message while preserving diff output", () => {
     const result = normalizeToolResult(input({
       rawInput: { command: "diff file1.txt file2.txt" },
       modelFacingContent: { type: "text", text: "2c2\n< old\n---\n> new\n" },
@@ -149,7 +163,7 @@ describe("tool-result-normalizer", () => {
 
     expect(result.evidence.success).toBe(true);
     expect(result.evidence.semantic).toBe("files_differ");
-    expect(result.messageModified).toBe(false); // 有实际输出，不替换
-    expect(result.modelFacingMessage).toEqual({ type: "text", text: "2c2\n< old\n---\n> new\n" });
+    expect(result.messageModified).toBe(true);
+    expect(result.modelFacingMessage).toEqual({ type: "text", text: "Files differ\n\n2c2\n< old\n---\n> new" });
   });
 });

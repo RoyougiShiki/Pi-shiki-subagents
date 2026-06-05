@@ -94,15 +94,8 @@ export function normalizeToolResult(input: ToolResultNormalizeInput): ToolResult
     success = !commandSemantic.isError;
 
     if (!commandSemantic.isError && commandSemantic.message) {
-      const contentText = extractTextFromContent(input.modelFacingContent);
-      const isOnlyExitMessage = /^\s*\(no output\)\s*\n?\s*Command exited with code \d+\s*$/.test(contentText) ||
-                                 /^\s*Command exited with code \d+\s*$/.test(contentText) ||
-                                 /^\s*\(no output\)\s*$/.test(contentText);
-
-      if ((!contentText.trim() || isOnlyExitMessage) && commandSemantic.message) {
-        modelFacingMessage = { type: "text", text: commandSemantic.message };
-        messageModified = true;
-      }
+      modelFacingMessage = buildSemanticModelFacingMessage(commandSemantic, input.modelFacingContent);
+      messageModified = true;
     }
   }
 
@@ -127,6 +120,17 @@ export function normalizeToolResult(input: ToolResultNormalizeInput): ToolResult
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
+function buildSemanticModelFacingMessage(
+  semantic: CommandSemanticResult,
+  originalContent: unknown,
+): { type: "text"; text: string } {
+  const message = semantic.message ?? "";
+  if (semantic.semantic === "files_differ") {
+    const originalText = extractTextFromContent(originalContent).trim();
+    return { type: "text", text: originalText ? `${message}\n\n${originalText}` : message };
+  }
+  return { type: "text", text: message };
+}
 /**
  * 从 content 提取文本
  */
