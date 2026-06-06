@@ -1,0 +1,162 @@
+# Subagent TUI Observability Plan
+
+Date: 2026-06-05
+Status: approved for Phase 0 / Phase 1 only
+
+## Goal
+
+Expose OMO subagent progress in the Pi TUI without coupling subagent runtime logic to a specific UI. The same semantic view model should be usable by a future Tauri GUI.
+
+Target user experience:
+
+- Show active subagents and their latest status in a compact collapsed view.
+- Support read/write-like expanded detail where the tool lifecycle supports it.
+- Represent nested subagent calls as a tree.
+- Display token/cost/context usage when the Pi session events provide it.
+
+## Non-goals
+
+Do not implement these in the current phase:
+
+- A full transcript system.
+- Raw Pi SDK event persistence.
+- Raw tool arguments/results in UI state.
+- Full prompts in UI state.
+- Cross-process or cross-runtime live synchronization.
+- A dashboard or Tauri GUI.
+- Replacement of the current OMO subagent tool with another `pi-subagents` package.
+
+External Pi subagent packages are references only. Installing them would duplicate the current OMO concepts for agent discovery, model resolution, delegation rules, and pool management.
+
+## Architecture boundary
+
+The implementation must keep four layers separate:
+
+```txt
+Pi SDK/session events
+  -> normalized SubagentRunEvent adapter
+  -> pure run state + semantic tree view model
+  -> UI-specific renderer (Pi TUI now, Tauri later)
+```
+
+Only the adapter layer may know about Pi SDK event shapes. State and view modules must not import `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `AgentSession`, `ExtensionContext`, or UI components.
+
+## Normalized state contract
+
+Every run node must have stable tree identity:
+
+```txt
+runId
+parentRunId?
+agentName
+displayName
+depth
+startedAt
+```
+
+Additional fields are optional or derived:
+
+```txt
+status
+model
+completedAt
+usage
+recent events
+children
+```
+
+Usage fields are best-effort only. They must be absent by default and shown only when available:
+
+```txt
+input
+output
+cacheRead
+cacheWrite
+cost
+contextTokens
+turns
+```
+
+## Summary bounds
+
+The run state is an observability summary, not a transcript. It must keep bounded data only:
+
+- bounded recent events per run.
+- bounded text length per event.
+- no raw tool arguments.
+- no raw tool results.
+- no complete prompts.
+- no unbounded assistant output.
+
+## Phases
+
+### Phase 0 — design document
+
+This document records the boundary and scope before code changes.
+
+### Phase 1 — pure state and view model
+
+Add pure modules and tests only:
+
+```txt
+src/pi/subagent/subagent-run-state.ts
+src/pi/subagent/subagent-run-view.ts
+src/pi/subagent/subagent-run-state.test.ts
+src/pi/subagent/subagent-run-view.test.ts
+```
+
+Expected behavior:
+
+- reduce normalized run events into bounded run state.
+- build a semantic JSON tree view model.
+- format elapsed time and optional usage summaries.
+- preserve parent/child nesting.
+- avoid all Pi SDK and TUI imports.
+
+### Phase 2 — runtime wiring
+
+Later, wire `src/pi/subagent/subagent-pool.ts` into the pure state via an adapter that converts `session.subscribe()` events to normalized `SubagentRunEvent` records.
+
+This phase requires separate review before implementation.
+
+### Phase 3 — compact Pi TUI widget
+
+A Pi TUI renderer may consume the semantic view model via `ctx.ui.setWidget(...)` and render a compact above-editor subagent status tree.
+
+The renderer must not mutate run logic.
+
+### Phase 4 — tool row rendering
+
+Add `renderCall` / `renderResult` / `details` to `omo_subagent` for read/write-like collapsed and expanded tool rows where the tool lifecycle supports it.
+
+Long-running asynchronous pool agents should not rely on old tool rows for live updates.
+
+### Phase 5 — optional overlay or Tauri surface
+
+A later Tauri GUI or detail overlay should consume the same semantic JSON view model rather than TUI component output.
+
+## References
+
+Useful reference patterns:
+
+- Pi official subagent example: `examples/extensions/subagent/index.ts`
+  - `onUpdate({ content, details })`
+  - `renderCall` / `renderResult`
+  - collapsed recent-item display
+  - usage formatting
+- Current project separation pattern:
+  - `src/pi/subagent/chat-status-view.ts`
+  - `src/pi/subagent/pi-chat-bridge.ts`
+- External packages reviewed as references only:
+  - `harms-haus/pi-subagents`
+  - `vsumner/pi-subagents`
+  - `ross-jill-ws/pi-subagent-in-memory`
+
+## Review guardrails
+
+Oracle approved Phase 0 and Phase 1 only, with these guardrails:
+
+- Keep Phase 1 strictly pure: no Pi SDK, no `AgentSession`, no `ctx`, no `pi-tui`.
+- Tests must assert bounds and tree identity behavior.
+- Usage/cost/context fields are optional and absent by default.
+- Any Phase 2 runtime wiring requires a separate review.

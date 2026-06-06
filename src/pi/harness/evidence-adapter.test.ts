@@ -61,6 +61,165 @@ describe("evidence adapter", () => {
     expectVerification("tsc --noEmit", "typecheck_success");
   });
 
+  test("maps context-mode code and output to verification kinds", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: {
+          code: "const { spawnSync } = require('child_process'); spawnSync('bun', ['test']); spawnSync('bun', ['run', 'typecheck']); spawnSync('git', ['diff', '--check']);",
+        },
+        result: "targeted-tests: exit=0; 75 pass 0 fail\ntypecheck: exit=0; $ tsc --noEmit\ndiff-check: exit=0",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("verification");
+    expect(summary.kinds).toContain("test_success");
+    expect(summary.kinds).toContain("typecheck_success");
+  });
+
+  test("maps context-mode commands arrays to verification kinds", () => {
+    const stringArraySummary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_batch_execute",
+        args: { commands: ["bun test", "bun run typecheck"] },
+        result: "targeted-tests: exit=0; 3 pass 0 fail\ntypecheck: exit=0",
+        success: true,
+      }),
+    ]);
+    expect(stringArraySummary.kinds).toContain("test_success");
+    expect(stringArraySummary.kinds).toContain("typecheck_success");
+
+    const objectArraySummary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_batch_execute",
+        args: {
+          commands: [
+            { command: "git diff --check" },
+            { command: "npm run lint" },
+          ],
+        },
+        result: "diff-check: exit=0\nlint: exit=0",
+        success: true,
+      }),
+    ]);
+    expect(objectArraySummary.kinds).toContain("verification");
+    expect(objectArraySummary.kinds).toContain("lint_success");
+  });
+
+  test("requires explicit test exit summary for output-derived test success", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "script_runner",
+        args: { code: "run tests" },
+        result: "75 pass 0 fail",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("test_success");
+    expect(summary.kinds).not.toContain("verification");
+  });
+
+  test("does not infer wrapper command success without explicit summaries", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "script_runner",
+        args: { commands: ["bun test", "bun run typecheck", "npm run lint"] },
+        result: "commands completed",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("verification");
+    expect(summary.kinds).not.toContain("test_success");
+    expect(summary.kinds).not.toContain("typecheck_success");
+    expect(summary.kinds).not.toContain("lint_success");
+  });
+
+  test("does not infer typecheck success from command echo when exit summary failed", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "spawnSync('bun', ['run', 'typecheck'])" },
+        result: "typecheck: exit=1; $ tsc --noEmit\nerror TS2322",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("typecheck_success");
+    expect(summary.kinds).not.toContain("verification");
+  });
+
+  test("does not infer verification success from failed context-mode summaries", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "spawnSync('bun', ['test']); spawnSync('bun', ['run', 'typecheck']);" },
+        result: "targeted-tests: exit=1; 3 pass 1 fail\ntypecheck: exit=1\nlint: exit=1",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("test_success");
+    expect(summary.kinds).not.toContain("typecheck_success");
+    expect(summary.kinds).not.toContain("lint_success");
+    expect(summary.kinds).not.toContain("verification");
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.kinds).toContain("test_failure");
+    expect(summary.kinds).toContain("typecheck_failure");
+    expect(summary.kinds).toContain("lint_failure");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("maps args.commands test failure output to failure and blocks command success", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_batch_execute",
+        args: { commands: ["bun test"] },
+        result: "targeted-tests: exit=1; 3 pass 1 fail",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.kinds).toContain("test_failure");
+    expect(summary.kinds).not.toContain("test_success");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("maps args.commands typecheck failure output to failure and blocks command success", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_batch_execute",
+        args: { commands: ["bun run typecheck"] },
+        result: "typecheck: exit=1; $ tsc --noEmit\nerror TS2322",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.kinds).toContain("typecheck_failure");
+    expect(summary.kinds).not.toContain("typecheck_success");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("maps args.commands lint failure output to failure and blocks command success", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_batch_execute",
+        args: { commands: ["npm run lint"] },
+        result: "lint: exit=1\n1 problem",
+        success: true,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.kinds).toContain("lint_failure");
+    expect(summary.kinds).not.toContain("lint_success");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
   test("keeps explicit verification tool names as configurable verification evidence", () => {
     const summary = toCompletionEvidenceSummary(
       [evidence({ toolName: "verification_agent", success: true })],
@@ -172,5 +331,157 @@ describe("evidence adapter", () => {
     const decision = auditCompletion({ finalText: "已完成", evidence: summary });
 
     expect(decision.issues.map((issue) => issue.id)).not.toContain("modification_without_verification");
+  });
+
+  test("allows completion auditor after modification plus context-mode verification", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({ toolName: "edit", timestamp: 1 }),
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "spawnSync('bun', ['test']); spawnSync('bun', ['run', 'typecheck']);" },
+        result: "targeted-tests: exit=0; 51 pass 0 fail\ntypecheck: exit=0; $ tsc --noEmit",
+        success: true,
+        timestamp: 2,
+      }),
+    ]);
+    const decision = auditCompletion({ finalText: "已完成", evidence: summary });
+
+    expect(decision.issues.map((issue) => issue.id)).not.toContain("modification_without_verification");
+  });
+
+  test("downgrades context-mode wait timeout infrastructure failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "sleep 60; echo waited" },
+        result: "MCP error -32001: Request timed out",
+        success: false,
+        timestamp: 1,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(0);
+  });
+
+  test("preserves real verification failure summaries before timeout downgrade", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "script_runner",
+        args: { code: "sleep 60; run checks" },
+        result: "Request timed out\ntargeted-tests: exit=1\ntypecheck: exit=1\nlint: exit=1",
+        success: false,
+        timestamp: 1,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.kinds).toContain("test_failure");
+    expect(summary.kinds).toContain("typecheck_failure");
+    expect(summary.kinds).toContain("lint_failure");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("does not downgrade compound sleep command timeout as infrastructure noise", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "script_runner",
+        args: { code: "sleep 60; bun test" },
+        result: "Request timed out",
+        success: false,
+        timestamp: 1,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("later verification success covers earlier ordinary tool failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "sleep 60; echo waited" },
+        result: "Request timed out",
+        success: false,
+        timestamp: 1,
+      }),
+      evidence({
+        toolName: "context_mode_ctx_execute",
+        args: { code: "spawnSync('bun', ['test'])" },
+        result: "targeted-tests: exit=0; 10 pass 0 fail",
+        success: true,
+        timestamp: 2,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(0);
+  });
+
+  test("non-corresponding verification success does not clear test failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "bash",
+        args: { command: "npm test" },
+        success: false,
+        timestamp: 1,
+      }),
+      evidence({
+        toolName: "bash",
+        args: { command: "bun run typecheck" },
+        success: true,
+        timestamp: 2,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("test_failure");
+    expect(summary.kinds).toContain("typecheck_success");
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("non-corresponding verification success does not clear typecheck failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "bash",
+        args: { command: "bun run typecheck" },
+        success: false,
+        timestamp: 1,
+      }),
+      evidence({
+        toolName: "bash",
+        args: { command: "bun test" },
+        success: true,
+        timestamp: 2,
+      }),
+    ]);
+
+    expect(summary.kinds).toContain("typecheck_failure");
+    expect(summary.kinds).toContain("test_success");
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(1);
+  });
+
+  test("corresponding later success clears matching verification failure", () => {
+    const summary = toCompletionEvidenceSummary([
+      evidence({
+        toolName: "bash",
+        args: { command: "npm test" },
+        success: false,
+        timestamp: 1,
+      }),
+      evidence({
+        toolName: "bash",
+        args: { command: "bun test" },
+        success: true,
+        timestamp: 2,
+      }),
+    ]);
+
+    expect(summary.kinds).not.toContain("test_failure");
+    expect(summary.kinds).toContain("test_success");
+    expect(summary.kinds).not.toContain("tool_failure");
+    expect(summary.failedToolCount).toBe(0);
   });
 });

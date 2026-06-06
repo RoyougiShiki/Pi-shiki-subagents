@@ -9,17 +9,31 @@
  * Tools are managed by the extension's mode system from JSON config (same as old RPC).
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
-import { discoverAgents, type AgentConfig } from "../../adapters/agent-discovery";
-import { loadRuntimeAgentDefinitions, type RuntimeAgentDefinition } from "../../adapters/agent-runtime-config";
-import { checkDelegationAllowed, parseAllowedSubagentsEnv } from "../../adapters/delegation-rules";
-import { getToolScope } from "../policy/tool-scope-manager";
-import { consumePipelineDelegationGrant } from "../policy/pipeline-delegation-grants";
-
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import {
+  type AgentSession,
+  createAgentSession,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
+import type { AgentConfig } from '../../adapters/agent-discovery';
+import {
+  loadRuntimeAgentDefinitions,
+  type RuntimeAgentDefinition,
+} from '../../adapters/agent-runtime-config';
+import { getToolScope } from '../policy/tool-scope-manager';
+import { toSubagentRunEvents } from './subagent-run-adapter';
+import type { SubagentRunEvent, SubagentRunStatus } from './subagent-run-state';
+import {
+  createSubagentRunState,
+  updateSubagentRunState,
+} from './subagent-run-state';
+import {
+  createSubagentRunTreeView,
+  type SubagentRunTreeView,
+  type SubagentRunViewOptions,
+} from './subagent-run-view';
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
 // These functions read/write process.env.OMO_* which is a global. Concurrent
@@ -30,14 +44,19 @@ const MUTEX_TIMEOUT_MS = 30_000;
 
 async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
   let release: () => void;
-  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   const prev = spawnMutex;
   spawnMutex = spawnMutex.then(() => wait);
   try {
     await Promise.race([
       prev,
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Spawn mutex timeout")), MUTEX_TIMEOUT_MS),
+        setTimeout(
+          () => reject(new Error('Spawn mutex timeout')),
+          MUTEX_TIMEOUT_MS,
+        ),
       ),
     ]);
     return await fn();
@@ -91,42 +110,74 @@ function restoreAgentEnv(saved: AgentEnv): void {
 }
 
 function getPiNativeConfigPath(): string {
-  return path.join(os.homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+  return path.join(os.homedir(), '.pi', 'agent', 'oh-my-opencode-slim.json');
 }
-const DEFAULTS_PATH = path.join(__dirname, "..", "adapters", "agents-default.json");
-const REGISTRY_FILENAME = "pool-registry.json";
-const SESSION_DIR = path.join(os.homedir(), ".pi", "agent", "sessions", "subagents");
+const DEFAULTS_PATH = path.join(
+  __dirname,
+  '..',
+  'adapters',
+  'agents-default.json',
+);
+const REGISTRY_FILENAME = 'pool-registry.json';
+const SESSION_DIR = path.join(
+  os.homedir(),
+  '.pi',
+  'agent',
+  'sessions',
+  'subagents',
+);
 
 function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
   const merged: Record<string, string[]> = {};
   const mergeGroups = (groups: unknown) => {
-    if (!groups || typeof groups !== "object") return;
-    for (const [name, tools] of Object.entries(groups as Record<string, unknown>)) {
-      if (Array.isArray(tools)) merged[name] = tools.filter((tool): tool is string => typeof tool === "string" && tool.trim().length > 0);
+    if (!groups || typeof groups !== 'object') return;
+    for (const [name, tools] of Object.entries(
+      groups as Record<string, unknown>,
+    )) {
+      if (Array.isArray(tools))
+        merged[name] = tools.filter(
+          (tool): tool is string =>
+            typeof tool === 'string' && tool.trim().length > 0,
+        );
     }
   };
 
   try {
-    const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+    const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, 'utf-8'));
     mergeGroups(defaults._tool_groups);
   } catch {}
   try {
-    const userConfig = JSON.parse(fs.readFileSync(getPiNativeConfigPath(), "utf-8"));
+    const userConfig = JSON.parse(
+      fs.readFileSync(getPiNativeConfigPath(), 'utf-8'),
+    );
     mergeGroups(userConfig._tool_groups);
   } catch {}
   try {
-    const projectConfigPath = path.join(cwd, ".opencode", "oh-my-opencode-slim.json");
-    const projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
+    const projectConfigPath = path.join(
+      cwd,
+      '.opencode',
+      'oh-my-opencode-slim.json',
+    );
+    const projectConfig = JSON.parse(
+      fs.readFileSync(projectConfigPath, 'utf-8'),
+    );
     mergeGroups(projectConfig._tool_groups);
   } catch {}
   return merged;
 }
 
-export function resolveSubagentToolNamesForAgent(agentName: string, cwd = process.cwd()): string[] | undefined {
-  const runtime = loadRuntimeAgentDefinitions(cwd)[agentName] as RuntimeAgentDefinition | undefined;
+export function resolveSubagentToolNamesForAgent(
+  agentName: string,
+  cwd = process.cwd(),
+): string[] | undefined {
+  const runtime = loadRuntimeAgentDefinitions(cwd)[agentName] as
+    | RuntimeAgentDefinition
+    | undefined;
   if (!runtime) return undefined;
   if (Array.isArray(runtime.tools) && runtime.tools.length > 0) {
-    return [...new Set(runtime.tools.map((tool) => tool.trim()).filter(Boolean))];
+    return [
+      ...new Set(runtime.tools.map((tool) => tool.trim()).filter(Boolean)),
+    ];
   }
   if (Array.isArray(runtime.roles) && runtime.roles.length > 0) {
     const groups = readToolGroups(cwd);
@@ -172,7 +223,7 @@ export interface PoolAgentInfo {
   id: string;
   name: string;
   agentName: string;
-  status: "starting" | "idle" | "streaming" | "dead";
+  status: 'starting' | 'idle' | 'streaming' | 'dead';
   startedAt: number;
   messageCount: number;
   model: string;
@@ -182,37 +233,36 @@ export interface PoolAgentInfo {
 // ─── One-shot runner ──────────────────────────────────────────────────────
 
 function extractText(content: unknown): string {
-  if (!Array.isArray(content)) return "";
+  if (!Array.isArray(content)) return '';
   const parts = content
-    .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+    .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
     .map((c: any) => c.text);
-  return parts.join("\n").trim();
+  return parts.join('\n').trim();
 }
 
-export async function runIsolatedTask(
-  opts: {
-    agent: AgentConfig;
-    task: string;
-    cwd?: string;
-    model?: string;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-    onMessage?: (msg: any) => void;
-    parentAgent?: string;
-    depth?: number;
-    allowedSubagents?: readonly string[];
-  },
-): Promise<SingleResult> {
+export async function runIsolatedTask(opts: {
+  agent: AgentConfig;
+  task: string;
+  cwd?: string;
+  model?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  onMessage?: (msg: any) => void;
+  parentAgent?: string;
+  depth?: number;
+  allowedSubagents?: readonly string[];
+}): Promise<SingleResult> {
   const startTime = Date.now();
 
   return withSpawnMutex(async () => {
     // Set env vars for the sub-agent session setup
     const prevEnv = saveAgentEnv();
-    process.env.OMO_SUB_AGENT = "1";
+    process.env.OMO_SUB_AGENT = '1';
     process.env.OMO_AGENT_NAME = opts.agent.name;
     if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
     process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
-    if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
+    if (opts.allowedSubagents)
+      process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(',');
 
     let session: AgentSession | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -225,13 +275,19 @@ export async function runIsolatedTask(
       });
       session = created.session;
 
-      let response = "";
-      let model = "";
-      let input = 0, output = 0, cost = 0, turns = 0;
+      let response = '';
+      let model = '';
+      let input = 0,
+        output = 0,
+        cost = 0,
+        turns = 0;
       const collectedMessages: any[] = [];
 
       session.subscribe((event: any) => {
-        if (event.type === "message_end" && event.message?.role === "assistant") {
+        if (
+          event.type === 'message_end' &&
+          event.message?.role === 'assistant'
+        ) {
           const text = extractText(event.message.content);
           if (text) response = text;
           collectedMessages.push(event.message);
@@ -245,7 +301,7 @@ export async function runIsolatedTask(
           const m = event.message.model || event.message.api;
           if (m) model = m;
         }
-        if (event.type === "session" && event.model) model = event.model;
+        if (event.type === 'session' && event.model) model = event.model;
         opts.onMessage?.(event);
       });
 
@@ -255,13 +311,20 @@ export async function runIsolatedTask(
       const promptPromise = session.prompt(taskText);
       const abortPromise = opts.signal
         ? new Promise<never>((_, reject) => {
-            if (opts.signal!.aborted) reject(new Error("Aborted"));
-            opts.signal!.addEventListener("abort", () => reject(new Error("Aborted")), { once: true });
+            if (opts.signal!.aborted) reject(new Error('Aborted'));
+            opts.signal!.addEventListener(
+              'abort',
+              () => reject(new Error('Aborted')),
+              { once: true },
+            );
           })
         : null;
       const timeoutPromise = opts.timeoutMs
         ? new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error("Sub-agent task timed out")), opts.timeoutMs);
+            timeout = setTimeout(
+              () => reject(new Error('Sub-agent task timed out')),
+              opts.timeoutMs,
+            );
           })
         : null;
 
@@ -274,7 +337,7 @@ export async function runIsolatedTask(
         agent: opts.agent.name,
         task: opts.task,
         exitCode: 0,
-        response: response || "(no output)",
+        response: response || '(no output)',
         messages: collectedMessages,
         usage: { input, output, cost, turns },
         model: model || undefined,
@@ -294,7 +357,9 @@ export async function runIsolatedTask(
     } finally {
       if (timeout) clearTimeout(timeout);
       if (session) {
-        try { await session.abort(); } catch {}
+        try {
+          await session.abort();
+        } catch {}
         session.dispose();
       }
       restoreAgentEnv(prevEnv);
@@ -309,14 +374,16 @@ interface PoolEntry {
   name: string;
   agentName: string;
   session: AgentSession;
-  status: "starting" | "idle" | "streaming" | "dead";
+  status: 'starting' | 'idle' | 'streaming' | 'dead';
   startedAt: number;
   messageCount: number;
   model: string;
   lastResponse: string;
   busy: boolean;
+  parentRunId?: string;
+  depth?: number;
+  taskPreview?: string;
 }
-
 
 export interface AgentPoolOptions {
   timeoutMs?: number;
@@ -327,7 +394,7 @@ export interface AgentPoolOptions {
 }
 
 export interface PoolEvent {
-  type: "error" | "completed";
+  type: 'error' | 'completed';
   poolId: string;
   agentName: string;
   error?: string;
@@ -339,8 +406,12 @@ export class AgentPool {
   private readonly timeoutMs: number;
   private readonly sessionDir: string;
   private readonly createSession: typeof createAgentSession;
-  private readonly resolveModel: ((modelId: string) => any | undefined) | undefined;
+  private readonly resolveModel:
+    | ((modelId: string) => any | undefined)
+    | undefined;
   private eventListeners: Array<(event: PoolEvent) => void> = [];
+  private runStateListeners: Array<() => void> = [];
+  private runState = createSubagentRunState();
 
   constructor(options: AgentPoolOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 600_000;
@@ -351,11 +422,45 @@ export class AgentPool {
 
   onEvent(cb: (event: PoolEvent) => void): () => void {
     this.eventListeners.push(cb);
-    return () => { this.eventListeners = this.eventListeners.filter(e => e !== cb); };
+    return () => {
+      this.eventListeners = this.eventListeners.filter((e) => e !== cb);
+    };
+  }
+
+  onRunStateChange(cb: () => void): () => void {
+    this.runStateListeners.push(cb);
+    return () => {
+      this.runStateListeners = this.runStateListeners.filter(
+        (listener) => listener !== cb,
+      );
+    };
   }
 
   private emit(event: PoolEvent): void {
     for (const cb of this.eventListeners) cb(event);
+  }
+
+  private recordRunEvent(event: SubagentRunEvent): void {
+    this.runState = updateSubagentRunState(this.runState, event);
+    for (const cb of this.runStateListeners) cb();
+  }
+
+  private initialRunStatus(id: string): SubagentRunStatus | undefined {
+    return this.runState.runs[id]?.status;
+  }
+
+  private initialRunActive(id: string): boolean {
+    const status = this.initialRunStatus(id);
+    return (
+      status === undefined ||
+      status === 'starting' ||
+      status === 'streaming' ||
+      status === 'idle'
+    );
+  }
+
+  getRunTreeView(options?: SubagentRunViewOptions): SubagentRunTreeView {
+    return createSubagentRunTreeView(this.runState, options);
   }
 
   async spawn(opts: {
@@ -368,31 +473,42 @@ export class AgentPool {
     parentAgent?: string;
     depth?: number;
     allowedSubagents?: readonly string[];
+    parentRunId?: string;
     stageResultPath?: string;
   }): Promise<{ response: string; error?: string }> {
     if (this.agents.has(opts.id)) {
-      return { response: "", error: `Agent "${opts.id}" already exists in pool` };
+      return {
+        response: '',
+        error: `Agent "${opts.id}" already exists in pool`,
+      };
     }
 
     // Serialize spawn calls via mutex to prevent process.env.OMO_* races
     return withSpawnMutex(async () => {
       const prevEnv = saveAgentEnv();
-      process.env.OMO_SUB_AGENT = "1";
+      process.env.OMO_SUB_AGENT = '1';
       process.env.OMO_AGENT_NAME = opts.agent.name;
-      if (opts.parentAgent) process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
+      if (opts.parentAgent)
+        process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
       process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
-      if (opts.stageResultPath) process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
-      if (opts.allowedSubagents) process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(",");
+      if (opts.stageResultPath)
+        process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
+      if (opts.allowedSubagents)
+        process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(',');
       process.env.OMO_AGENT_ID = opts.id;
 
       // Resolve model from the already-discovered runtime agent config.
       // /preset persists the active preset before discovery; avoid re-reading
       // stale config here and overriding the selected preset with an old value.
       const modelStr = opts.model || opts.agent.model;
-      const resolvedModel = modelStr && this.resolveModel ? this.resolveModel(modelStr) : undefined;
+      const resolvedModel =
+        modelStr && this.resolveModel ? this.resolveModel(modelStr) : undefined;
 
       let session: AgentSession | undefined;
-      const resolvedTools = resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd);
+      const resolvedTools = resolveSubagentToolNamesForAgent(
+        opts.agent.name,
+        opts.cwd,
+      );
 
       try {
         const created = await this.createSession({
@@ -407,44 +523,81 @@ export class AgentPool {
         // The primary boundary is createAgentSession({ tools: resolvedTools }) above,
         // which avoids async process.env races during before_agent_start.
         try {
-          if (resolvedTools && typeof (session as any).setActiveToolsByName === "function") {
+          if (
+            resolvedTools &&
+            typeof (session as any).setActiveToolsByName === 'function'
+          ) {
             (session as any).setActiveToolsByName(resolvedTools);
           }
         } catch (err) {
-          console.warn(`[pool] Tool filtering failed for "${opts.agent.name}":`, err);
+          console.warn(
+            `[pool] Tool filtering failed for "${opts.agent.name}":`,
+            err,
+          );
         }
 
         const sessAny = session as any;
-        const sessionModel = sessAny.model ? `${sessAny.model.provider}/${sessAny.model.id}` : undefined;
+        const sessionModel = sessAny.model
+          ? `${sessAny.model.provider}/${sessAny.model.id}`
+          : undefined;
 
         const entry: PoolEntry = {
           id: opts.id,
           name: opts.name,
           agentName: opts.agent.name,
           session,
-          status: "starting",
+          status: 'starting',
           startedAt: Date.now(),
           messageCount: 0,
-          model: sessionModel || modelStr || "default",
-          lastResponse: "",
+          model: sessionModel || modelStr || 'default',
+          lastResponse: '',
           busy: false,
+          parentRunId: opts.parentRunId,
+          depth: opts.depth,
+          taskPreview: opts.task,
         };
 
         this.agents.set(opts.id, entry);
+        this.recordRunEvent({
+          type: 'run_started',
+          runId: opts.id,
+          parentRunId: opts.parentRunId,
+          agentName: opts.agent.name,
+          displayName: opts.name || opts.id,
+          depth: opts.depth ?? 0,
+          startedAt: entry.startedAt,
+          taskPreview: opts.task,
+          model: entry.model,
+        });
 
         const unsubscribe = session.subscribe((event: any) => {
-          if (event.type === "turn_start") {
-            entry.status = "streaming";
+          if (this.initialRunActive(opts.id)) {
+            for (const runEvent of toSubagentRunEvents(
+              {
+                runId: opts.id,
+                agentName: opts.agent.name,
+                now: () => Date.now(),
+              },
+              event,
+            )) {
+              this.recordRunEvent(runEvent);
+            }
           }
-          if (event.type === "agent_end") {
-            entry.status = "idle";
+          if (event.type === 'turn_start') {
+            entry.status = 'streaming';
+          }
+          if (event.type === 'agent_end') {
+            entry.status = 'idle';
             entry.messageCount++;
             const msgs = event.messages ?? [];
             for (let i = msgs.length - 1; i >= 0; i--) {
               const m = msgs[i];
-              if (m.role === "assistant") {
+              if (m.role === 'assistant') {
                 const text = extractText(m.content);
-                if (text) { entry.lastResponse = text; break; }
+                if (text) {
+                  entry.lastResponse = text;
+                  break;
+                }
               }
             }
           }
@@ -470,46 +623,112 @@ export class AgentPool {
           : opts.task;
 
         // 异步执行，不阻塞主 agent
-        this.sendPrompt(opts.id, taskText).then(result => {
-          if (result.error) {
-            this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: result.error });
-          } else {
-            this.emit({ type: "completed", poolId: opts.id, agentName: opts.agent.name, response: result.response });
-          }
-        }).catch(err => {
-          this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: err.message });
-        });
+        this.sendPrompt(opts.id, taskText)
+          .then((result) => {
+            if (result.error) {
+              if (this.initialRunActive(opts.id)) {
+                this.recordRunEvent({
+                  type: 'run_finished',
+                  runId: opts.id,
+                  timestamp: Date.now(),
+                  status: 'failed',
+                  errorMessage: result.error,
+                });
+              }
+              this.emit({
+                type: 'error',
+                poolId: opts.id,
+                agentName: opts.agent.name,
+                error: result.error,
+              });
+            } else {
+              if (this.initialRunActive(opts.id)) {
+                this.recordRunEvent({
+                  type: 'run_finished',
+                  runId: opts.id,
+                  timestamp: Date.now(),
+                  status: 'completed',
+                  text: result.response,
+                });
+              }
+              this.emit({
+                type: 'completed',
+                poolId: opts.id,
+                agentName: opts.agent.name,
+                response: result.response,
+              });
+            }
+          })
+          .catch((err) => {
+            if (this.initialRunActive(opts.id)) {
+              this.recordRunEvent({
+                type: 'run_finished',
+                runId: opts.id,
+                timestamp: Date.now(),
+                status: 'failed',
+                errorMessage: err.message,
+              });
+            }
+            this.emit({
+              type: 'error',
+              poolId: opts.id,
+              agentName: opts.agent.name,
+              error: err.message,
+            });
+          });
 
         return { response: `已启动，ID: ${opts.id}`, error: undefined };
       } catch (err: any) {
         if (session) {
-          try { await session.abort(); } catch {}
+          try {
+            await session.abort();
+          } catch {}
           session.dispose();
         }
         const spawnError = `Failed to spawn sub-agent: ${err.message}`;
-        this.emit({ type: "error", poolId: opts.id, agentName: opts.agent.name, error: spawnError });
+        this.emit({
+          type: 'error',
+          poolId: opts.id,
+          agentName: opts.agent.name,
+          error: spawnError,
+        });
+        if (session) {
+          this.recordRunEvent({
+            type: 'run_finished',
+            runId: opts.id,
+            timestamp: Date.now(),
+            status: 'failed',
+            errorMessage: spawnError,
+          });
+        }
         this.agents.delete(opts.id);
-        return { response: "", error: spawnError };
+        return { response: '', error: spawnError };
       } finally {
         restoreAgentEnv(prevEnv);
       }
     });
   }
 
-  async sendPrompt(id: string, message: string, type?: string): Promise<{ response: string; error?: string }> {
+  async sendPrompt(
+    id: string,
+    message: string,
+    type?: string,
+  ): Promise<{ response: string; error?: string }> {
     const entry = this.agents.get(id);
-    if (!entry) return { response: "", error: `Agent "${id}" not found in pool` };
-    if (entry.status === "dead") return { response: "", error: `Agent "${id}" is dead` };
-    if (entry.busy) return { response: "", error: `Agent "${id}" is busy` };
+    if (!entry)
+      return { response: '', error: `Agent "${id}" not found in pool` };
+    if (entry.status === 'dead')
+      return { response: '', error: `Agent "${id}" is dead` };
+    if (entry.busy) return { response: '', error: `Agent "${id}" is busy` };
 
     const sess = entry.session as any;
 
     try {
       entry.busy = true;
 
-      if (type === "steer" || type === "follow_up") {
+      if (type === 'steer' || type === 'follow_up') {
         try {
-          if (type === "steer") await sess.steer(message);
+          if (type === 'steer') await sess.steer(message);
           else await sess.followUp(message);
           return { response: entry.lastResponse };
         } finally {
@@ -537,7 +756,7 @@ export class AgentPool {
       const messages = (sess.messages ?? []) as any[];
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
-        if (m.role === "assistant") {
+        if (m.role === 'assistant') {
           const text = extractText(m.content);
           if (text) {
             entry.lastResponse = text;
@@ -548,7 +767,12 @@ export class AgentPool {
       return { response: entry.lastResponse };
     } catch (err: any) {
       const errorMsg = err.message ?? String(err);
-      this.emit({ type: "error", poolId: id, agentName: entry.agentName, error: errorMsg });
+      this.emit({
+        type: 'error',
+        poolId: id,
+        agentName: entry.agentName,
+        error: errorMsg,
+      });
       return { response: entry.lastResponse, error: errorMsg };
     } finally {
       entry.busy = false;
@@ -559,9 +783,13 @@ export class AgentPool {
     const result: PoolAgentInfo[] = [];
     for (const [id, entry] of this.agents) {
       result.push({
-        id, name: entry.name, agentName: entry.agentName,
-        status: entry.status, startedAt: entry.startedAt,
-        messageCount: entry.messageCount, model: entry.model,
+        id,
+        name: entry.name,
+        agentName: entry.agentName,
+        status: entry.status,
+        startedAt: entry.startedAt,
+        messageCount: entry.messageCount,
+        model: entry.model,
         lastResponse: entry.lastResponse.slice(0, 200),
       });
     }
@@ -581,9 +809,20 @@ export class AgentPool {
     const entry = this.agents.get(id);
     if (!entry) return false;
     const unsub = (entry as any)._unsubscribe;
-    if (typeof unsub === "function") unsub();
+    if (typeof unsub === 'function') unsub();
+    if (this.initialRunActive(id)) {
+      this.recordRunEvent({
+        type: 'run_finished',
+        runId: id,
+        timestamp: Date.now(),
+        status: 'dead',
+      });
+    }
+    entry.status = 'dead';
     if (entry.session) {
-      try { await entry.session.abort(); } catch {}
+      try {
+        await entry.session.abort();
+      } catch {}
       entry.session.dispose();
     }
     this.agents.delete(id);
@@ -605,13 +844,17 @@ export class AgentPool {
       existing.set(record.id, record);
       const dir = path.dirname(this.registryPath);
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(this.registryPath, JSON.stringify([...existing.values()], null, 2), "utf-8");
+      fs.writeFileSync(
+        this.registryPath,
+        JSON.stringify([...existing.values()], null, 2),
+        'utf-8',
+      );
     } catch {}
   }
 
   loadRegistry(): Map<string, PoolAgentRecord> {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.registryPath, "utf-8"));
+      const raw = JSON.parse(fs.readFileSync(this.registryPath, 'utf-8'));
       if (Array.isArray(raw)) {
         return new Map(raw.map((r: PoolAgentRecord) => [r.id, r]));
       }
@@ -633,7 +876,9 @@ export function getPool(): AgentPool {
 }
 
 /** Configure singleton pool with model resolver for preset support. */
-export function initPoolModelResolver(resolver: (modelId: string) => any | undefined): void {
+export function initPoolModelResolver(
+  resolver: (modelId: string) => any | undefined,
+): void {
   getPool().setModelResolver(resolver);
 }
 
@@ -642,181 +887,4 @@ export async function resetPool(): Promise<void> {
     await activePool.killAll();
     activePool = null;
   }
-}
-
-// ─── Tool registration ────────────────────────────────────────────────────
-
-export function registerSubagentTool(pi: ExtensionAPI): void {
-  pi.registerTool({
-    name: "omo_subagent",
-    label: "OMO Subagent",
-    description: [
-      "通过 pool 模式委托子代理。用法：",
-      "  spawn: { pool: \"spawn\", id, agent, task }",
-      "  send: { pool: \"send\", id, message }",
-      "  list: { pool: \"list\" }",
-      "  listSaved: { pool: \"listSaved\" } — 查看可恢复会话",
-      "  resume: { pool: \"resume\", id } — 恢复任务上下文",
-      "  kill: { pool: \"kill\", id }",
-      "",
-      "协议（实现无关）：",
-      "  - spawn 提交任务后即进入异步执行；默认下一步是等待完成通知。",
-      "  - send 仅用于向已存在会话追加指令，不是 spawn 后默认动作。",
-      "  - 会话处于运行态时不要重复提交同类请求；收到 busy/reject 先降级或询问用户。",
-    ].join("\n"),
-    parameters: {
-      type: "object",
-      properties: {
-        agent: { type: "string", description: "Agent name (for single mode)" },
-        task: { type: "string", description: "Task prompt (for single mode)" },
-        pool: { type: "string", description: "Pool action: spawn | send | list | kill" },
-        id: { type: "string", description: "Pool agent ID (for spawn/send/kill)" },
-        message: { type: "string", description: "Message for pool send action" },
-        model: { type: "string", description: "Model override" },
-      },
-    },
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = ctx.cwd;
-      const agents = discoverAgents(cwd);
-
-      const callerAgent = resolveDelegationCaller();
-      const callerDepth = Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0;
-      const allowedSubagents = parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS);
-
-      const requireDelegationAllowed = (targetAgent: string, childAllowedSubagents?: readonly string[]): { ok: true; childAllowedSubagents?: readonly string[] } | { ok: false; response: any } => {
-        const delegation = checkDelegationAllowed({
-          caller: callerAgent, target: targetAgent, depth: callerDepth,
-          cwd, allowedSubagents: childAllowedSubagents ?? allowedSubagents,
-        });
-        if (delegation.allowed) return { ok: true, childAllowedSubagents };
-        const allowed = delegation.allowedAgents?.length ? delegation.allowedAgents.join(", ") : "(none)";
-        return {
-          ok: false,
-          response: {
-            content: [{ type: "text", text: `${delegation.reason}. Allowed agents: ${allowed}` }],
-            details: { caller: callerAgent, target: targetAgent, depth: callerDepth, allowedAgents: delegation.allowedAgents },
-            isError: true,
-          },
-        };
-      };
-
-      if (params.pool) {
-        const pool = getPool();
-        if (params.pool === "spawn") {
-          if (!params.id || !params.agent || !params.task) {
-            return { content: [{ type: "text", text: "pool spawn requires id, agent, and task" }], details: {}, isError: true };
-          }
-          const agentCfg = agents.find((a) => a.name === params.agent);
-          if (!agentCfg) {
-            return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
-          }
-          let pipelineGrantAllowedSubagents: readonly string[] | undefined;
-          const grant = consumePipelineDelegationGrant({
-            caller: callerAgent,
-            target: params.agent,
-            depth: callerDepth,
-          });
-          if (grant) {
-            pipelineGrantAllowedSubagents = grant.childAllowedSubagents;
-          } else {
-            const delegation = requireDelegationAllowed(params.agent);
-            if (!delegation.ok) return delegation.response;
-          }
-          const spawnResult = await pool.spawn({
-            id: params.id, name: params.id, agent: agentCfg,
-            task: params.task, model: params.model || agentCfg.model,
-            cwd, parentAgent: callerAgent, depth: callerDepth + 1, allowedSubagents: pipelineGrantAllowedSubagents ?? allowedSubagents,
-          });
-          if (spawnResult.error) {
-            return { content: [{ type: "text", text: `✗ Spawn failed: ${spawnResult.error}` }], details: {}, isError: true };
-          }
-          return {
-            content: [{
-              type: "text",
-              text: `✓ Pool agent "${params.id}" (${params.agent}) spawned. Initial task started asynchronously; wait for completion notification.`
-            }],
-            details: {},
-          };
-        }
-
-        if (params.pool === "send") {
-          if (!params.id || !params.message) {
-            return { content: [{ type: "text", text: "pool send requires id and message" }], details: {}, isError: true };
-          }
-
-          const current = pool.list().find((a: PoolAgentInfo) => a.id === params.id);
-          if (current && (current.status === "starting" || current.status === "streaming")) {
-            return {
-              content: [{
-                type: "text",
-                text: `Agent "${params.id}" is running (${current.status}). Do not submit another request now; wait for completion notification.\n[guard] 下一步：等待完成后再继续，或先向用户确认是否改为降级方案。`
-              }],
-              details: {},
-              isError: true,
-            };
-          }
-
-          const result = await pool.sendPrompt(params.id, params.message);
-          if (result.error) {
-            return { content: [{ type: "text", text: `✗ ${result.error}` }], details: {}, isError: true };
-          }
-          return { content: [{ type: "text", text: `Response from ${params.id}:\n\n${result.response}` }], details: {} };
-        }
-
-        if (params.pool === "list") {
-          const list = pool.list();
-          if (list.length === 0) return { content: [{ type: "text", text: "Pool is empty." }], details: {} };
-          const lines = list.map((a: PoolAgentInfo) =>
-            `  ${a.status === "dead" ? "✗" : "●"} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`
-          );
-          return { content: [{ type: "text", text: `Pool agents (${list.length}):\n${lines.join("\n")}` }], details: {} };
-        }
-
-        if (params.pool === "kill") {
-          if (!params.id) return { content: [{ type: "text", text: "pool kill requires id" }], details: {}, isError: true };
-          const ok = await pool.kill(params.id);
-          return { content: [{ type: "text", text: ok ? `✓ Killed "${params.id}"` : `✗ Agent "${params.id}" not found` }], details: {} };
-        }
-
-        if (params.pool === "listSaved") {
-          const entries = pool.listRegistryEntries();
-          if (entries.length === 0) return { content: [{ type: "text", text: "No saved sub-agent sessions." }], details: {} };
-          const lines = entries.map((r) => `  ${r.id} (${r.agentName}) — ${r.task.slice(0, 100)}`);
-          return { content: [{ type: "text", text: `Saved sessions (${entries.length}):\n${lines.join("\n")}` }], details: {} };
-        }
-
-        if (params.pool === "resume") {
-          if (!params.id) return { content: [{ type: "text", text: "resume requires id" }], details: {}, isError: true };
-          const entries = pool.listRegistryEntries();
-          const record = entries.find((r) => r.id === params.id);
-          if (!record) return { content: [{ type: "text", text: `Saved session "${params.id}" not found` }], details: {}, isError: true };
-          const agentCfg = agents.find((a) => a.name === record.agentName);
-          if (!agentCfg) return { content: [{ type: "text", text: `Agent "${record.agentName}" not found. Cannot resume.` }], details: {}, isError: true };
-          const resumeResult = await pool.spawn({
-            id: record.id, name: record.name, agent: agentCfg,
-            task: record.task, model: params.model || agentCfg.model,
-            cwd: record.cwd || cwd, parentAgent: resolveDelegationCaller(),
-            depth: (Number.parseInt(process.env.OMO_SUBAGENT_DEPTH ?? "0", 10) || 0) + 1,
-            allowedSubagents: parseAllowedSubagentsEnv(process.env.OMO_ALLOWED_SUBAGENTS),
-          });
-          if (resumeResult.error) {
-            return { content: [{ type: "text", text: `✗ Resume failed: ${resumeResult.error}` }], details: {}, isError: true };
-          }
-          return { content: [{ type: "text", text: `✓ Agent "${record.id}" (${record.agentName}) resumed with task context.` }], details: {} };
-        }
-      }
-
-      if (params.agent && params.task) {
-        const agentCfg = agents.find((a) => a.name === params.agent);
-        if (!agentCfg) return { content: [{ type: "text", text: `Agent "${params.agent}" not found. Available: ${agents.map(a => a.name).join(", ")}` }], details: {}, isError: true };
-        return {
-          content: [{ type: "text", text: `Single mode is disabled. Use pool spawn: { pool: "spawn", id: "...", agent: "${params.agent}", task: "..." }` }],
-          details: {}, isError: true,
-        };
-      }
-
-      return { content: [{ type: "text", text: "Invalid params. Use single (agent+task) or pool action." }], details: {}, isError: true };
-    },
-  });
 }

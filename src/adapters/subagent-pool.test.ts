@@ -1,8 +1,16 @@
-import { describe, expect, test, mock, afterEach } from 'bun:test';
-import { AgentPool, resolveDelegationCaller, resolveSubagentToolNamesForAgent } from '../pi/subagent/subagent-pool';
-import type { AgentConfig } from './agent-discovery';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
+import {
+  consumePipelineDelegationGrant,
+  issuePipelineDelegationGrant,
+  resetPipelineDelegationGrantsForTests,
+} from '../pi/policy/pipeline-delegation-grants';
 import { resetToolScope, setToolScope } from '../pi/policy/tool-scope-manager';
-import { consumePipelineDelegationGrant, issuePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from '../pi/policy/pipeline-delegation-grants';
+import {
+  AgentPool,
+  resolveDelegationCaller,
+  resolveSubagentToolNamesForAgent,
+} from '../pi/subagent/subagent-pool';
+import type { AgentConfig } from './agent-discovery';
 
 function makeAgent(name = 'worker'): AgentConfig {
   return {
@@ -43,8 +51,12 @@ function mockCreateSession() {
     }),
     dispose: mock(() => {}),
     isStreaming: false,
-    get model() { return { provider: 'test', id: 'mock-model' }; },
-    get messages() { return latestMessages; },
+    get model() {
+      return { provider: 'test', id: 'mock-model' };
+    },
+    get messages() {
+      return latestMessages;
+    },
     agent: {
       waitForIdle: mock(() => Promise.resolve()),
       state: { messages: [] },
@@ -57,7 +69,9 @@ function mockCreateSession() {
     cycleThinkingLevel: mock(() => undefined),
     compact: mock(() => Promise.resolve({} as any)),
     abortCompaction: mock(() => {}),
-    navigateTree: mock(() => Promise.resolve({ editorText: undefined, cancelled: false })),
+    navigateTree: mock(() =>
+      Promise.resolve({ editorText: undefined, cancelled: false }),
+    ),
     prompt: mock(async (_text: string) => {
       return new Promise((resolve, reject) => {
         resolvePrompt = resolve;
@@ -71,6 +85,9 @@ function mockCreateSession() {
     getSessionStats: mock(() => ({})),
     getActiveToolNames: mock(() => []),
     getAllTools: mock(() => []),
+    _emitEvent(event: any) {
+      for (const cb of listeners) cb(event);
+    },
     _simulateResponse(text: string) {
       latestMessages = [
         { role: 'assistant', content: [{ type: 'text', text }] },
@@ -87,15 +104,19 @@ function mockCreateSession() {
     },
   };
 
-  const createSession = mock(async () => ({ session, extensionsResult: {} as any, modelFallbackMessage: undefined }));
+  const createSession = mock(async () => ({
+    session,
+    extensionsResult: {} as any,
+    modelFallbackMessage: undefined,
+  }));
 
   return { session, createSession };
 }
 
 /** Wait for the next pool event (completed or error). */
 function onNextPoolEvent(pool: AgentPool): Promise<any> {
-  return new Promise(resolve => {
-    const unsub = pool.onEvent(event => {
+  return new Promise((resolve) => {
+    const unsub = pool.onEvent((event) => {
       unsub();
       resolve(event);
     });
@@ -142,7 +163,11 @@ describe('resolveDelegationCaller', () => {
   });
 
   test('resolves subagent tools from explicit tools and default role groups', () => {
-    expect(resolveSubagentToolNamesForAgent('worker')).toEqual(['read', 'write', 'edit']);
+    expect(resolveSubagentToolNamesForAgent('worker')).toEqual([
+      'read',
+      'write',
+      'edit',
+    ]);
     const fixerTools = resolveSubagentToolNamesForAgent('fixer') ?? [];
     expect(fixerTools.includes('read')).toBe(true);
     expect(fixerTools.includes('write')).toBe(true);
@@ -158,7 +183,13 @@ describe('resolveDelegationCaller', () => {
       childAllowedSubagents: ['search'],
     });
 
-    expect(consumePipelineDelegationGrant({ caller: undefined, target: 'analyst', depth: 0 })).toBeUndefined();
+    expect(
+      consumePipelineDelegationGrant({
+        caller: undefined,
+        target: 'analyst',
+        depth: 0,
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -183,7 +214,11 @@ describe('AgentPool basic operations', () => {
 
     expect(event.type).toBe('completed');
     expect(event.response).toBe('task done');
-    expect(createSession.mock.calls[0]?.[0]?.tools).toEqual(['read', 'write', 'edit']);
+    expect(createSession.mock.calls[0]?.[0]?.tools).toEqual([
+      'read',
+      'write',
+      'edit',
+    ]);
     expect(pool.list()).toHaveLength(1);
     expect(pool.list()[0].id).toBe('test-agent');
     expect(pool.list()[0].status).toBe('idle');
@@ -195,8 +230,13 @@ describe('AgentPool basic operations', () => {
   test('spawn uses discovered runtime agent model instead of re-reading stale config', async () => {
     const { session, createSession } = mockCreateSession();
     const resolvedModel = { provider: 'dmxapi-responses', id: 'gpt-5.5' };
-    const resolveModel = mock((modelId: string) => modelId === 'dmxapi-responses/gpt-5.5' ? resolvedModel : undefined);
-    const pool = new AgentPool({ createSession: createSession as any, resolveModel });
+    const resolveModel = mock((modelId: string) =>
+      modelId === 'dmxapi-responses/gpt-5.5' ? resolvedModel : undefined,
+    );
+    const pool = new AgentPool({
+      createSession: createSession as any,
+      resolveModel,
+    });
     const agent = { ...makeAgent('oracle'), model: 'dmxapi-responses/gpt-5.5' };
 
     const spawnResult = await pool.spawn({
@@ -236,7 +276,7 @@ describe('AgentPool basic operations', () => {
 
     // Now send a follow-up prompt directly
     const sendPromise = pool.sendPrompt('agent-send', 'follow-up');
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
     session._simulateResponse('follow-up done');
 
     const result = await sendPromise;
@@ -296,7 +336,11 @@ describe('AgentPool basic operations', () => {
   });
 
   test('sendPrompt to non-existent agent returns error', async () => {
-    const pool = new AgentPool({ createSession: (() => { throw new Error('should not be called'); }) as any });
+    const pool = new AgentPool({
+      createSession: (() => {
+        throw new Error('should not be called');
+      }) as any,
+    });
     const result = await pool.sendPrompt('nonexistent', 'hello');
     expect(result.error).toContain('not found');
   });
@@ -327,7 +371,10 @@ describe('AgentPool basic operations', () => {
 
   test('timeout does not kill the agent, agent remains in pool', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ timeoutMs: 5, createSession: createSession as any });
+    const pool = new AgentPool({
+      timeoutMs: 5,
+      createSession: createSession as any,
+    });
 
     // Spawn returns immediately
     const spawnResult = await pool.spawn({
@@ -363,7 +410,7 @@ describe('AgentPool basic operations', () => {
     });
     expect(spawnResult.response).toContain('已启动');
 
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
 
     // Listen for the error event (from sendPromise rejection)
     const eventPromise = onNextPoolEvent(pool);
@@ -373,5 +420,113 @@ describe('AgentPool basic operations', () => {
     expect(event.type).toBe('error');
     expect(event.error).toBe('Aborted');
     expect(pool.list()).toHaveLength(0);
+  });
+
+  test('run snapshot records spawn identity and explicit parent only', async () => {
+    const { createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    await pool.spawn({
+      id: 'child-run',
+      name: 'Child Run',
+      agent: makeAgent('oracle'),
+      task: 'review architecture',
+      parentAgent: 'coordinator',
+      depth: 2,
+    });
+
+    let view = pool.getRunTreeView({ now: Date.now() });
+    expect(view.roots.map((run) => run.runId)).toEqual(['child-run']);
+    expect(view.roots[0]?.parentRunId).toBeUndefined();
+    expect(view.roots[0]?.depth).toBe(2);
+
+    await pool.kill('child-run');
+
+    const { createSession: createSession2 } = mockCreateSession();
+    const parentedPool = new AgentPool({
+      createSession: createSession2 as any,
+    });
+    await parentedPool.spawn({
+      id: 'parent-run',
+      name: 'Parent Run',
+      agent: makeAgent('coordinator'),
+      task: 'parent task',
+    });
+    await parentedPool.spawn({
+      id: 'nested-run',
+      name: 'Nested Run',
+      agent: makeAgent('oracle'),
+      task: 'nested task',
+      parentRunId: 'parent-run',
+      depth: 1,
+    });
+
+    view = parentedPool.getRunTreeView({ now: Date.now() });
+    expect(view.roots.map((run) => run.runId)).toEqual(['parent-run']);
+    expect(view.roots[0]?.children[0]?.runId).toBe('nested-run');
+    expect(view.roots[0]?.children[0]?.parentRunId).toBe('parent-run');
+    await parentedPool.killAll();
+  });
+
+  test('run snapshot records session events and optional usage', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    await pool.spawn({
+      id: 'observed-run',
+      name: 'Observed Run',
+      agent: makeAgent('oracle'),
+      task: 'observe events',
+    });
+    session._emitEvent({ type: 'turn_start' });
+    session._emitEvent({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial answer' }],
+        usage: { input: 100, output: 20, cost: 0.002 },
+      },
+    });
+    session._emitEvent({ type: 'unknown', raw: { should: 'be ignored' } });
+
+    const view = pool.getRunTreeView({ now: Date.now() });
+    expect(view.roots[0]?.status).toBe('streaming');
+    expect(view.roots[0]?.usageText).toBe('↑100 ↓20 $0.0020');
+    expect(view.roots[0]?.recentLines).toContain('partial answer');
+
+    await pool.kill('observed-run');
+  });
+
+  test('initial run completion is not corrupted by later send or kill', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({ createSession: createSession as any });
+
+    await pool.spawn({
+      id: 'persistent-run',
+      name: 'Persistent Run',
+      agent: makeAgent('worker'),
+      task: 'initial',
+    });
+    const initEvent = onNextPoolEvent(pool);
+    session._simulateResponse('initial done');
+    await initEvent;
+
+    expect(pool.getRunTreeView({ now: Date.now() }).roots[0]?.status).toBe(
+      'completed',
+    );
+
+    const sendPromise = pool.sendPrompt('persistent-run', 'later');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    session._simulateResponse('later done');
+    await sendPromise;
+
+    expect(pool.getRunTreeView({ now: Date.now() }).roots[0]?.status).toBe(
+      'completed',
+    );
+
+    await pool.kill('persistent-run');
+    expect(pool.getRunTreeView({ now: Date.now() }).roots[0]?.status).toBe(
+      'completed',
+    );
   });
 });
