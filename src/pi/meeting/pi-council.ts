@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { AGENT_PROMPTS } from "./pi-agents";
-import type { OmniMoConfig, PiCouncilParticipantConfig } from "../core/pi";
+import type { OmniMoConfig, PiCouncilParticipantConfig } from "../config-types";
 import { getPool } from "../subagent/subagent-pool";
 import type { AgentConfig } from "../../adapters/agent-discovery";
 import { loadActiveMode } from "../core/pi-modes";

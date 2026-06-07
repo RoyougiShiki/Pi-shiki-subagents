@@ -114,8 +114,10 @@ import {
 } from '../compliance';
 
 
-import type { WorkflowsConfig } from '../../core/workflow-types';
-import type { HarnessConfig } from '../../config/schema';
+import type {
+  OmniMoConfig,
+  PiCouncilParticipantConfig,
+} from '../config-types';
 import { deepMerge, loadPluginConfig } from '../../config/loader';
 import { stripJsonComments } from '../../config/jsonc';
 import {
@@ -168,6 +170,11 @@ export {
   resolvePresetSwitchPlan,
 } from '../preset/preset-switch';
 
+export type {
+  OmniMoConfig,
+  PiCouncilConfig,
+  PiCouncilParticipantConfig,
+} from '../config-types';
 // ─── Config helpers ────────────────────────────────────────────────────────
 
 const BASIC_TOOLS: readonly string[] = [
@@ -182,41 +189,6 @@ const BASIC_TOOLS: readonly string[] = [
 const PRESET_MODEL_SUBCOMMAND = 'model';
 const PRESET_MODEL_SELECTOR_MAX_VISIBLE = 12;
 
-export interface PiCouncilParticipantConfig {
-  name?: string;
-  agent?: string;
-  model?: string;
-  variant?: string;
-  prompt?: string;
-}
-
-export interface PiCouncilConfig {
-  presets?: Record<string, Record<string, PiCouncilParticipantConfig>>;
-  default_preset?: string;
-  timeout?: number;
-  councillor_execution_mode?: 'parallel' | 'serial';
-  meeting_backend?: 'session' | 'collaborating';
-}
-
-export interface OmniMoConfig {
-  preset?: string;
-  presets?: Record<
-    string,
-    Record<
-      string,
-      | { model?: string; variant?: string; thinking?: string }
-      | Record<string, unknown>
-    >
-  >;
-  agents?: Record<
-    string,
-    { model?: string; variant?: string; thinking?: string }
-  >;
-  disabled_agents?: string[];
-  council?: PiCouncilConfig;
-  workflows?: WorkflowsConfig;
-  harness?: HarnessConfig;
-}
 
 interface PiDelegationCapabilities {
   hasPiAgents: boolean;

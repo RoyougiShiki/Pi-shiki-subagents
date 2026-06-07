@@ -189,25 +189,25 @@ Evidence:
 
 Capability: meeting/council integration boundary.
 
-Recommendation: **simplify**.
+Recommendation: **simplify**; first lightweight step completed.
 
 Finding:
 
-- Meeting and council modules import core config types (`OmniMoConfig`, `PiCouncilParticipantConfig`) from `src/pi/core/pi.ts`.
-- Pi core imports meeting and council implementations and re-exports some meeting/council helpers.
-- `pi-meeting-pool.ts` imports types from `pi-meeting.ts`; `pi-meeting.ts` imports the pool backend.
-- This is confirmed static/type coupling. Runtime/value cycle failure is not proven.
+- Meeting and council modules now import shared config types (`OmniMoConfig`, `PiCouncilParticipantConfig`) from neutral `src/pi/config-types.ts`, not from `src/pi/core/pi.ts`.
+- `src/pi/core/pi.ts` keeps type-only re-exports for compatibility with existing imports/tests.
+- Pi core still imports meeting and council implementations and re-exports some meeting/council helpers; further facade extraction remains a future step.
+- `pi-meeting-pool.ts` imports types from `pi-meeting.ts`; `pi-meeting.ts` imports the pool backend. This is separate meeting-internal coupling, not a core ↔ meeting type edge.
+- Runtime/value cycle failure is not proven.
 
-Action:
+Follow-up action:
 
-1. First classify each edge as type-only versus value import.
-2. Move shared config/request/result types into a neutral meeting/core types module only where it removes actual bidirectional coupling.
-3. Keep meeting implementations out of the composition root except through registration/facade functions.
-4. Re-run the scanner and compare cycles.
+1. Preserve `src/pi/config-types.ts` as the neutral config contract for core and meeting modules.
+2. Keep meeting implementations out of the composition root except through future registration/facade functions.
+3. Re-run the scanner and compare cycles before any larger extraction.
 
-Cost: medium.
+Cost: small for the completed type extraction; medium for any later facade extraction.
 
-Benefit: medium to high; cleaner extraction path and lower central-file churn.
+Benefit: medium; removes a direct meeting → core type import and creates a cleaner extraction path.
 
 Risk: medium; type movement can fan out across tests and exports.
 
@@ -219,8 +219,8 @@ Validation:
 
 Evidence:
 
-- Baseline scanner reports static cycles among Pi core, meeting, council, and meeting pool.
-- Targeted reads confirm imports in both directions.
+- Targeted scan confirms no meeting module imports types from `../core/pi`; both `pi-council.ts` and `pi-meeting.ts` import config types from `../config-types`.
+- Baseline scanner previously reported static cycles among Pi core, meeting, council, and meeting pool; this patch intentionally removes only the low-risk core-config type edge.
 
 ### P1.3 Meeting backend duplication and semantic drift
 
