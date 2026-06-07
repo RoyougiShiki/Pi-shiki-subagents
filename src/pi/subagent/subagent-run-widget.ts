@@ -1,8 +1,9 @@
-import type { SubagentRunTreeView } from './subagent-run-view';
+import { createSubagentRunTreeViewFromSnapshots, type SubagentRunTreeView } from './subagent-run-view';
 import {
   renderSubagentRunWidgetLines,
   type SubagentRunWidgetLineOptions,
 } from './subagent-run-widget-lines';
+import type { SubagentSessionSnapshot } from './subagent-session-contract';
 
 export interface SubagentRunWidgetContext {
   ui: {
@@ -12,6 +13,7 @@ export interface SubagentRunWidgetContext {
 
 export interface SubagentRunWidgetPool {
   getRunTreeView(options?: { now?: number }): SubagentRunTreeView;
+  getSubagentSessionSnapshots?(): SubagentSessionSnapshot[];
   onRunStateChange(cb: () => void): () => void;
 }
 
@@ -65,10 +67,16 @@ export function registerSubagentRunWidget(
     timer = setTimeout(render, refreshMs);
   };
 
+  const getView = (timestamp: number): SubagentRunTreeView => {
+    const snapshots = pool.getSubagentSessionSnapshots?.();
+    if (snapshots)
+      return createSubagentRunTreeViewFromSnapshots(snapshots, { now: timestamp });
+    return pool.getRunTreeView({ now: timestamp });
+  };
   const render = () => {
     if (disposed) return;
     const timestamp = now();
-    const view = pool.getRunTreeView({ now: timestamp });
+    const view = getView(timestamp);
     const lines = renderSubagentRunWidgetLines(view, {
       ...options,
       now: timestamp,

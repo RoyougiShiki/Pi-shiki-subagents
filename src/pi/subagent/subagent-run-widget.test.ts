@@ -36,6 +36,27 @@ function activeView(): SubagentRunTreeView {
   };
 }
 
+function activeSnapshot() {
+  return {
+    version: 1 as const,
+    kind: 'subagent' as const,
+    runId: 'snapshot-run',
+    agentName: 'oracle',
+    displayName: 'oracle',
+    status: 'streaming' as const,
+    activity: {
+      phase: 'active' as const,
+      recentEvents: [
+        { type: 'assistant_text' as const, timestamp: 500, text: 'snapshot thinking' },
+      ],
+      updatedAt: 500,
+      toolCount: 1,
+    },
+    lineage: { childRunIds: [], depth: 0 },
+    startedAt: 100,
+  };
+}
+
 describe('subagent run widget runtime', () => {
   test('clears widget when there are no visible lines', () => {
     let listener: (() => void) | undefined;
@@ -111,6 +132,28 @@ describe('subagent run widget runtime', () => {
     expect(pool.getRunTreeView).toHaveBeenCalledWith({ now: 1000 });
     expect(JSON.stringify(view)).toBe(before);
     expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain('Subagents');
+    widget.dispose();
+  });
+
+  test('prefers session snapshots over legacy tree view when available', () => {
+    const setWidget = mock(() => {});
+    const pool = {
+      getSubagentSessionSnapshots: mock(() => [activeSnapshot()]),
+      getRunTreeView: mock(() => emptyView()),
+      onRunStateChange: mock((_cb: () => void) => () => {}),
+    };
+
+    const widget = registerSubagentRunWidget({ ui: { setWidget } }, pool, {
+      now: () => 1000,
+      refreshMs: false,
+    });
+
+    expect(pool.getSubagentSessionSnapshots).toHaveBeenCalledTimes(1);
+    expect(pool.getRunTreeView).not.toHaveBeenCalled();
+    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain('oracle');
+    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain(
+      'snapshot thinking',
+    );
     widget.dispose();
   });
 

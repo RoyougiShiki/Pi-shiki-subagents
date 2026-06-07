@@ -129,7 +129,7 @@ Further runtime consumer migration requires separate review before implementatio
 
 A Pi TUI renderer may consume the semantic view model via `ctx.ui.setWidget(...)` and render a compact above-editor subagent status tree.
 
-The renderer must not mutate run logic.
+Completed migration step: `subagent-run-widget.ts` now prefers `getSubagentSessionSnapshots()` when available and falls back to `getRunTreeView()` for compatibility. The renderer still receives the same `SubagentRunTreeView` shape and must not mutate run logic.
 
 ### Phase 4 — tool row rendering
 
