@@ -21,10 +21,8 @@ import type {
   ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
 import {
-  createAgentSession,
   DynamicBorder,
   getAgentDir,
-  SessionManager,
 } from '@earendil-works/pi-coding-agent';
 import { Input, SelectList, Spacer, Text } from '@earendil-works/pi-tui';
 import type {
@@ -115,8 +113,6 @@ import {
   type ViolationRecord,
 } from '../compliance';
 
-import type { AgentSession } from '@earendil-works/pi-coding-agent';
-import { getHub } from '../meeting/pi-hub';
 
 import type { WorkflowsConfig } from '../../core/workflow-types';
 import type { HarnessConfig } from '../../config/schema';
@@ -552,116 +548,41 @@ function createToolImplementations(config: OmniMoConfig | null) {
       ) {
         const mode = params.mode ?? 'isolated';
         if (mode === 'meeting') {
-          // 非阻塞会议模式:立即返回,后台运行
-          const resolved = resolvePiCouncilParticipants({
-            config,
+          const meeting = await runPiMeeting({
+            question: params.question,
             preset: params.preset,
             participants: params.participants,
+            objective: params.objective,
+            maxRounds: params.maxRounds,
+            maxDurationMs: params.maxDurationMs,
+            includeTranscript: params.includeTranscript,
+            backend: params.backend,
+            ctx,
+            config,
           });
-          if (resolved.error) {
-            return {
-              content: [{ type: 'text' as const, text: resolved.error }],
-              details: {},
-              isError: true,
-            };
-          }
 
-          const hub = getHub();
-          const meetingId = `omo-meet-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-          const spawnedSessions: AgentSession[] = [];
-          const errors: string[] = [];
-
-          // 启动每个 participant RPC 进程
-          for (const participant of resolved.participants) {
-            const agentPrompt =
-              AGENT_PROMPTS[participant.agent]?.prompt ||
-              'You are a specialist.';
-            const task = [
-              `You are ${participant.name} (${participant.agent}) in a group discussion.`,
-              `Topic: ${params.question}`,
-              `Objective: ${params.objective || 'discuss'}`,
-              '',
-              agentPrompt,
-              participant.prompt
-                ? `\nRole guidance: ${participant.prompt}`
-                : '',
-              '',
-              '--- Protocol ---',
-              'You are in a real-time chat with other agents and a user.',
-              'You will receive messages from others with [Name]: prefix.',
-              'Each new message is sent to you as a prompt.',
-              'Read and respond when you have something to add.',
-              'Respond concisely and directly.',
-              'Stay in context of the topic.',
-            ]
-              .filter(Boolean)
-              .join('\n');
-
-            try {
-              const created = await createAgentSession({
-                cwd: ctx.cwd,
-                sessionManager: SessionManager.inMemory(),
-              });
-              spawnedSessions.push(created.session);
-              await created.session.prompt(task);
-            } catch (e: any) {
-              errors.push(`${participant.name}: spawn failed - ${e.message}`);
-            }
-          }
-
-          if (spawnedSessions.length === 0) {
+          if (meeting.error || !meeting.result) {
             return {
               content: [
                 {
                   type: 'text' as const,
-                  text: `❌ 群聊创建失败,所有参与者都无法启动。\n${errors.join('\n')}`,
+                  text: meeting.error ?? 'Meeting failed without a result.',
                 },
               ],
-              details: { mode, question: params.question, errors },
+              details: { mode, question: params.question },
               isError: true,
             };
           }
-
-          // 注册到 hub
-          const participants = resolved.participants
-            .filter((_, i) => i < spawnedSessions.length)
-            .map((p, i) => ({
-              name: p.name,
-              agentType: p.agent,
-              session: spawnedSessions[i],
-            }));
-          hub.registerMeeting(
-            meetingId,
-            params.question.slice(0, 60),
-            participants,
-          );
-
-          // 无需 setTimeout--用户加入群聊后第一条消息就是讨论开始
-          // 每个 participant 已经收到了初始任务(含 topic),等待第一条消息触发回复
-
-          const warnText =
-            errors.length > 0
-              ? `\n\n⚠️ 部分参与者启动失败:\n${errors.join('\n')}`
-              : '';
 
           return {
             content: [
               {
                 type: 'text' as const,
-                text: `✅ 群聊已创建: "${params.question.slice(0, 60)}"\n参与: ${participants.map((p) => p.name).join(', ')}${warnText}\n\n使用 /chat 加入讨论,发言会被同步给所有人。`,
+                text: formatPiMeetingResult(meeting.result),
               },
             ],
-            details: {
-              mode,
-              question: params.question,
-              meetingId,
-              status: 'active',
-              participants: participants.map((p) => ({
-                name: p.name,
-                agentType: p.agentType,
-              })),
-              errors: errors.length > 0 ? errors : undefined,
-            },
+            details: { mode, question: params.question, result: meeting.result },
+            isError: meeting.result.status === 'failed',
           };
         }
 

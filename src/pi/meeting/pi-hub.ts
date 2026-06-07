@@ -5,7 +5,7 @@
  *   1. 管理活跃会议及其 participant SDK session
  *   2. 消息广播：broadcast → 指定 meeting 的所有 participant
  *   3. 群聊中参与者发言自动中继给其他参与者
- *   4. 消息日志（供 /chat 查看历史）
+ *   4. 消息日志（供已显式接入的 overlay/bridge 查看历史；当前不注册 /chat 命令）
  *   5. 用户消息订阅（供 bridge 实时显示）
  *
  * 消息隔离：每条消息按 meetingId 路由，不同会议互不干扰

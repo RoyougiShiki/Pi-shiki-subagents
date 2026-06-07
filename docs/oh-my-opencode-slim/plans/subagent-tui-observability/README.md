@@ -144,7 +144,7 @@ Useful reference patterns:
   - `renderCall` / `renderResult`
   - collapsed recent-item display
   - usage formatting
-- Current project separation pattern:
+- Current project separation pattern; chat bridge is a dormant/experimental reference, not an active `/chat` contract:
   - `src/pi/subagent/chat-status-view.ts`
   - `src/pi/subagent/pi-chat-bridge.ts`
 - External packages reviewed as references only:

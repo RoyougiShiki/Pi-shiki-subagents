@@ -104,36 +104,35 @@ Evidence:
 - `src/pi/subagent/subagent-pool.ts` defines its own `DEFAULTS_PATH`.
 - `src/adapters/agent-runtime-config.ts` is already used by Pi modes/core for runtime definitions.
 
-### P0.3 Council meeting parameter surface is misleading
+### P0.3 Council meeting parameter surface contract is now aligned
 
 Capability: `omo_council` meeting orchestration API.
 
-Recommendation: **simplify/fix**.
+Recommendation: **resolved by routing meeting mode through the structured meeting backend; keep monitoring for regressions**.
 
 Finding:
 
-- The registered `omo_council` tool exposes `backend` and `includeTranscript` parameters, and its description refers to meeting backends.
-- The active `mode="meeting"` branch in the registered tool creates an inline hub/group-chat flow directly with `createAgentSession` and `getHub()`.
-- That branch does not call the structured `runPiMeeting()` path, so `backend`, `includeTranscript`, `maxRounds`, `maxDurationMs`, and the hidden chair report machinery are not consistently honored for the user-facing meeting mode.
-- This is a user-visible contract mismatch, not just backend duplication.
+- Historical baseline: the registered `omo_council` tool exposed `backend` and `includeTranscript` parameters, while the old `mode="meeting"` branch created an inline hub/group-chat flow directly with `createAgentSession` and `getHub()`.
+- Current contract: active `mode="meeting"` routes through the structured `runPiMeeting()` path and returns `formatPiMeetingResult()`, so backend/transcript/max-rounds parameters belong to the structured meeting API.
+- The active extension does not register `/chat`; any interactive chat bridge remains dormant/experimental unless explicitly integrated.
 
-Action options:
+Regression guardrails:
 
-1. Preferred: route `mode="meeting"` through `runPiMeeting()` and return `formatPiMeetingResult()` if the intended capability is hidden round-based meetings.
-2. Or: rename/narrow the current inline hub mode as explicit interactive group chat and remove unsupported backend/transcript parameters from that path.
-3. Do not maintain two different `meeting` semantics behind the same `omo_council` mode.
+1. Keep `mode="meeting"` routed through `runPiMeeting()` and `formatPiMeetingResult()` for hidden round-based meetings.
+2. If interactive group chat is introduced later, give it a separate explicit command/API and do not overload `mode="meeting"`.
+3. Do not reintroduce two different `meeting` semantics behind the same `omo_council` mode.
 
 Cost: medium.
 
 Benefit: high; makes council meeting behavior match the advertised API and reduces duplicate orchestration.
 
-Risk: medium to high; council behavior is user-visible and may have users relying on `/chat` group behavior.
+Risk: medium; council behavior is user-visible, and any historical/manual `/chat` group-chat expectation must remain clearly marked as non-active unless a real command is added.
 
 Validation:
 
 - Targeted tests for `omo_council` parameter routing:
   - `mode="isolated"` remains isolated council.
-  - `mode="meeting"` either honors structured backend/transcript parameters or explicitly rejects unsupported ones.
+  - `mode="meeting"` honors structured backend/transcript parameters through `runPiMeeting()`.
   - `includeTranscript=true` only produces transcript where the chosen path supports it.
 - Manual smoke with `omo_council` meeting using `backend=session` and `backend=pool` if retained.
 - `bun run typecheck`.
@@ -141,7 +140,7 @@ Validation:
 Evidence:
 
 - `src/pi/core/pi.ts` registers `omo_council` and declares `backend` / `includeTranscript` parameters.
-- `src/pi/core/pi.ts` inline `mode === 'meeting'` branch uses `createAgentSession` and `getHub()` directly.
+- Historical baseline used inline `createAgentSession` and `getHub()` directly; current `src/pi/core/pi.ts` routes `mode === 'meeting'` through `runPiMeeting()` and `formatPiMeetingResult()`.
 - `src/pi/meeting/pi-meeting.ts` contains the separate structured `runPiMeeting()` / `resolvePiMeetingBackend()` path.
 
 ## P1 Findings
@@ -404,19 +403,19 @@ Evidence:
 
 Capability: interactive chat overlay.
 
-Recommendation: **defer, likely delete or quarantine after P0.3**.
+Recommendation: **defer deletion; keep dormant/quarantined unless an explicit chat command contract is approved**.
 
 Finding:
 
 - `pi-chat-bridge.ts` is a rich terminal overlay surface and imports Pi TUI plus meeting hub.
-- Baseline scan found no production imports, but source paths are published and the meeting mode currently creates hub meetings that mention `/chat`.
-- Deleting it before deciding P0.3 could break an intended interactive group-chat path.
+- Historical baseline: the old meeting branch created hub meetings and returned text that mentioned `/chat`, while no active `/chat` command was registered.
+- Current P1.3 contract: `omo_council mode=meeting` uses `runPiMeeting` plus `formatPiMeetingResult`; the active extension does not register `/chat`; the chat bridge remains dormant/experimental unless explicitly integrated.
 
 Action:
 
-1. Decide P0.3 first.
-2. If hidden structured meeting is the intended council meeting path, delete or quarantine chat bridge and stale `/chat` references.
-3. If interactive group chat is retained, document it as separate from hidden meeting and keep it off by default.
+1. Keep `omo_council mode=meeting` on the structured meeting backend unless a separate interactive chat command is approved.
+2. Do not wire `pi-chat-bridge.ts` into default terminal flows; if retained, document it as dormant/experimental and explicitly integrated only.
+3. If a future `/chat` command is added, add command registration, help text, tests, and docs in the same patch.
 
 Cost: low to medium.
 
@@ -432,8 +431,8 @@ Validation:
 
 Evidence:
 
-- `src/pi/subagent/pi-chat-bridge.ts` contains overlay UI.
-- `src/pi/core/pi.ts` meeting branch returns text telling the user to use `/chat`.
+- `src/pi/subagent/pi-chat-bridge.ts` contains overlay UI but is not wired to an active command.
+- Current implementation routes `omo_council mode=meeting` through `runPiMeeting` and `formatPiMeetingResult`; remaining `/chat` references state that no `/chat` command is registered.
 
 ## Suggested Execution Order
 

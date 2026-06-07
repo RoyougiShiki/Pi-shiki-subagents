@@ -1,11 +1,10 @@
 /**
- * pi-chat-bridge — 聊天 TUI 面板
+ * pi-chat-bridge — dormant/experimental chat TUI overlay
  *
- * 参考 @juicesharp/rpiv-btw 的滚动实现：
- *   - 通过 tui.terminal.rows 获取实际终端高度计算窗口
- *   - 渲染全部消息，↑↓ 逐行滚动
- *   - 底部锚定，input 永远可见
- *   - 消息超出窗口时从顶部裁剪（自然的滚动效果）
+ * This module is not wired to a /chat command in the active Pi extension.
+ * Keep it out of default terminal flows unless the chat command contract is explicitly decided.
+ * Overlay behavior when explicitly invoked: bottom anchored input and
+ * top-clipped scrolling for long message history.
  */
 
 import { Input, Key, matchesKey, Spacer, Text } from "@earendil-works/pi-tui";

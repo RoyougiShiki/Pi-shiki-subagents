@@ -218,20 +218,20 @@ Rationale:
 - Deep-import exposure is reachable because the package ships `src/pi`, has no `exports` map restricting subpaths, and generated `dist/pi/subagent/pi-chat-bridge.d.ts` declares `runPrivateChat`, `runGroupChat`, and `autoOpenChat`.
 - The bridge imports Pi TUI and meeting hub code, which makes it a relatively expensive dormant feature surface while terminal TUI should stay compact and rich subagent detail is deferred.
 
-Exposure policy gate:
+Current exposure policy and guardrails:
 
 - Do not delete solely because there are no internal production imports.
-- Decide whether deep imports and generated declarations are supported API, accidental exposure, or quarantine-only compatibility surface.
-- Check package metadata, README/docs, examples, generated declarations/build output, source-subpath behavior, runtime command/help/text references, and active meeting-backend contracts before deletion.
-- Decide the `/chat` contract first. If `/chat` is not a supported command, rewrite returned user-facing text/comments so they do not imply an available command.
-- If `/chat` or the bridge exposure is intentional or must remain compatible, keep it but mark it experimental/dormant, document the retained entry point, and keep it outside active terminal TUI flows.
-- If exposure is accidental and the policy allows removal, delete only with declaration/package/docs/runtime-text cleanup.
+- Current runtime contract: active `omo_council mode=meeting` uses `runPiMeeting` plus `formatPiMeetingResult`; the extension does not register `/chat`.
+- The chat bridge remains dormant/experimental unless explicitly integrated; keep it outside default terminal TUI flows.
+- If a future `/chat` command is added, register the command, help text, docs, and tests in the same patch.
+- Before deleting the bridge, still check package metadata, README/docs, examples, generated declarations/build output, source-subpath behavior, runtime text references, and active meeting-backend contracts.
+- If exposure is accidental and policy allows removal, delete only with declaration/package/docs/runtime-text cleanup.
 
 Cost: low to medium.
 
 Benefit: medium. Clarifies dormant UI surface ownership and prevents accidental terminal detail expansion.
 
-Risk: medium. It may be an undocumented/manual entry point or deep-import/declaration surface; policy must be decided before deletion.
+Risk: medium. It may still be an undocumented/manual deep-import/declaration surface even though no active `/chat` command is registered.
 
 Validation:
 
@@ -475,7 +475,7 @@ Do not do these as part of this audit:
 1. Finish audit review and oracle approval.
 2. P0.2 fix: subagent default agents path should use the shared default agents path or equivalent tested path.
 3. P0.1 fix/design: define and share one resolver semantics for subagent and mode tool expression expansion, with role/group tests before broader cleanup.
-4. P1.3 decision: complete the runtime/package exposure gate for the dormant private/group chat bridge, including `/chat` contract, command/help/text references, and active meeting backend checks.
+4. P1.3 guardrail: keep `omo_council mode=meeting` on the structured meeting backend and keep the dormant chat bridge out of default terminal flows unless an explicit `/chat` command contract is added.
 5. P1.5 parser equivalence: add tests first, then centralize a tiny JSONC parser helper or document unsupported differences; place this near docs/config cleanup and before large core/meeting extraction.
 6. P1 docs/config cleanup: correct README/package extension mismatch and mark/update stale platform-adapter cleanup plan.
 7. P1.2 design: break core/meeting cycles with a tiny neutral type module only after P1.3 and P1.5 reduce runtime/config uncertainty.
