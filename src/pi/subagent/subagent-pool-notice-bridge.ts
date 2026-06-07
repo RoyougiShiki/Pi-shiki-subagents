@@ -96,13 +96,10 @@ export function registerPoolNoticeBridge(options: {
         );
       } catch {}
     }
+    // Deliver the user-visible completion promptly; verifier ingestion is best-effort and must not block the follow-up turn.
     if (event.type === 'completed') {
-      void (async () => {
-        const guardedCtx = createGenerationGuardedContext(options.ctx, generation);
-        await options.harnessRuntime
-          .ingestPoolCompleted(event, guardedCtx)
-          .catch(() => undefined);
-        if (!isCurrentGeneration(generation)) return;
+      const guardedCtx = createGenerationGuardedContext(options.ctx, generation);
+      if (isCurrentGeneration(generation)) {
         try {
           options.pi.sendMessage(
             {
@@ -113,7 +110,10 @@ export function registerPoolNoticeBridge(options: {
             { deliverAs: 'followUp', triggerTurn: true },
           );
         } catch {}
-      })();
+      }
+      void options.harnessRuntime
+        .ingestPoolCompleted(event, guardedCtx)
+        .catch(() => undefined);
     }
   });
 

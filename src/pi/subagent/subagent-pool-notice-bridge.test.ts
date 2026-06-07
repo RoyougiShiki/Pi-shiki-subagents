@@ -97,7 +97,30 @@ describe('subagent pool notice bridge', () => {
   });
 
 
-  test('suppresses in-flight old completion after bridge re-registration', async () => {
+  test('does not delay completion follow-up behind harness ingestion', () => {
+    const pool = createPool();
+    const ctx = createCtx();
+    const pi = { sendMessage: mock(() => {}) };
+    const harnessRuntime = {
+      ingestPoolCompleted: mock(() => new Promise<void>(() => {})),
+    };
+
+    registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
+    pool.emit({
+      type: 'completed',
+      agentName: 'fixer',
+      poolId: 'run-1',
+      response: 'done',
+    });
+
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
+      '[pool] fixer/run-1 已完成',
+    );
+    expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  test('suppresses stale harness notifications after bridge re-registration without retracting delivered completion', async () => {
     const pool = createPool();
     const oldCtx = createCtx();
     const newCtx = createCtx();
@@ -130,7 +153,8 @@ describe('subagent pool notice bridge', () => {
       response: 'old done',
     });
 
-    await Promise.resolve();
+    expect(oldPi.sendMessage).toHaveBeenCalledTimes(1);
+
     registerPoolNoticeBridge({
       pool,
       pi: newPi,
@@ -141,10 +165,39 @@ describe('subagent pool notice bridge', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(oldPi.sendMessage).not.toHaveBeenCalled();
     expect(oldCtx.ui.notify).not.toHaveBeenCalled();
     expect(newPi.sendMessage).not.toHaveBeenCalled();
     expect(pool.listenerCount()).toBe(1);
+  });
+
+  test('delivers each completed event once with matching pool identity', () => {
+    const pool = createPool();
+    const ctx = createCtx();
+    const pi = { sendMessage: mock(() => {}) };
+    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
+
+    registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
+    pool.emit({
+      type: 'completed',
+      agentName: 'fixer',
+      poolId: 'run-1',
+      response: 'one',
+    });
+    pool.emit({
+      type: 'completed',
+      agentName: 'oracle',
+      poolId: 'run-2',
+      response: 'two',
+    });
+
+    expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
+      '[pool] fixer/run-1 已完成',
+    );
+    expect(pi.sendMessage.mock.calls[1]?.[0]?.content).toContain(
+      '[pool] oracle/run-2 已完成',
+    );
+    expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(2);
   });
   test('error notice uses latest ctx and includes pool identity', () => {
     const pool = createPool();

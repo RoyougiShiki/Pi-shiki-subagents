@@ -625,7 +625,7 @@ export class AgentPool {
           : opts.task;
 
         // 异步执行，不阻塞主 agent
-        this.sendPrompt(opts.id, taskText)
+        this.sendPrompt(opts.id, taskText, undefined, { emitErrorEvent: false })
           .then((result) => {
             if (result.error) {
               if (this.initialRunActive(opts.id)) {
@@ -715,6 +715,7 @@ export class AgentPool {
     id: string,
     message: string,
     type?: string,
+    options: { emitErrorEvent?: boolean } = {},
   ): Promise<{ response: string; error?: string }> {
     const entry = this.agents.get(id);
     if (!entry)
@@ -769,12 +770,14 @@ export class AgentPool {
       return { response: entry.lastResponse };
     } catch (err: any) {
       const errorMsg = err.message ?? String(err);
-      this.emit({
-        type: 'error',
-        poolId: id,
-        agentName: entry.agentName,
-        error: errorMsg,
-      });
+      if (options.emitErrorEvent !== false) {
+        this.emit({
+          type: 'error',
+          poolId: id,
+          agentName: entry.agentName,
+          error: errorMsg,
+        });
+      }
       return { response: entry.lastResponse, error: errorMsg };
     } finally {
       entry.busy = false;

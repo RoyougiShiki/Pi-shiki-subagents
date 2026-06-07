@@ -144,6 +144,19 @@ function onNextPoolEvent(pool: AgentPool): Promise<any> {
   });
 }
 
+function collectPoolEvents(pool: AgentPool, waitMs = 20): Promise<any[]> {
+  const events: any[] = [];
+  const unsubscribe = pool.onEvent((event) => {
+    events.push(event);
+  });
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      unsubscribe();
+      resolve(events);
+    }, waitMs);
+  });
+}
+
 describe('resolveDelegationCaller', () => {
   const originalEnv = { ...process.env };
 
@@ -420,6 +433,28 @@ describe('AgentPool basic operations', () => {
 
     await pool.kill('test-agent');
     expect(pool.list()).toHaveLength(0);
+  });
+
+  test('initial prompt timeout emits exactly one pool error event', async () => {
+    const { createSession } = mockCreateSession();
+    const pool = new AgentPool({
+      createSession: createSession as any,
+      timeoutMs: 1,
+    });
+    const eventsPromise = collectPoolEvents(pool, 30);
+
+    await pool.spawn({
+      id: 'timeout-agent',
+      name: 'timeout-agent',
+      agent: makeAgent(),
+      task: 'hang forever',
+    });
+
+    const events = await eventsPromise;
+    const errors = events.filter((event) => event.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.poolId).toBe('timeout-agent');
+    expect(errors[0]?.error).toContain('timed out');
   });
 
   test('spawn uses discovered runtime agent model instead of re-reading stale config', async () => {
