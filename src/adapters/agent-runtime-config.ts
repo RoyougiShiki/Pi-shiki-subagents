@@ -17,6 +17,105 @@ export interface RuntimeAgentDefinition {
   options?: Record<string, unknown>;
 }
 
+export interface ToolExpressionResolveOptions {
+  maxDepth?: number;
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeStringList(items: readonly string[] | undefined): string[] {
+  const result = new Set<string>();
+  for (const item of items ?? []) {
+    const trimmed = item.trim();
+    if (trimmed) result.add(trimmed);
+  }
+  return [...result];
+}
+
+export function resolveToolExpressions(
+  expressions: readonly string[] | undefined,
+  groups: Record<string, readonly string[] | undefined> = {},
+  allToolNames: readonly string[] = [],
+  options: ToolExpressionResolveOptions = {},
+): string[] {
+  const result = new Set<string>();
+  const allTools = normalizeStringList(allToolNames);
+  const maxDepth = options.maxDepth ?? 8;
+
+  const visit = (raw: string, depth: number): void => {
+    const item = raw.trim();
+    if (!item) return;
+
+    if (item === "*") {
+      for (const tool of allTools) result.add(tool);
+      return;
+    }
+
+    if (item.startsWith("@")) {
+      if (depth >= maxDepth) return;
+      const groupName = item.slice(1).trim();
+      const group = groupName ? groups[groupName] : undefined;
+      if (!Array.isArray(group)) return;
+      for (const groupItem of group) {
+        if (typeof groupItem === "string") visit(groupItem, depth + 1);
+      }
+      return;
+    }
+
+    if (item.includes("*")) {
+      const regex = new RegExp(`^${escapeRegexLiteral(item).replace(/\*/g, ".*")}$`);
+      for (const tool of allTools) {
+        if (regex.test(tool)) result.add(tool);
+      }
+      return;
+    }
+
+    result.add(item);
+  };
+
+  for (const expression of expressions ?? []) {
+    if (typeof expression === "string") visit(expression, 0);
+  }
+
+  return [...result];
+}
+
+function toRoleToolExpressions(roles: readonly string[]): string[] {
+  return roles
+    .map((role) => role.trim())
+    .filter(Boolean)
+    .map((role) =>
+      role === "*" || role.startsWith("@") || role.includes("*")
+        ? role
+        : `@${role}`,
+    );
+}
+
+export function resolveAgentToolNames(
+  agent: {
+    roles?: readonly string[];
+    tools?: readonly string[];
+  },
+  groups: Record<string, readonly string[] | undefined> = {},
+  allToolNames: readonly string[] = [],
+): string[] | undefined {
+  if (Array.isArray(agent.roles) && agent.roles.length > 0) {
+    return resolveToolExpressions(
+      toRoleToolExpressions(agent.roles),
+      groups,
+      allToolNames,
+    );
+  }
+
+  if (Array.isArray(agent.tools) && agent.tools.length > 0) {
+    return resolveToolExpressions(agent.tools, groups, allToolNames);
+  }
+
+  return undefined;
+}
+
 function readJsonFile(filePath: string): Record<string, any> {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf-8"));

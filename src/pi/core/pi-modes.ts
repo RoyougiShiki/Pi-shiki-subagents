@@ -18,7 +18,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadRuntimeAgentDefinitions } from "../../adapters/agent-runtime-config";
+import { loadRuntimeAgentDefinitions, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
 import { DEFAULT_WORKFLOWS } from "../../config/schema";
 import { setToolScope, getToolScope } from "../policy/tool-scope-manager";
 
@@ -86,53 +86,6 @@ function loadAgentFile(name: string): { instructions: string; tools?: string[]; 
   return null;
 }
 
-// ── 工具表达式解析（支持 "*"、"@组"、通配符）───────────────────────────────────────
-
-/**
- * 解析工具表达式，支持三种语法：
- * - "*" — 全部工具
- * - "@组名" — 引用 _tool_groups 中的组
- * - "prefix_*" — 通配符匹配
- * - 字面量 — 直接返回
- *
- * @param expr 工具表达式数组
- * @param groups 工具组定义
- * @param allTools 全部工具列表（缓存）
- * @returns 解析后的工具名数组
- */
-function resolveToolsExpression(
-  expr: string[],
-  groups: Record<string, string[]>,
-  allTools: string[]
-): string[] {
-  const result = new Set<string>();
-
-  for (const item of expr) {
-    if (item === "*") {
-      // 全部工具
-      allTools.forEach(t => result.add(t));
-    } else if (item.startsWith("@")) {
-      // 组引用
-      const groupName = item.slice(1);
-      const group = groups[groupName];
-      if (group) {
-        group.forEach(t => result.add(t));
-      } else {
-        console.warn(`[omo-modes] Unknown tool group: ${groupName}`);
-      }
-    } else if (item.includes("*")) {
-      // 通配符匹配
-      const pattern = item.replace(/\*/g, ".*");
-      const regex = new RegExp(`^${pattern}$`);
-      allTools.filter(t => regex.test(t)).forEach(t => result.add(t));
-    } else {
-      // 字面量
-      result.add(item);
-    }
-  }
-
-  return [...result];
-}
 
 // ── Agent 定义加载 ────────────────────────────────────────────────────────
 
@@ -379,32 +332,7 @@ function loadToolGroups(): Record<string, string[]> {
 function resolveConfiguredTools(agent: AgentDefinition, allTools?: string[]): string[] {
   const groups = loadToolGroups();
   const toolsList = allTools || _cachedAllTools || [];
-
-  // 1. roles 映射到工具组
-  if (agent.roles && agent.roles.length > 0) {
-    if (Object.keys(groups).length === 0) {
-      // _tool_groups not found — return empty to force fallback to agent.tools
-      return [];
-    }
-    const tools = new Set<string>();
-    for (const role of agent.roles) {
-      const group = groups[role];
-      if (group) {
-        // 组内元素也可能是表达式，需要展开
-        const expanded = resolveToolsExpression(group, groups, toolsList);
-        expanded.forEach(t => tools.add(t));
-      }
-    }
-    return [...tools];
-  }
-
-  // 2. tools 字段解析表达式
-  if (agent.tools && agent.tools.length > 0) {
-    return resolveToolsExpression(agent.tools, groups, toolsList);
-  }
-
-  // 3. 都没有 → 返回空（由 applyAgentTools 决定是否使用 all）
-  return [];
+  return resolveAgentToolNames(agent, groups, toolsList) ?? [];
 }
 
 // ── Mode change callbacks (wired by composition root) ────────────────
@@ -526,7 +454,7 @@ export function validateModeAllowlist(allTools: string[]): string | null {
   const agent = getAgent(name);
   if (!agent) return `Mode "${name}" not found in agent definitions`;
 
-  const tools = resolveConfiguredTools(agent);
+  const tools = resolveConfiguredTools(agent, allTools);
   if (tools.length === 0 && !agent.roles) {
     return `Mode "${name}" has empty allowedTools`;
   }

@@ -19,7 +19,9 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { AgentConfig } from '../../adapters/agent-discovery';
 import {
+  getDefaultAgentsPath,
   loadRuntimeAgentDefinitions,
+  resolveAgentToolNames,
   type RuntimeAgentDefinition,
 } from '../../adapters/agent-runtime-config';
 import { getToolScope } from '../policy/tool-scope-manager';
@@ -112,12 +114,7 @@ function restoreAgentEnv(saved: AgentEnv): void {
 function getPiNativeConfigPath(): string {
   return path.join(os.homedir(), '.pi', 'agent', 'oh-my-opencode-slim.json');
 }
-const DEFAULTS_PATH = path.join(
-  __dirname,
-  '..',
-  'adapters',
-  'agents-default.json',
-);
+const DEFAULTS_PATH = getDefaultAgentsPath();
 const REGISTRY_FILENAME = 'pool-registry.json';
 const SESSION_DIR = path.join(
   os.homedir(),
@@ -166,27 +163,19 @@ function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
   return merged;
 }
 
+
 export function resolveSubagentToolNamesForAgent(
   agentName: string,
   cwd = process.cwd(),
+  allToolNames: readonly string[] = [],
 ): string[] | undefined {
   const runtime = loadRuntimeAgentDefinitions(cwd)[agentName] as
     | RuntimeAgentDefinition
     | undefined;
   if (!runtime) return undefined;
-  if (Array.isArray(runtime.tools) && runtime.tools.length > 0) {
-    return [
-      ...new Set(runtime.tools.map((tool) => tool.trim()).filter(Boolean)),
-    ];
-  }
-  if (Array.isArray(runtime.roles) && runtime.roles.length > 0) {
-    const groups = readToolGroups(cwd);
-    const tools = new Set<string>();
-    for (const role of runtime.roles) {
-      for (const tool of groups[role] ?? []) tools.add(tool);
-    }
-    return [...tools];
-  }
+
+  const groups = readToolGroups(cwd);
+  return resolveAgentToolNames(runtime, groups, allToolNames);
   return undefined;
 }
 
@@ -251,6 +240,7 @@ export async function runIsolatedTask(opts: {
   parentAgent?: string;
   depth?: number;
   allowedSubagents?: readonly string[];
+  allToolNames?: readonly string[];
 }): Promise<SingleResult> {
   const startTime = Date.now();
 
@@ -271,7 +261,7 @@ export async function runIsolatedTask(opts: {
       const created = await createAgentSession({
         cwd: opts.cwd,
         sessionManager: SessionManager.inMemory(),
-        tools: resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd),
+        tools: resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd, opts.allToolNames),
       });
       session = created.session;
 
@@ -391,6 +381,8 @@ export interface AgentPoolOptions {
   createSession?: typeof createAgentSession;
   /** Resolve modelId string to Model object. */
   resolveModel?: (modelId: string) => any | undefined;
+  /** Resolve all runtime tool names for expression expansion. */
+  resolveAllToolNames?: () => readonly string[];
 }
 
 export interface PoolEvent {
@@ -409,6 +401,9 @@ export class AgentPool {
   private readonly resolveModel:
     | ((modelId: string) => any | undefined)
     | undefined;
+  private readonly resolveAllToolNames:
+    | (() => readonly string[])
+    | undefined;
   private eventListeners: Array<(event: PoolEvent) => void> = [];
   private runStateListeners: Array<() => void> = [];
   private runState = createSubagentRunState();
@@ -418,6 +413,7 @@ export class AgentPool {
     this.sessionDir = options.sessionDir ?? SESSION_DIR;
     this.createSession = options.createSession ?? createAgentSession;
     this.resolveModel = options.resolveModel;
+    this.resolveAllToolNames = options.resolveAllToolNames;
   }
 
   onEvent(cb: (event: PoolEvent) => void): () => void {
@@ -505,11 +501,12 @@ export class AgentPool {
         modelStr && this.resolveModel ? this.resolveModel(modelStr) : undefined;
 
       let session: AgentSession | undefined;
+      const allToolNames = this.resolveAllToolNames?.() ?? [];
       const resolvedTools = resolveSubagentToolNamesForAgent(
         opts.agent.name,
         opts.cwd,
+        allToolNames,
       );
-
       try {
         const created = await this.createSession({
           cwd: opts.cwd,
@@ -805,6 +802,11 @@ export class AgentPool {
     (this as any).resolveModel = resolver;
   }
 
+  /** Set or update the all-tool-names resolver for tool expression expansion. */
+  setAllToolNamesResolver(resolver: () => readonly string[]): void {
+    (this as any).resolveAllToolNames = resolver;
+  }
+
   async kill(id: string): Promise<boolean> {
     const entry = this.agents.get(id);
     if (!entry) return false;
@@ -880,6 +882,13 @@ export function initPoolModelResolver(
   resolver: (modelId: string) => any | undefined,
 ): void {
   getPool().setModelResolver(resolver);
+}
+
+/** Configure singleton pool with all tool names resolver for expression expansion. */
+export function initPoolAllToolNamesResolver(
+  resolver: () => readonly string[],
+): void {
+  getPool().setAllToolNamesResolver(resolver);
 }
 
 export async function resetPool(): Promise<void> {

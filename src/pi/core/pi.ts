@@ -99,6 +99,7 @@ export {
 } from '../meeting/pi-meeting';
 import {
   getPool,
+  initPoolAllToolNamesResolver,
   initPoolModelResolver,
   resolveDelegationCaller,
   resolveSubagentToolNamesForAgent,
@@ -1040,6 +1041,12 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         modelId.slice(slash + 1),
       );
     });
+    initPoolAllToolNamesResolver(() =>
+      pi
+        .getAllTools()
+        .map((tool: any) => tool.name)
+        .filter(Boolean),
+    );
 
     ensureAgentFiles();
 
@@ -1120,6 +1127,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           const resolvedToolNames = resolveSubagentToolNamesForAgent(
             agentName,
             process.cwd(),
+            allToolNames,
           );
           const allowed = new Set(resolvedToolNames ?? []);
 

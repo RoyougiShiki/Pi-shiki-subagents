@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   consumePipelineDelegationGrant,
   issuePipelineDelegationGrant,
@@ -19,6 +22,24 @@ function makeAgent(name = 'worker'): AgentConfig {
     systemPrompt: `${name} prompt`,
     model: `test/${name}`,
   };
+}
+
+function withIsolatedHome<T>(fn: () => T): T {
+  const previousHome = process.env.HOME;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-subagent-tools-'));
+  process.env.HOME = path.join(tempDir, 'home');
+  try {
+    return fn();
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function writeJson(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
 /**
@@ -173,6 +194,134 @@ describe('resolveDelegationCaller', () => {
     expect(fixerTools.includes('write')).toBe(true);
     expect(fixerTools.includes('edit')).toBe(true);
     expect(fixerTools.includes('bash')).toBe(true);
+  });
+
+  test('expands default nested role groups and wildcard expressions with tool names', () => {
+    withIsolatedHome(() => {
+      const allToolNames = [
+        'read',
+        'write',
+        'edit',
+        'bash',
+        'omo_subagent',
+        'omo_council',
+        'codebase_memory_search_graph',
+        'context_mode_ctx_search',
+      ];
+
+      const dispatcherTools = resolveSubagentToolNamesForAgent(
+        'dispatcher',
+        process.cwd(),
+        allToolNames,
+      );
+      expect(dispatcherTools).toEqual(['omo_subagent', 'omo_council']);
+      expect(dispatcherTools).not.toContain('@子代理');
+
+      const fixerTools = resolveSubagentToolNamesForAgent(
+        'fixer',
+        process.cwd(),
+        allToolNames,
+      ) ?? [];
+      expect(fixerTools).toContain('codebase_memory_search_graph');
+      expect(fixerTools).toContain('context_mode_ctx_search');
+      expect(fixerTools).not.toContain('codebase_*');
+    });
+  });
+
+  test('expands explicit tool group references from runtime config', () => {
+    withIsolatedHome(() => {
+      writeJson(
+        path.join(
+          process.env.HOME!,
+          '.pi',
+          'agent',
+          'oh-my-opencode-slim.json',
+        ),
+        {
+          agents: {
+            custom: {
+              type: 'subagent',
+              tools: ['@管理'],
+            },
+          },
+        },
+      );
+
+      expect(
+        resolveSubagentToolNamesForAgent('custom', process.cwd(), [
+          'omo_subagent',
+          'omo_council',
+        ]),
+      ).toEqual(['omo_subagent', 'omo_council']);
+    });
+  });
+
+  test('keeps roles priority over broader explicit tools', () => {
+    withIsolatedHome(() => {
+      writeJson(
+        path.join(
+          process.env.HOME!,
+          '.pi',
+          'agent',
+          'oh-my-opencode-slim.json',
+        ),
+        {
+          agents: {
+            constrained: {
+              type: 'subagent',
+              roles: ['读'],
+              tools: ['*'],
+            },
+          },
+        },
+      );
+
+      expect(
+        resolveSubagentToolNamesForAgent('constrained', process.cwd(), [
+          'read',
+          'write',
+          'edit',
+        ]),
+      ).toEqual(['read']);
+    });
+  });
+
+  test('expands role expressions with the shared agent resolver semantics', () => {
+    withIsolatedHome(() => {
+      writeJson(
+        path.join(
+          process.env.HOME!,
+          '.pi',
+          'agent',
+          'oh-my-opencode-slim.json',
+        ),
+        {
+          agents: {
+            manager: {
+              type: 'subagent',
+              roles: ['@管理'],
+            },
+            codeSearch: {
+              type: 'subagent',
+              roles: ['codebase_*'],
+            },
+          },
+        },
+      );
+
+      expect(
+        resolveSubagentToolNamesForAgent('manager', process.cwd(), [
+          'omo_subagent',
+          'omo_council',
+        ]),
+      ).toEqual(['omo_subagent', 'omo_council']);
+      expect(
+        resolveSubagentToolNamesForAgent('codeSearch', process.cwd(), [
+          'read',
+          'codebase_memory_search_graph',
+        ]),
+      ).toEqual(['codebase_memory_search_graph']);
+    });
   });
 
   test('pipeline stage primary grant is not issued when caller is missing', () => {
