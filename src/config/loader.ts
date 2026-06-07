@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { homedir } from 'node:os';
 import { type PluginConfig, PluginConfigSchema } from './schema';
+import { parseJsonc } from './jsonc';
 
 const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
 
@@ -21,7 +22,7 @@ function loadConfigFromPath(configPath: string, options?: LoadPluginConfigOption
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
     // Use stripJsonComments to support JSONC format (comments and trailing commas)
-    const rawConfig = JSON.parse(stripJsonComments(content));
+    const rawConfig = parseJsonc(content);
     const result = PluginConfigSchema.safeParse(rawConfig);
 
     if (!result.success) {
@@ -85,19 +86,6 @@ function findConfigPathInDirs(
   return null;
 }
 
-// ── Local helpers (moved from cli/ to break circular dependency) ──
-
-function stripJsonComments(json: string): string {
-  const commentPattern = /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g;
-  const trailingCommaPattern = /\\"|"(?:\\"|[^"])*"|(,)(\s*[}\]])/g;
-  return json
-    .replace(commentPattern, (match, commentGroup) =>
-      commentGroup ? '' : match,
-    )
-    .replace(trailingCommaPattern, (match, comma, closing) =>
-      comma ? closing : match,
-    );
-}
 
 function getConfigSearchDirs(): string[] {
   const customDir = process.env.OPENCODE_CONFIG_DIR?.trim();

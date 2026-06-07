@@ -256,6 +256,52 @@ describe('resolveDelegationCaller', () => {
     });
   });
 
+  test('reads project tool groups from jsonc with comments and trailing commas', () => {
+    withIsolatedHome(() => {
+      const projectDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'omo-subagent-project-jsonc-'),
+      );
+      try {
+        writeJson(
+          path.join(
+            process.env.HOME!,
+            '.pi',
+            'agent',
+            'oh-my-opencode-slim.json',
+          ),
+          {
+            agents: {
+              custom: {
+                type: 'subagent',
+                tools: ['@customGroup'],
+              },
+            },
+          },
+        );
+        fs.mkdirSync(path.join(projectDir, '.opencode'), { recursive: true });
+        fs.writeFileSync(
+          path.join(projectDir, '.opencode', 'oh-my-opencode-slim.jsonc'),
+          `{
+            // project-local tool group
+            "_tool_groups": {
+              "customGroup": ["read", "write",],
+            },
+          }`,
+        );
+
+        expect(
+          resolveSubagentToolNamesForAgent('custom', projectDir, [
+            'read',
+            'write',
+            'edit',
+          ]),
+        ).toEqual(['read', 'write']);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   test('keeps roles priority over broader explicit tools', () => {
     withIsolatedHome(() => {
       writeJson(

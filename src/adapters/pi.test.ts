@@ -350,7 +350,7 @@ describe('Pi adapter config helpers', () => {
   "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/schema.json", // trailing comment
   /* block comment */
   "council": {
-    "meeting_backend": "collaborating"
+    "meeting_backend": "collaborating",
   }
 }`;
 
@@ -447,6 +447,24 @@ describe('Pi adapter config helpers', () => {
       reasoningEffort: 'medium',
     });
     expect(config?.disabled_agents).toEqual(['observer']);
+  });
+  test('loads Pi native .jsonc config with comments and trailing commas', async () => {
+    const piAgentDir = testPiAgentDir;
+    fs.mkdirSync(piAgentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(piAgentDir, 'oh-my-opencode-slim.jsonc'),
+      `{
+        // Pi-native JSONC config
+        "agents": {
+          "oracle": { "model": "pi-native/jsonc-model", },
+        },
+      }`,
+    );
+
+    const piModule = await import('../pi/core/pi');
+    const config = piModule.loadOmniMoConfig(projectDir);
+
+    expect(config?.agents?.oracle?.model).toBe('pi-native/jsonc-model');
   });
 
   test('merges Pi native, OpenCode user, and project config in precedence order', async () => {

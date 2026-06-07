@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { deepMerge, loadPluginConfig } from "../config/loader";
+import { parseJsonc } from "../config/jsonc";
+import {
+  getPiNativeConfigPath,
+  readPiNativeConfigObject,
+} from "../config/pi-native";
 
 export interface RuntimeAgentDefinition {
   type?: "mode" | "subagent" | "both";
@@ -118,7 +122,7 @@ export function resolveAgentToolNames(
 
 function readJsonFile(filePath: string): Record<string, any> {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    return parseJsonc<Record<string, any>>(fs.readFileSync(filePath, "utf-8"));
   } catch {
     return {};
   }
@@ -128,12 +132,8 @@ export function getDefaultAgentsPath(): string {
   return path.join(__dirname, "agents-default.json");
 }
 
-function getHomeDir(): string {
-  return process.env.HOME || os.homedir();
-}
-
 export function getUserConfigPath(): string {
-  return path.join(getHomeDir(), ".pi", "agent", "oh-my-opencode-slim.json");
+  return getPiNativeConfigPath();
 }
 
 function normalizeConfigAgents(config: Record<string, any>): Record<string, RuntimeAgentDefinition> {
@@ -157,7 +157,7 @@ function normalizeConfigAgents(config: Record<string, any>): Record<string, Runt
 }
 
 function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinition> {
-  const piNativeAgents = normalizeConfigAgents(readJsonFile(getUserConfigPath()));
+  const piNativeAgents = normalizeConfigAgents(readPiNativeConfigObject());
 
   const sharedConfig = loadPluginConfig(cwd, { quiet: true });
   const sharedAgents = sharedConfig.agents && typeof sharedConfig.agents === "object"

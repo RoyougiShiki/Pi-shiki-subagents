@@ -14,6 +14,7 @@ import {
   getLiteConfig,
 } from './paths';
 import { generateLiteConfig } from './providers';
+import { parseJsonc, stripJsonComments as stripJsonCommentsContent } from '../config/jsonc';
 import type {
   ConfigMergeResult,
   DetectedConfig,
@@ -127,16 +128,7 @@ function getPluginEntry(): string {
  * Strip JSON comments (single-line // and multi-line) and trailing commas for JSONC support.
  */
 export function stripJsonComments(json: string): string {
-  const commentPattern = /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g;
-  const trailingCommaPattern = /\\"|"(?:\\"|[^"])*"|(,)(\s*[}\]])/g;
-
-  return json
-    .replace(commentPattern, (match, commentGroup) =>
-      commentGroup ? '' : match,
-    )
-    .replace(trailingCommaPattern, (match, comma, closing) =>
-      comma ? closing : match,
-    );
+  return stripJsonCommentsContent(json);
 }
 
 export function parseConfigFile(path: string): {
@@ -149,7 +141,7 @@ export function parseConfigFile(path: string): {
     if (stat.size === 0) return { config: null };
     const content = readFileSync(path, 'utf-8');
     if (content.trim().length === 0) return { config: null };
-    return { config: JSON.parse(stripJsonComments(content)) as OpenCodeConfig };
+    return { config: parseJsonc<OpenCodeConfig>(content) };
   } catch (err) {
     return { config: null, error: String(err) };
   }

@@ -19,6 +19,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadRuntimeAgentDefinitions, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
+import { parseJsonc } from "../../config/jsonc";
+import {
+  getPiNativeConfigPath,
+  readPiNativeConfigObject,
+} from "../../config/pi-native";
 import { DEFAULT_WORKFLOWS } from "../../config/schema";
 import { setToolScope, getToolScope } from "../policy/tool-scope-manager";
 
@@ -49,7 +54,7 @@ const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-mod
 let _currentSessionFile: string | undefined;
 
 function getConfigPath(): string {
-  return path.join(homedir(), ".pi", "agent", "oh-my-opencode-slim.json");
+  return getPiNativeConfigPath();
 }
 
 // ── .md 文件解析 ──────────────────────────────────────────────────────────
@@ -139,17 +144,14 @@ export function getIntentPattern(name: string): RegExp {
 function ensureToolGroups(): Record<string, string[]> {
   if (_toolGroups) return _toolGroups;
   // Try user config first
-  try {
-    const configPath = getConfigPath();
-    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    if (raw._tool_groups) {
-      _toolGroups = raw._tool_groups;
-      return _toolGroups!;
-    }
-  } catch {}
+  const raw = readPiNativeConfigObject();
+  if (raw._tool_groups) {
+    _toolGroups = raw._tool_groups;
+    return _toolGroups!;
+  }
   // Fall back to defaults
   try {
-    const raw = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+    const raw = parseJsonc<Record<string, any>>(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
     _toolGroups = raw._tool_groups || {};
   } catch {
     _toolGroups = {};
@@ -506,11 +508,11 @@ export function registerModeCommands(pi: ExtensionAPI): void {
   // Auto-populate oh-my-opencode-slim.json with defaults when missing
   try {
     const configPath = getConfigPath();
-    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    const raw = parseJsonc<Record<string, any>>(fs.readFileSync(configPath, "utf-8"));
     let changed = false;
 
     if (!raw.agents && fs.existsSync(DEFAULTS_PATH)) {
-      raw.agents = JSON.parse(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
+      raw.agents = parseJsonc<Record<string, any>>(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
       changed = true;
     }
 

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { MODE_MESSAGE_TYPES, emitModeSwitched, runWithModeSwitchOrigin } from './pi-modes';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { MODE_MESSAGE_TYPES, emitModeSwitched, runWithModeSwitchOrigin, validateModeAllowlist } from './pi-modes';
 import { setToolScope, resetToolScope } from '../policy/tool-scope-manager';
 
 describe('mode switch notices', () => {
@@ -51,5 +54,35 @@ describe('mode switch notices', () => {
     });
 
     expect(values).toEqual(['outer', 'inner', 'outer-after']);
+  });
+});
+
+describe('mode tool config parsing', () => {
+  test('loads Pi-native jsonc tool groups for mode validation', async () => {
+    const previousHome = process.env.HOME;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-modes-jsonc-'));
+    process.env.HOME = path.join(tempDir, 'home');
+    const configDir = path.join(process.env.HOME, '.pi', 'agent');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'oh-my-opencode-slim.jsonc'),
+      `{
+        // Mode tool group override
+        "_tool_groups": {
+          "交互": ["ask_user_question",],
+          "子代理": ["omo_subagent",],
+        },
+      }`,
+    );
+
+    try {
+      expect(
+        validateModeAllowlist(['ask_user_question', 'omo_subagent']),
+      ).toBeNull();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

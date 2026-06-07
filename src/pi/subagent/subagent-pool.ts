@@ -24,7 +24,9 @@ import {
   resolveAgentToolNames,
   type RuntimeAgentDefinition,
 } from '../../adapters/agent-runtime-config';
+import { parseJsonc } from '../../config/jsonc';
 import { getToolScope } from '../policy/tool-scope-manager';
+import { readPiNativeConfigObject } from '../../config/pi-native';
 import { toSubagentRunEvents } from './subagent-run-adapter';
 import type { SubagentRunEvent, SubagentRunStatus } from './subagent-run-state';
 import {
@@ -111,9 +113,6 @@ function restoreAgentEnv(saved: AgentEnv): void {
   }
 }
 
-function getPiNativeConfigPath(): string {
-  return path.join(os.homedir(), '.pi', 'agent', 'oh-my-opencode-slim.json');
-}
 const DEFAULTS_PATH = getDefaultAgentsPath();
 const REGISTRY_FILENAME = 'pool-registry.json';
 const SESSION_DIR = path.join(
@@ -124,6 +123,21 @@ const SESSION_DIR = path.join(
   'subagents',
 );
 
+function readConfigObject(filePath: string): Record<string, any> {
+  try {
+    return parseJsonc<Record<string, any>>(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function readFirstConfigObject(filePaths: readonly string[]): Record<string, any> {
+  for (const filePath of filePaths) {
+    const config = readConfigObject(filePath);
+    if (Object.keys(config).length > 0) return config;
+  }
+  return {};
+}
 function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
   const merged: Record<string, string[]> = {};
   const mergeGroups = (groups: unknown) => {
@@ -139,27 +153,19 @@ function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
     }
   };
 
-  try {
-    const defaults = JSON.parse(fs.readFileSync(DEFAULTS_PATH, 'utf-8'));
-    mergeGroups(defaults._tool_groups);
-  } catch {}
-  try {
-    const userConfig = JSON.parse(
-      fs.readFileSync(getPiNativeConfigPath(), 'utf-8'),
-    );
-    mergeGroups(userConfig._tool_groups);
-  } catch {}
-  try {
-    const projectConfigPath = path.join(
-      cwd,
-      '.opencode',
-      'oh-my-opencode-slim.json',
-    );
-    const projectConfig = JSON.parse(
-      fs.readFileSync(projectConfigPath, 'utf-8'),
-    );
-    mergeGroups(projectConfig._tool_groups);
-  } catch {}
+  mergeGroups(readConfigObject(DEFAULTS_PATH)._tool_groups);
+  mergeGroups(readPiNativeConfigObject()._tool_groups);
+  const projectConfigBase = path.join(
+    cwd,
+    '.opencode',
+    'oh-my-opencode-slim',
+  );
+  mergeGroups(
+    readFirstConfigObject([
+      `${projectConfigBase}.jsonc`,
+      `${projectConfigBase}.json`,
+    ])._tool_groups,
+  );
   return merged;
 }
 
@@ -176,7 +182,6 @@ export function resolveSubagentToolNamesForAgent(
 
   const groups = readToolGroups(cwd);
   return resolveAgentToolNames(runtime, groups, allToolNames);
-  return undefined;
 }
 
 interface PoolAgentRecord {

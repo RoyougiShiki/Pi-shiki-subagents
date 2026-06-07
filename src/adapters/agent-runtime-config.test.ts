@@ -129,6 +129,23 @@ describe('runtime agent config', () => {
     expect(defs.oracle?.tools).toEqual(['read', 'grep']);
   });
 
+  test('parses Pi native runtime .jsonc config with comments and trailing commas', () => {
+    fs.mkdirSync(path.join(process.env.HOME!, '.pi', 'agent'), { recursive: true });
+    fs.writeFileSync(
+      path.join(process.env.HOME!, '.pi', 'agent', 'oh-my-opencode-slim.jsonc'),
+      `{
+        // native config comment
+        "agents": {
+          "oracle": { "model": "pi-native/jsonc-model", },
+        },
+      }`,
+    );
+
+    const defs = loadRuntimeAgentDefinitions(projectDir);
+
+    expect(defs.oracle?.model).toBe('pi-native/jsonc-model');
+  });
+
   test('accepts thinking from shared JSON agent config', () => {
     writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
       agents: {

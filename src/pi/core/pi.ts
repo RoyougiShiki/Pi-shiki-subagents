@@ -121,6 +121,11 @@ import { getHub } from '../meeting/pi-hub';
 import type { WorkflowsConfig } from '../../core/workflow-types';
 import type { HarnessConfig } from '../../config/schema';
 import { deepMerge, loadPluginConfig } from '../../config/loader';
+import { stripJsonComments } from '../../config/jsonc';
+import {
+  getPiNativeConfigPath as resolvePiNativeConfigPath,
+  readPiNativeConfigObject,
+} from '../../config/pi-native';
 import { loadRuntimeAgentDefinitions } from '../../adapters/agent-runtime-config';
 import {
   PRESET_CONFIGURABLE_AGENT_NAMES,
@@ -224,73 +229,7 @@ interface PiDelegationCapabilities {
 }
 
 export function stripJsonCommentsSafely(raw: string): string {
-  let out = '';
-  let i = 0;
-  let inString = false;
-  let escaping = false;
-  let lineComment = false;
-  let blockComment = false;
-
-  while (i < raw.length) {
-    const ch = raw[i]!;
-    const next = raw[i + 1];
-
-    if (lineComment) {
-      if (ch === '\n') {
-        lineComment = false;
-        out += ch;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (blockComment) {
-      if (ch === '*' && next === '/') {
-        blockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inString) {
-      out += ch;
-      if (escaping) {
-        escaping = false;
-      } else if (ch === '\\') {
-        escaping = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-      out += ch;
-      i += 1;
-      continue;
-    }
-
-    if (ch === '/' && next === '/') {
-      lineComment = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === '/' && next === '*') {
-      blockComment = true;
-      i += 2;
-      continue;
-    }
-
-    out += ch;
-    i += 1;
-  }
-
-  return out;
+  return stripJsonComments(raw);
 }
 
 export function getPiAgentDirForConfig(): string {
@@ -298,22 +237,12 @@ export function getPiAgentDirForConfig(): string {
 }
 
 function readPiNativeConfig(): OmniMoConfig | null {
-  const configBase = path.join(getPiAgentDirForConfig(), 'oh-my-opencode-slim');
-  for (const configPath of [`${configBase}.jsonc`, `${configBase}.json`]) {
-    try {
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      return JSON.parse(stripJsonCommentsSafely(raw)) as OmniMoConfig;
-    } catch {}
-  }
-  return null;
+  const config = readPiNativeConfigObject(getPiAgentDirForConfig());
+  return Object.keys(config).length > 0 ? (config as OmniMoConfig) : null;
 }
 
 function getPiNativeConfigPath(): string {
-  const configBase = path.join(getPiAgentDirForConfig(), 'oh-my-opencode-slim');
-  const jsoncPath = `${configBase}.jsonc`;
-  const jsonPath = `${configBase}.json`;
-  if (fs.existsSync(jsoncPath)) return jsoncPath;
-  return jsonPath;
+  return resolvePiNativeConfigPath(getPiAgentDirForConfig());
 }
 
 function writePiNativeConfig(config: OmniMoConfig): void {
