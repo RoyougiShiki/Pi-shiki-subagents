@@ -94,28 +94,32 @@ The run state is an observability summary, not a transcript. It must keep bounde
 
 This document records the boundary and scope before code changes.
 
-### Phase 1 — pure state and view model
+### Phase 1 — pure state, view model, and session snapshot contract
 
 Add pure modules and tests only:
 
 ```txt
 src/pi/subagent/subagent-run-state.ts
 src/pi/subagent/subagent-run-view.ts
+src/pi/subagent/subagent-session-contract.ts
 src/pi/subagent/subagent-run-state.test.ts
 src/pi/subagent/subagent-run-view.test.ts
+src/pi/subagent/subagent-session-contract.test.ts
 ```
 
 Expected behavior:
 
 - reduce normalized run events into bounded run state.
 - build a semantic JSON tree view model.
-- format elapsed time and optional usage summaries.
-- preserve parent/child nesting.
+- expose stable session/activity snapshots for future Pi TUI, Tauri, or chat/session surfaces.
+- preserve parent/child nesting so nested subagent calls remain visible.
+- preserve parallel/asynchronous runs as independent snapshots ordered by start time.
+- map runtime statuses into neutral activity phases without changing runtime behavior.
 - avoid all Pi SDK and TUI imports.
 
-### Phase 2 — runtime wiring
+### Phase 2 — runtime wiring and consumer migration
 
-Later, wire `src/pi/subagent/subagent-pool.ts` into the pure state via an adapter that converts `session.subscribe()` events to normalized `SubagentRunEvent` records.
+Later, migrate runtime consumers to the pure contracts in small steps. Existing `subagent-pool.ts` already records normalized run events; future work should feed terminal widgets, Tauri surfaces, and any session/chat overlay from `subagent-session-contract.ts` rather than introducing another state model.
 
 This phase requires separate review before implementation.
 
@@ -131,9 +135,9 @@ Add `renderCall` / `renderResult` / `details` to `omo_subagent` for read/write-l
 
 Long-running asynchronous pool agents should not rely on old tool rows for live updates.
 
-### Phase 5 — optional overlay or Tauri surface
+### Phase 5 — optional overlay, chat/session, or Tauri surface
 
-A later Tauri GUI or detail overlay should consume the same semantic JSON view model rather than TUI component output.
+A later Tauri GUI, chat/session surface, or detail overlay should consume the same semantic JSON snapshots rather than TUI component output.
 
 ## References
 
@@ -156,7 +160,7 @@ Useful reference patterns:
 
 Oracle approved Phase 0 and Phase 1 only, with these guardrails:
 
-- Keep Phase 1 strictly pure: no Pi SDK, no `AgentSession`, no `ctx`, no `pi-tui`.
-- Tests must assert bounds and tree identity behavior.
+- Keep pure state/session contracts strictly pure: no Pi SDK, no `AgentSession`, no `ctx`, no `pi-tui`.
+- Tests must assert bounds, tree identity behavior, activity phase mapping, and parallel/nested snapshot stability.
 - Usage/cost/context fields are optional and absent by default.
-- Any Phase 2 runtime wiring requires a separate review.
+- Any runtime consumer migration requires a separate review.
