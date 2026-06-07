@@ -6,9 +6,11 @@ Complete reference for the maintained Pi adapter and shared configuration surfac
 
 | File | Purpose |
 |------|---------|
+| `~/.pi/agent/oh-my-opencode-slim.jsonc` | Pi adapter runtime settings; JSONC variant; takes precedence over `.json` |
 | `~/.pi/agent/oh-my-opencode-slim.json` | Pi adapter runtime settings — agents, modes, tool groups, workflows seed data, council |
+| `~/.config/opencode/oh-my-opencode-slim.jsonc` | Legacy-compatible user config JSONC path still read by the shared loader; takes precedence over `.json` |
 | `~/.config/opencode/oh-my-opencode-slim.json` | Legacy-compatible user config path still read by the shared loader |
-| `~/.config/opencode/oh-my-opencode-slim.jsonc` | JSONC variant; takes precedence over `.json` when both exist |
+| `.opencode/oh-my-opencode-slim.jsonc` | Project-local JSONC overrides; takes precedence over `.json` |
 | `.opencode/oh-my-opencode-slim.json` | Project-local overrides |
 
 JSONC supports comments and trailing commas.

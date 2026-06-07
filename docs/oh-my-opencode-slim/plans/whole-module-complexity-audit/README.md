@@ -316,15 +316,15 @@ Validation:
 - Council/meeting targeted tests or smoke.
 - `bun run typecheck`.
 
-### P1.7 Correct package/README Pi extension mismatch
+### P1.7 Keep package/README Pi extension declarations aligned
 
-Recommendation: simplify docs/config.
+Recommendation: keep docs/config aligned.
 
 Rationale:
 
-- `README.md` shows `pi.extensions` with both `./src/pi/core/pi.ts` and `./src/pi/core/pi-modes.ts`.
-- `package.json` currently lists only `./src/pi/core/pi.ts` under `pi.extensions`.
-- The active runtime appears to register modes internally from `pi.ts`; docs should match the package to avoid duplicate extension loading or user confusion.
+- Current `README.md` and `package.json` list the same single Pi extension: `./src/pi/core/pi.ts`.
+- The active runtime registers modes internally from `pi.ts`; docs should continue to avoid duplicate `pi-modes.ts` extension loading examples.
+- Future extension-entry changes should update README and package metadata together.
 
 Cost: small.
 
@@ -334,7 +334,7 @@ Risk: low.
 
 Validation:
 
-- Grep docs for `pi.extensions`.
+- Grep docs for `pi.extensions` and `pi-modes.ts` extension examples.
 - Confirm extension loads with package config.
 
 ### P1.8 Mark or update stale platform-adapter cleanup plan
@@ -343,9 +343,8 @@ Recommendation: simplify docs.
 
 Rationale:
 
-- `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md` still states that `src/index.ts` exports old OpenCode adapter code and that `pi.extensions` includes `pi-modes.ts`.
-- Current `src/index.ts` is already a lightweight warning-only placeholder, and package Pi extensions list only `pi.ts`.
-- Keeping stale cleanup instructions increases the risk of reintroducing removed legacy OpenCode assumptions.
+- `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md` is now marked as a historical design draft and notes current facts: single `pi.ts` extension and `src/index.ts` as a warning-only compatibility stub.
+- Keeping the stale plan explicitly marked historical reduces the risk of reintroducing removed legacy OpenCode assumptions while preserving useful background context.
 
 Cost: small.
 

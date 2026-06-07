@@ -8,8 +8,7 @@ The maintained runtime is the Pi adapter declared in `package.json`:
 {
   "pi": {
     "extensions": [
-      "./src/pi/core/pi.ts",
-      "./src/pi/core/pi-modes.ts"
+      "./src/pi/core/pi.ts"
     ]
   }
 }

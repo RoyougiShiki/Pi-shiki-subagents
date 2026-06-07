@@ -1,8 +1,9 @@
 # Platform Adapter Cleanup - 清理旧 OpenCode 适配实现设计
 
-> 状态:设计草案,尚未实施删除。
+> 状态:历史设计草案,当前事实已部分变化;请以 README、package.json 和 whole-module-complexity-audit 为准。
 > 日期:2026-06-01
 > 目标:整理当前维护中的平台适配层,保留可复用共享层,清理长期未维护的旧 OpenCode adapter 实现。
+> 当前快照: package.json 只声明 `./src/pi/core/pi.ts` 一个 Pi extension; `src/index.ts` 已是 legacy warning stub,不是旧 OpenCode adapter 导出。
 
 ---
 
@@ -35,13 +36,12 @@ src/pi/subagent/**
 src/pi/compliance.ts
 ```
 
-入口由 `package.json` 的 `pi.extensions` 声明:
+入口由 `package.json` 的 `pi.extensions` 声明;当前只加载主 composition root:
 
 ```json
 "pi": {
   "extensions": [
-    "./src/pi/core/pi.ts",
-    "./src/pi/core/pi-modes.ts"
+    "./src/pi/core/pi.ts"
   ]
 }
 ```
@@ -71,7 +71,7 @@ oh-my-opencode-slim.schema.json
 
 ### 1.3 Legacy OpenCode adapter
 
-以下目录/文件属于旧 OpenCode 实现。当前调查结论是:Pi 扩展不 import 它们。
+以下目录/文件是本草案创建时的 legacy OpenCode 删除候选。当前仓库快照中部分路径已经不存在,`src/index.ts` 也已变成 warning-only stub;不要把本段当作当前事实清单。
 
 ```text
 src/index.ts
@@ -83,35 +83,33 @@ src/council/**
 src/hooks/**
 ```
 
-这些是删除候选,但删除前需先调整 package/build/scripts,避免旧入口断裂导致测试或发布脚本失败。
+这些是历史删除候选;再次执行前需用当前 tree/package/build 脚本重新分类。
 
 ---
 
 ## 2. 关键风险
 
-### 2.1 package 入口仍指向旧 OpenCode
+### 2.1 package 入口已是 legacy compatibility stub
 
-当前 `package.json` 仍有旧入口:
+当前 `package.json` 仍保留 npm `main` 字段:
 
 ```json
 "main": "dist/index.js"
 ```
 
-`dist/index.js` 来自 `src/index.ts`,而 `src/index.ts` 导出旧 `src/opencode/opencode.ts`。
+当前 `src/index.ts` 是 legacy OpenCode plugin entrypoint warning stub,用于保持 npm main 可 import;它不再导出旧 `src/opencode/opencode.ts`。因此本草案关于旧 OpenCode 导出的描述已过时。
 
-如果直接删除旧 OpenCode 代码而不调整 package/build,构建和 npm 入口会断。
+### 2.2 package files 已包含 Pi adapter,仍需发布前验证
 
-### 2.2 package files 未明确包含 Pi adapter
-
-当前 `files` 需要确认是否包含当前维护入口:
+当前 `package.json.files` 已包含当前维护入口:
 
 ```text
 src/pi/**
 ```
 
-如果 npm 包发布时未包含 `src/pi`,Pi extension 入口会缺失。
+发布前仍应由 release verification 确认 `src/pi`,共享层和生成产物符合当前包边界。
 
-### 2.3 构建脚本仍围绕旧 OpenCode plugin
+### 2.3 构建脚本仍需按当前 Pi/shared 边界评估
 
 当前构建脚本包括:
 
