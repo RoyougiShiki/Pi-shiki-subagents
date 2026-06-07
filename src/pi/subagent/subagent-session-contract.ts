@@ -64,6 +64,18 @@ function activityPhaseForStatus(status: SubagentRunStatus): SubagentActivityPhas
   }
 }
 
+function cloneRecentEvent(
+  event: SubagentRecentEvent | undefined,
+): SubagentRecentEvent | undefined {
+  return event ? { ...event } : undefined;
+}
+
+function cloneUsage(
+  usage: SubagentUsageSnapshot | undefined,
+): SubagentUsageSnapshot | undefined {
+  return usage ? { ...usage } : undefined;
+}
+
 function latestEvent(run: SubagentRunRecord): SubagentRecentEvent | undefined {
   return run.recentEvents.at(-1);
 }
@@ -119,7 +131,7 @@ export function toSubagentSessionSnapshot(
     status: run.status,
     activity: {
       phase: activityPhaseForStatus(run.status),
-      latestEvent: latest,
+      latestEvent: cloneRecentEvent(latest),
       updatedAt: updatedAt(run),
       toolCount: run.toolCount,
     },
@@ -134,7 +146,7 @@ export function toSubagentSessionSnapshot(
     model: run.model,
     resultSummary: resultSummary(run),
     errorMessage: run.errorMessage,
-    usage: run.usage,
+    usage: cloneUsage(run.usage),
   };
 }
 

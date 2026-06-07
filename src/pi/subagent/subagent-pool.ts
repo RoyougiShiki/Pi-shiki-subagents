@@ -38,6 +38,10 @@ import {
   type SubagentRunTreeView,
   type SubagentRunViewOptions,
 } from './subagent-run-view';
+import {
+  createSubagentSessionSnapshots,
+  type SubagentSessionSnapshot,
+} from './subagent-session-contract';
 
 // ── Simple mutex for serializing spawn / runIsolatedTask calls ────────
 // These functions read/write process.env.OMO_* which is a global. Concurrent
@@ -462,6 +466,10 @@ export class AgentPool {
 
   getRunTreeView(options?: SubagentRunViewOptions): SubagentRunTreeView {
     return createSubagentRunTreeView(this.runState, options);
+  }
+
+  getSubagentSessionSnapshots(): SubagentSessionSnapshot[] {
+    return createSubagentSessionSnapshots(this.runState);
   }
 
   async spawn(opts: {

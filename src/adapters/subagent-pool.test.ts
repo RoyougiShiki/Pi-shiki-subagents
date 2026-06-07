@@ -695,6 +695,16 @@ describe('AgentPool basic operations', () => {
     expect(view.roots.map((run) => run.runId)).toEqual(['parent-run']);
     expect(view.roots[0]?.children[0]?.runId).toBe('nested-run');
     expect(view.roots[0]?.children[0]?.parentRunId).toBe('parent-run');
+    const snapshots = parentedPool.getSubagentSessionSnapshots();
+    expect(snapshots.map((snapshot) => snapshot.runId)).toEqual([
+      'parent-run',
+      'nested-run',
+    ]);
+    expect(snapshots[1]?.lineage.parentRunId).toBe('parent-run');
+    if (snapshots[0]) snapshots[0].lineage.childRunIds.push('mutated');
+    const freshSnapshots = parentedPool.getSubagentSessionSnapshots();
+    expect(freshSnapshots[0]?.lineage.childRunIds).toEqual(['nested-run']);
+
     await parentedPool.killAll();
   });
 
@@ -723,6 +733,14 @@ describe('AgentPool basic operations', () => {
     expect(view.roots[0]?.status).toBe('streaming');
     expect(view.roots[0]?.usageText).toBe('↑100 ↓20 $0.0020');
     expect(view.roots[0]?.recentLines).toContain('partial answer');
+
+    const snapshots = pool.getSubagentSessionSnapshots();
+    if (snapshots[0]?.activity.latestEvent)
+      snapshots[0].activity.latestEvent.text = 'mutated';
+    if (snapshots[0]?.usage) snapshots[0].usage.input = 999;
+    const freshSnapshots = pool.getSubagentSessionSnapshots();
+    expect(freshSnapshots[0]?.activity.latestEvent?.text).toBe('usage updated');
+    expect(freshSnapshots[0]?.usage?.input).toBe(100);
 
     await pool.kill('observed-run');
   });

@@ -87,6 +87,24 @@ describe('subagent session contract', () => {
     expect(byId.done?.resultSummary).toBe('final answer');
   });
 
+  test('maps dead status to dead activity phase', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('killed', 100));
+    state = updateSubagentRunState(state, {
+      type: 'run_finished',
+      runId: 'killed',
+      timestamp: 150,
+      status: 'dead',
+      errorMessage: 'killed by user',
+    });
+
+    const [snapshot] = createSubagentSessionSnapshots(state);
+
+    expect(snapshot?.status).toBe('dead');
+    expect(snapshot?.activity.phase).toBe('dead');
+    expect(snapshot?.resultSummary).toBe('killed by user');
+  });
+
   test('tracks latest activity timestamp, tool count, result summary, and usage', () => {
     let state = createSubagentRunState();
     state = updateSubagentRunState(state, startRun('worker', 100));
@@ -125,5 +143,50 @@ describe('subagent session contract', () => {
     expect(snapshot?.resultSummary).toBe('boom');
     expect(snapshot?.errorMessage).toBe('boom');
     expect(snapshot?.usage).toEqual({ input: 100, output: 20 });
+  });
+
+  test('returns snapshots without aliasing mutable recent events or usage', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('worker', 100));
+    state = updateSubagentRunState(state, {
+      type: 'assistant_text',
+      runId: 'worker',
+      timestamp: 120,
+      text: 'safe summary',
+    });
+    state = updateSubagentRunState(state, {
+      type: 'usage',
+      runId: 'worker',
+      timestamp: 130,
+      usage: { input: 100 },
+    });
+
+    const [snapshot] = createSubagentSessionSnapshots(state);
+    if (snapshot?.activity.latestEvent) snapshot.activity.latestEvent.text = 'mutated';
+    if (snapshot?.usage) snapshot.usage.input = 999;
+
+    const [freshSnapshot] = createSubagentSessionSnapshots(state);
+    expect(freshSnapshot?.activity.latestEvent?.text).toBe('usage updated');
+    expect(freshSnapshot?.usage?.input).toBe(100);
+  });
+
+  test('does not duplicate snapshots when lineage contains a cycle', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('parent', 100));
+    state = updateSubagentRunState(state, startRun('child', 200, 'parent'));
+    state = {
+      ...state,
+      runs: {
+        ...state.runs,
+        child: { ...state.runs.child, children: ['parent'] },
+      },
+    };
+
+    const snapshots = createSubagentSessionSnapshots(state);
+
+    expect(snapshots.map((snapshot) => snapshot.runId)).toEqual([
+      'parent',
+      'child',
+    ]);
   });
 });
