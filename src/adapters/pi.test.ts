@@ -117,6 +117,59 @@ describe('Pi adapter agent prompt sync', () => {
 
   // (workflow stage result test removed — stage-result-store 已删除，存储已改为 pi.ts 内部变量)
 
+  test('omits missing or blank constitution and labels static delegation hints', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const prompt = buildPiOrchestratorPrompt([], null, {
+      hasPiAgents: false,
+      hasSubagent: false,
+      hasAgentMessage: false,
+    });
+
+    expect(prompt).toContain('<AvailableAgents>');
+    expect(prompt).not.toContain('<CONSTITUTION>');
+    expect(prompt).not.toContain('未找到 constitution.md');
+    const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
+    expect(coordinatorLine).toContain('静态可委托: search, oracle');
+
+    const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
+    fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
+    fs.writeFileSync(constitutionPath, '  \n\t\n', 'utf-8');
+
+    const blankPrompt = buildPiOrchestratorPrompt([], null, {
+      hasPiAgents: false,
+      hasSubagent: false,
+      hasAgentMessage: false,
+    });
+
+    expect(blankPrompt).not.toContain('<CONSTITUTION>');
+    expect(blankPrompt).not.toContain('未找到 constitution.md');
+  });
+
+  test('injects non-empty constitution and filters disabled static delegates', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
+    fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
+    fs.writeFileSync(constitutionPath, '<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>\n', 'utf-8');
+
+    const prompt = buildPiOrchestratorPrompt(['search'], null, {
+      hasPiAgents: false,
+      hasSubagent: false,
+      hasAgentMessage: false,
+    });
+
+    expect(prompt).toContain('<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>');
+    const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
+    expect(coordinatorLine).toContain('静态可委托: oracle');
+    expect(coordinatorLine).not.toContain('search');
+    const availableAgents = prompt.match(/<AvailableAgents>[\s\S]*?<\/AvailableAgents>/)?.[0] ?? '';
+    expect(availableAgents).not.toContain('@search');
+    expect(prompt).toContain('以下 agents 已被禁用: search');
+  });
+
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {
     const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
 

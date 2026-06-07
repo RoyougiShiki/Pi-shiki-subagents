@@ -34,7 +34,6 @@ import { Type } from 'typebox';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
 import {
   loadActiveMode,
   getModeInstructions,
@@ -190,7 +189,7 @@ const PRESET_MODEL_SUBCOMMAND = 'model';
 const PRESET_MODEL_SELECTOR_MAX_VISIBLE = 12;
 
 
-interface PiDelegationCapabilities {
+export interface PiDelegationCapabilities {
   hasPiAgents: boolean;
   hasSubagent: boolean;
   hasAgentMessage: boolean;
@@ -357,19 +356,17 @@ function loadAgentDefinitions(): Record<
   }
 }
 
-function buildPiOrchestratorPrompt(
+export function buildPiOrchestratorPrompt(
   disabledAgents: string[],
   config: OmniMoConfig | null,
   capabilities: PiDelegationCapabilities,
 ): string {
-  const constPath = path.join(homedir(), '.pi', 'agent', 'constitution.md');
+  const constPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
   let constText = '';
   try {
     if (fs.existsSync(constPath))
       constText = fs.readFileSync(constPath, 'utf-8').trim();
   } catch {}
-  if (!constText)
-    constText = `<CONSTITUTION>\n(未找到 constitution.md)\n</CONSTITUTION>`;
 
   const agentDefs = loadAgentDefinitions();
   const disabledSet = new Set(disabledAgents);
@@ -386,8 +383,11 @@ function buildPiOrchestratorPrompt(
           ? '(子代理)'
           : '';
     const label = def?.label || info.description || name;
-    const delegates = def?.delegates?.length
-      ? ` → 可委托: ${[...new Set(def.delegates)].join(', ')}`
+    const staticDelegates = def?.delegates?.length
+      ? [...new Set(def.delegates)].filter((delegate) => !disabledSet.has(delegate))
+      : [];
+    const delegates = staticDelegates.length
+      ? ` → 静态可委托: ${staticDelegates.join(', ')}`
       : '';
     agentLines.push(`  @${name} ${typeLabel} — ${label}${delegates}`);
   }
@@ -400,7 +400,7 @@ function buildPiOrchestratorPrompt(
   if (capabilities.hasAgentMessage)
     capabilitiesNotes.push('- agent_message 可用: 支持后台 agent 通信');
 
-  const parts: string[] = [constText];
+  const parts: string[] = constText ? [constText] : [];
 
   if (agentLines.length > 0) {
     parts.push(
