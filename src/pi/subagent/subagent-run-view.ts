@@ -1,9 +1,12 @@
 import type {
-  SubagentRunRecord,
   SubagentRunState,
   SubagentRunStatus,
   SubagentUsageSnapshot,
 } from './subagent-run-state';
+import {
+  createSubagentSessionSnapshots,
+  type SubagentSessionSnapshot,
+} from './subagent-session-contract';
 
 export interface SubagentRunViewOptions {
   now?: number;
@@ -96,81 +99,136 @@ function isRunningStatus(status: SubagentRunStatus): boolean {
   return status === 'starting' || status === 'streaming' || status === 'idle';
 }
 
-function sortRunIdsByStart(
-  state: SubagentRunState,
+function sortSnapshotsByStart(
+  snapshots: Map<string, SubagentSessionSnapshot>,
   runIds: readonly string[],
 ): string[] {
   return [...runIds].sort((a, b) => {
-    const left = state.runs[a]?.startedAt ?? 0;
-    const right = state.runs[b]?.startedAt ?? 0;
+    const left = snapshots.get(a)?.startedAt ?? 0;
+    const right = snapshots.get(b)?.startedAt ?? 0;
     if (left !== right) return left - right;
     return a.localeCompare(b);
   });
 }
 
-function toViewNode(
-  state: SubagentRunState,
-  run: SubagentRunRecord,
+function toViewNodeFromSnapshot(
+  snapshots: Map<string, SubagentSessionSnapshot>,
+  snapshot: SubagentSessionSnapshot,
   now: number,
   maxRecentLines: number,
   visited: Set<string>,
 ): SubagentRunViewNode {
-  if (visited.has(run.runId)) {
+  if (visited.has(snapshot.runId)) {
     return {
-      runId: run.runId,
-      parentRunId: run.parentRunId,
-      agentName: run.agentName,
-      displayName: run.displayName,
-      depth: run.depth,
-      status: run.status,
-      title: run.displayName,
-      taskPreview: run.taskPreview,
-      model: run.model,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-      elapsedText: formatSubagentElapsed(run.startedAt, now, run.completedAt),
-      usageText: formatSubagentUsage(run.usage),
-      toolCount: run.toolCount,
+      runId: snapshot.runId,
+      parentRunId: snapshot.lineage.parentRunId,
+      agentName: snapshot.agentName,
+      displayName: snapshot.displayName,
+      depth: snapshot.lineage.depth,
+      status: snapshot.status,
+      title: snapshot.displayName,
+      taskPreview: snapshot.taskPreview,
+      model: snapshot.model,
+      startedAt: snapshot.startedAt,
+      completedAt: snapshot.completedAt,
+      elapsedText: formatSubagentElapsed(
+        snapshot.startedAt,
+        now,
+        snapshot.completedAt,
+      ),
+      usageText: formatSubagentUsage(snapshot.usage),
+      toolCount: snapshot.activity.toolCount,
       recentLines: ['cycle detected'],
       children: [],
     };
   }
 
   const nextVisited = new Set(visited);
-  nextVisited.add(run.runId);
-  const childIds = sortRunIdsByStart(state, run.children);
+  nextVisited.add(snapshot.runId);
+  const childIds = sortSnapshotsByStart(snapshots, snapshot.lineage.childRunIds);
   const children = childIds
-    .map((id) => state.runs[id])
-    .filter((child): child is SubagentRunRecord => Boolean(child))
-    .map((child) => toViewNode(state, child, now, maxRecentLines, nextVisited));
+    .map((id) => snapshots.get(id))
+    .filter((child): child is SubagentSessionSnapshot => Boolean(child))
+    .map((child) =>
+      toViewNodeFromSnapshot(snapshots, child, now, maxRecentLines, nextVisited),
+    );
 
   return {
-    runId: run.runId,
-    parentRunId: run.parentRunId,
-    agentName: run.agentName,
-    displayName: run.displayName,
-    depth: run.depth,
-    status: run.status,
+    runId: snapshot.runId,
+    parentRunId: snapshot.lineage.parentRunId,
+    agentName: snapshot.agentName,
+    displayName: snapshot.displayName,
+    depth: snapshot.lineage.depth,
+    status: snapshot.status,
     title:
-      run.displayName === run.agentName
-        ? run.displayName
-        : `${run.displayName} (${run.agentName})`,
-    taskPreview: run.taskPreview,
-    model: run.model,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-    elapsedText: formatSubagentElapsed(run.startedAt, now, run.completedAt),
-    usageText: formatSubagentUsage(run.usage),
-    toolCount: run.toolCount,
-    recentLines: run.recentEvents
+      snapshot.displayName === snapshot.agentName
+        ? snapshot.displayName
+        : `${snapshot.displayName} (${snapshot.agentName})`,
+    taskPreview: snapshot.taskPreview,
+    model: snapshot.model,
+    startedAt: snapshot.startedAt,
+    completedAt: snapshot.completedAt,
+    elapsedText: formatSubagentElapsed(
+      snapshot.startedAt,
+      now,
+      snapshot.completedAt,
+    ),
+    usageText: formatSubagentUsage(snapshot.usage),
+    toolCount: snapshot.activity.toolCount,
+    recentLines: snapshot.activity.recentEvents
       .slice(-maxRecentLines)
       .map((event) => event.text),
     children,
   };
 }
 
-export function createSubagentRunTreeView(
-  state: SubagentRunState,
+function sortSnapshotsByRootOrder(
+  snapshotsList: readonly SubagentSessionSnapshot[],
+): SubagentSessionSnapshot[] {
+  return [...snapshotsList].sort((left, right) => {
+    if (left.startedAt !== right.startedAt) return left.startedAt - right.startedAt;
+    return left.runId.localeCompare(right.runId);
+  });
+}
+
+function markReachableSnapshots(
+  snapshots: Map<string, SubagentSessionSnapshot>,
+  runId: string,
+  reachable: Set<string>,
+): void {
+  if (reachable.has(runId)) return;
+  const snapshot = snapshots.get(runId);
+  if (!snapshot) return;
+  reachable.add(runId);
+  for (const childRunId of snapshot.lineage.childRunIds) {
+    markReachableSnapshots(snapshots, childRunId, reachable);
+  }
+}
+
+function selectRootSnapshots(
+  snapshots: Map<string, SubagentSessionSnapshot>,
+  snapshotsList: readonly SubagentSessionSnapshot[],
+  childIds: ReadonlySet<string>,
+): SubagentSessionSnapshot[] {
+  const rootCandidates = snapshotsList.filter((snapshot) => {
+    const parentRunId = snapshot.lineage.parentRunId;
+    return !parentRunId || !snapshots.has(parentRunId) || !childIds.has(snapshot.runId);
+  });
+  const roots = sortSnapshotsByRootOrder(rootCandidates);
+  const reachable = new Set<string>();
+  for (const root of roots) {
+    markReachableSnapshots(snapshots, root.runId, reachable);
+  }
+  for (const snapshot of sortSnapshotsByRootOrder(snapshotsList)) {
+    if (reachable.has(snapshot.runId)) continue;
+    roots.push(snapshot);
+    markReachableSnapshots(snapshots, snapshot.runId, reachable);
+  }
+  return roots;
+}
+
+export function createSubagentRunTreeViewFromSnapshots(
+  snapshotsList: readonly SubagentSessionSnapshot[],
   options: SubagentRunViewOptions = {},
 ): SubagentRunTreeView {
   const now = options.now ?? Date.now();
@@ -178,27 +236,32 @@ export function createSubagentRunTreeView(
     options.maxRecentLines,
     DEFAULT_MAX_RECENT_LINES,
   );
-  const runs = Object.values(state.runs);
+  const snapshots = new Map(
+    snapshotsList.map((snapshot) => [snapshot.runId, snapshot]),
+  );
   const counts = {
-    total: runs.length,
-    running: runs.filter((run) => isRunningStatus(run.status)).length,
-    completed: runs.filter((run) => run.status === 'completed').length,
-    failed: runs.filter((run) => run.status === 'failed').length,
-    dead: runs.filter((run) => run.status === 'dead').length,
+    total: snapshotsList.length,
+    running: snapshotsList.filter((snapshot) => isRunningStatus(snapshot.status))
+      .length,
+    completed: snapshotsList.filter((snapshot) => snapshot.status === 'completed')
+      .length,
+    failed: snapshotsList.filter((snapshot) => snapshot.status === 'failed').length,
+    dead: snapshotsList.filter((snapshot) => snapshot.status === 'dead').length,
   };
 
-  const rootIds = sortRunIdsByStart(
-    state,
-    state.rootRunIds.length > 0
-      ? state.rootRunIds
-      : runs.map((run) => run.runId),
+  const childIds = new Set(
+    snapshotsList.flatMap((snapshot) => snapshot.lineage.childRunIds),
   );
-  const roots = rootIds
-    .map((id) => state.runs[id])
-    .filter((run): run is SubagentRunRecord => Boolean(run))
-    .map((run) =>
-      toViewNode(state, run, now, maxRecentLines, new Set<string>()),
-    );
+  const roots = selectRootSnapshots(snapshots, snapshotsList, childIds).map(
+    (snapshot) =>
+      toViewNodeFromSnapshot(
+        snapshots,
+        snapshot,
+        now,
+        maxRecentLines,
+        new Set<string>(),
+      ),
+  );
 
   const summaryParts: string[] = [];
   if (counts.running > 0) summaryParts.push(`${counts.running} running`);
@@ -212,4 +275,14 @@ export function createSubagentRunTreeView(
     summaryLine:
       summaryParts.length > 0 ? summaryParts.join(' · ') : 'no subagents',
   };
+}
+
+export function createSubagentRunTreeView(
+  state: SubagentRunState,
+  options: SubagentRunViewOptions = {},
+): SubagentRunTreeView {
+  return createSubagentRunTreeViewFromSnapshots(
+    createSubagentSessionSnapshots(state),
+    options,
+  );
 }

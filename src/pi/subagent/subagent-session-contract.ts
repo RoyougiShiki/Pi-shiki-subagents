@@ -25,6 +25,7 @@ export interface SubagentSessionLineage {
 export interface SubagentSessionActivity {
   phase: SubagentActivityPhase;
   latestEvent?: SubagentRecentEvent;
+  recentEvents: SubagentRecentEvent[];
   updatedAt: number;
   toolCount: number;
 }
@@ -74,6 +75,12 @@ function cloneUsage(
   usage: SubagentUsageSnapshot | undefined,
 ): SubagentUsageSnapshot | undefined {
   return usage ? { ...usage } : undefined;
+}
+
+function cloneRecentEvents(
+  events: readonly SubagentRecentEvent[],
+): SubagentRecentEvent[] {
+  return events.map((event) => ({ ...event }));
 }
 
 function latestEvent(run: SubagentRunRecord): SubagentRecentEvent | undefined {
@@ -134,6 +141,7 @@ export function toSubagentSessionSnapshot(
       latestEvent: cloneRecentEvent(latest),
       updatedAt: updatedAt(run),
       toolCount: run.toolCount,
+      recentEvents: cloneRecentEvents(run.recentEvents),
     },
     lineage: {
       parentRunId: run.parentRunId,

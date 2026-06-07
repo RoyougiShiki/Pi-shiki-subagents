@@ -143,6 +143,11 @@ describe('subagent session contract', () => {
     expect(snapshot?.resultSummary).toBe('boom');
     expect(snapshot?.errorMessage).toBe('boom');
     expect(snapshot?.usage).toEqual({ input: 100, output: 20 });
+    expect(snapshot?.activity.recentEvents.map((event) => event.text)).toEqual([
+      'read: src/index.ts',
+      'usage updated',
+      'boom',
+    ]);
   });
 
   test('returns snapshots without aliasing mutable recent events or usage', () => {
@@ -163,9 +168,11 @@ describe('subagent session contract', () => {
 
     const [snapshot] = createSubagentSessionSnapshots(state);
     if (snapshot?.activity.latestEvent) snapshot.activity.latestEvent.text = 'mutated';
+    if (snapshot?.activity.recentEvents[0]) snapshot.activity.recentEvents[0].text = 'mutated-list';
     if (snapshot?.usage) snapshot.usage.input = 999;
 
     const [freshSnapshot] = createSubagentSessionSnapshots(state);
+    expect(freshSnapshot?.activity.recentEvents[0]?.text).toBe('safe summary');
     expect(freshSnapshot?.activity.latestEvent?.text).toBe('usage updated');
     expect(freshSnapshot?.usage?.input).toBe(100);
   });

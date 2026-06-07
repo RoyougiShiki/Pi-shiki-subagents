@@ -5,10 +5,12 @@ import {
 } from './subagent-run-state';
 import {
   createSubagentRunTreeView,
+  createSubagentRunTreeViewFromSnapshots,
   formatSubagentElapsed,
   formatSubagentTokens,
   formatSubagentUsage,
 } from './subagent-run-view';
+import { createSubagentSessionSnapshots } from './subagent-session-contract';
 
 function startRun(runId: string, startedAt: number, parentRunId?: string) {
   return {
@@ -51,6 +53,117 @@ describe('subagent run view', () => {
     expect(view.roots[0]?.startedAt).toBe(1_000);
     expect(view.roots[0]?.children[0]?.runId).toBe('child');
     expect(view.roots[0]?.children[0]?.recentLines).toEqual(['reviewing plan']);
+  });
+
+  test('builds equivalent tree view from session snapshots', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('parent', 1_000));
+    state = updateSubagentRunState(state, startRun('child', 2_000, 'parent'));
+    state = updateSubagentRunState(state, {
+      type: 'assistant_text',
+      runId: 'child',
+      timestamp: 3_000,
+      text: 'reviewing plan',
+    });
+    state = updateSubagentRunState(state, {
+      type: 'usage',
+      runId: 'child',
+      timestamp: 4_000,
+      usage: { input: 100, output: 20 },
+    });
+
+    const directView = createSubagentRunTreeView(state, { now: 6_000 });
+    const snapshotView = createSubagentRunTreeViewFromSnapshots(
+      createSubagentSessionSnapshots(state),
+      { now: 6_000 },
+    );
+
+    expect(snapshotView).toEqual(directView);
+    expect(snapshotView.roots[0]?.children[0]?.recentLines).toEqual([
+      'reviewing plan',
+      'usage updated',
+    ]);
+  });
+
+  test('falls back to visible roots for rootless cyclic snapshots', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('parent', 1_000));
+    state = updateSubagentRunState(state, startRun('child', 2_000, 'parent'));
+    state = {
+      ...state,
+      runs: {
+        ...state.runs,
+        parent: { ...state.runs.parent, parentRunId: 'child' },
+        child: { ...state.runs.child, children: ['parent'] },
+      },
+    };
+
+    const view = createSubagentRunTreeViewFromSnapshots(
+      createSubagentSessionSnapshots(state),
+      { now: 3_000 },
+    );
+
+    expect(view.counts.total).toBe(2);
+    expect(view.roots.map((root) => root.runId)).toEqual(['parent']);
+    expect(view.roots[0]?.children[0]?.runId).toBe('child');
+  });
+
+  test('keeps disconnected cyclic components visible alongside valid roots', () => {
+    let state = createSubagentRunState();
+    state = updateSubagentRunState(state, startRun('valid-root', 500));
+    state = updateSubagentRunState(state, startRun('cycle-a', 1_000));
+    state = updateSubagentRunState(state, startRun('cycle-b', 2_000, 'cycle-a'));
+    state = {
+      ...state,
+      runs: {
+        ...state.runs,
+        'cycle-a': { ...state.runs['cycle-a'], parentRunId: 'cycle-b' },
+        'cycle-b': { ...state.runs['cycle-b'], children: ['cycle-a'] },
+      },
+    };
+
+    const view = createSubagentRunTreeViewFromSnapshots(
+      createSubagentSessionSnapshots(state),
+      { now: 3_000 },
+    );
+
+    expect(view.counts.total).toBe(3);
+    expect(view.roots.map((root) => root.runId)).toEqual([
+      'valid-root',
+      'cycle-a',
+    ]);
+    expect(view.roots[1]?.children[0]?.runId).toBe('cycle-b');
+  });
+
+  test('keeps orphan-like snapshots visible when lineage is inconsistent', () => {
+    const view = createSubagentRunTreeViewFromSnapshots(
+      [
+        {
+          version: 1,
+          kind: 'subagent',
+          runId: 'orphan',
+          agentName: 'oracle',
+          displayName: 'Oracle',
+          status: 'streaming',
+          activity: {
+            phase: 'active',
+            recentEvents: [],
+            updatedAt: 1_000,
+            toolCount: 0,
+          },
+          lineage: {
+            parentRunId: 'missing-parent',
+            childRunIds: [],
+            depth: 1,
+          },
+          startedAt: 1_000,
+        },
+      ],
+      { now: 2_000 },
+    );
+
+    expect(view.counts.total).toBe(1);
+    expect(view.roots.map((root) => root.runId)).toEqual(['orphan']);
   });
 
   test('limits recent lines at view time', () => {

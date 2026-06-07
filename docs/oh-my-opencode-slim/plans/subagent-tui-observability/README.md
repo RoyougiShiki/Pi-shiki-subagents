@@ -119,9 +119,11 @@ Expected behavior:
 
 ### Phase 2 — runtime wiring and consumer migration
 
-Later, migrate runtime consumers to the pure contracts in small steps. Existing `subagent-pool.ts` already records normalized run events; future work should feed terminal widgets, Tauri surfaces, and any session/chat overlay from `subagent-session-contract.ts` rather than introducing another state model.
+Migrate runtime consumers to the pure contracts in small steps. Existing `subagent-pool.ts` already records normalized run events; future work should feed terminal widgets, Tauri surfaces, and any session/chat overlay from `subagent-session-contract.ts` rather than introducing another state model.
 
-This phase requires separate review before implementation.
+First completed migration step: `subagent-run-view.ts` now derives the existing `SubagentRunTreeView` from `SubagentSessionSnapshot` data, preserving the terminal widget output shape while making the pure view path snapshot-backed.
+
+Further runtime consumer migration requires separate review before implementation.
 
 ### Phase 3 — compact Pi TUI widget
 
