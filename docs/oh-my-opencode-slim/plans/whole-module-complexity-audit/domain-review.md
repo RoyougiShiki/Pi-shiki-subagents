@@ -77,7 +77,8 @@ Capability: package public surface and deletion safety.
 Finding:
 
 - `package.json` has no `exports` field that restricts package subpaths.
-- `package.json.files` ships `src/pi`, `src/adapters`, `src/core`, `src/config`, `src/cli`, and `src/skills`, plus `dist`.
+- Historical note: at the time of the original audit, `package.json.files` shipped `src/core` and `src/skills`.
+- Current state: `package.json.files` ships `src/pi`, `src/adapters`, `src/config`, `src/cli`, plus `dist`; `src/core` and `src/skills` are no longer package contents.
 - `tsconfig.json` emits declarations for all included source files under `dist`, excluding tests.
 - Selected generated declarations exist for deep-importable modules such as `dist/pi/subagent/pi-chat-bridge.d.ts`, `dist/config/agent-mcps.d.ts`, and `dist/config/runtime-preset.d.ts`.
 - Therefore, files that have no internal production importer may still be externally reachable by source or declaration deep imports.

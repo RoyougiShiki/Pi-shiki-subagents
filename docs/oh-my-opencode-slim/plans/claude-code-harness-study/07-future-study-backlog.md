@@ -191,7 +191,8 @@ session recall
 路径：
 
 ```txt
-src/skills/
+Historical upstream path: src/skills/
+Current slim repo state: no maintained local src/skills implementation; only CLI-installed external skills remain in scope.
 src/tools/SkillTool/
 src/services/skillSearch/
 ```
@@ -406,4 +407,3 @@ resume/fork controls
 4. 优先迁移模型无关的 harness 控制点。
 5. UI 服务于可观测性和可控性，不直接承担 agent core。
 6. 当前项目不拆分，等 Pi Workbench 需求稳定后再考虑独立 repo。
-

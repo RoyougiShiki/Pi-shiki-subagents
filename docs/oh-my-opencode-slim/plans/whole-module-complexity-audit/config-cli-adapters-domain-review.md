@@ -321,7 +321,8 @@ Decision: keep current package contents until a dedicated public API/export audi
 Evidence:
 
 - `package.json` has no explicit `exports` map.
-- `files` includes `dist`, `src/pi`, `src/adapters`, `src/core`, `src/config`, `src/cli`, `src/skills`, schema, and README.
+- Historical note: this originally listed `src/core` and `src/skills` as packaged source paths.
+- Current state: `files` includes `dist`, `src/pi`, `src/adapters`, `src/config`, `src/cli`, schema, and README; `src/core` and `src/skills` are no longer package contents.
 - `main` and `types` point to `dist/index.*`, while source directories are still packaged.
 - `src/index.ts` re-exports selected config types and keeps a legacy default export placeholder.
 
