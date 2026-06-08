@@ -1009,14 +1009,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       ? `<MODE name="${activeMode}">\n${modeInstructions}\n</MODE>`
       : '';
 
-    // ── 简化的合规提示（仅做语义说明，强控制已下沉 runtime guard）────
-    const compliancePrompt = `<ComplianceRules>
-- 工具调用由 runtime 白名单控制，不在列表中的工具无法执行。
-- 模式切换需用户确认，模型不能自行切换。
-</ComplianceRules>`;
-
     return {
-      systemPrompt: [omniPrompt, modePrompt, compliancePrompt, trimmedPrompt]
+      systemPrompt: [omniPrompt, modePrompt, trimmedPrompt]
         .filter(Boolean)
         .join('\n\n---\n\n'),
     };

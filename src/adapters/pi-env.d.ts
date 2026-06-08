@@ -75,10 +75,12 @@ declare module "@earendil-works/pi-coding-agent" {
   // Alias used in imports
   export type SessionManager = ISessionManager;
   export declare var SessionManager: {
-    create(cwd: string): ISessionManager;
-    inMemory(): ISessionManager;
-    list(cwd: string): Promise<string[]>;
-    listAll(cwd: string): Promise<string[]>;
+    create(cwd: string, sessionDir?: string): ISessionManager;
+    inMemory(cwd?: string): ISessionManager;
+    continueRecent(cwd: string, sessionDir?: string): ISessionManager;
+    open(sessionPath: string): ISessionManager;
+    list(cwd: string, sessionDir?: string): Promise<Array<{ id: string; path: string; firstMessage: string }>>;
+    listAll(cwd: string, sessionDir?: string): Promise<Array<{ id: string; path: string; firstMessage: string }>>;
   };
 
   export type SessionEntry = {
@@ -195,6 +197,8 @@ declare module "@earendil-works/pi-coding-agent" {
   export interface AgentSession {
     prompt(text: string, options?: { source?: string }): Promise<void>;
     state: { messages: any[] };
+    sessionFile?: string;
+    sessionId?: string;
     subscribe(fn: (event: any) => void): () => void;
     dispose(): void;
     abort(): Promise<void>;

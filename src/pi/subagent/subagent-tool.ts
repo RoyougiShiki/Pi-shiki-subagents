@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import * as fs from 'node:fs';
 import { discoverAgents } from '../../adapters/agent-discovery';
 import {
   checkDelegationAllowed,
@@ -8,6 +9,7 @@ import { consumePipelineDelegationGrant } from '../policy/pipeline-delegation-gr
 import {
   getPool,
   resolveDelegationCaller,
+  type PoolAgentRecord,
   type PoolAgentInfo,
 } from './subagent-pool';
 import { buildOmoSubagentToolDetails } from './subagent-run-tool-details';
@@ -34,6 +36,39 @@ function emptyDetails(action: SubagentToolAction, runId?: string) {
   return buildDetails(action, runId, false);
 }
 
+export interface ResumeSessionPlan {
+  canResumeSession: boolean;
+  resumeSessionFile?: string;
+  resumeMessage?: string;
+  successText: string;
+}
+
+export function planPoolResume(
+  record: Pick<PoolAgentRecord, 'id' | 'agentName' | 'sessionFile'>,
+  message: string | undefined,
+  exists: (filePath: string) => boolean = fs.existsSync,
+): ResumeSessionPlan {
+  const sessionFile =
+    typeof record.sessionFile === 'string' && record.sessionFile.trim()
+      ? record.sessionFile
+      : undefined;
+  const canResumeSession = Boolean(sessionFile && exists(sessionFile));
+  return {
+    canResumeSession,
+    resumeSessionFile: canResumeSession ? sessionFile : undefined,
+    resumeMessage: canResumeSession ? message : undefined,
+    successText: canResumeSession
+      ? `✓ Agent "${record.id}" (${record.agentName}) resumed from saved session.`
+      : `✓ Agent "${record.id}" (${record.agentName}) restarted from saved task context. No saved session file was available.`,
+  };
+}
+
+export function selectPoolResultText(
+  active: Pick<PoolAgentInfo, 'lastResponse'> | undefined,
+  record: Pick<PoolAgentRecord, 'lastResponse'> | undefined,
+): string {
+  return active?.lastResponse || record?.lastResponse || '';
+}
 
 export function registerSubagentTool(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -45,7 +80,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       '  send: { pool: "send", id, message }',
       '  list: { pool: "list" }',
       '  listSaved: { pool: "listSaved" } — 查看可恢复会话',
-      '  resume: { pool: "resume", id } — 恢复任务上下文',
+      '  result: { pool: "result", id } — 查看已保存的最近结果',
+      '  resume: { pool: "resume", id, message? } — 恢复旧 session，缺少 session 文件时降级为任务重跑',
       '  kill: { pool: "kill", id }',
       '',
       '协议（实现无关）：',
@@ -60,7 +96,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         task: { type: 'string', description: 'Task prompt (for single mode)' },
         pool: {
           type: 'string',
-          description: 'Pool action: spawn | send | list | kill',
+          description:
+            'Pool action: spawn | send | list | kill | listSaved | result | resume',
         },
         id: {
           type: 'string',
@@ -68,7 +105,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         },
         message: {
           type: 'string',
-          description: 'Message for pool send action',
+          description: 'Message for pool send/resume action',
         },
         model: { type: 'string', description: 'Model override' },
       },
@@ -294,7 +331,14 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
               details: emptyDetails('listSaved'),
             };
           const lines = entries.map(
-            (r) => `  ${r.id} (${r.agentName}) — ${r.task.slice(0, 100)}`,
+            (r) => {
+              const status = r.status ?? 'saved';
+              const preview = (r.lastResponse || r.errorMessage || r.task).slice(
+                0,
+                100,
+              );
+              return `  ${r.id} (${r.agentName}) — ${status}, ${r.messageCount ?? 0} msgs — ${preview}`;
+            },
           );
           return {
             content: [
@@ -304,6 +348,55 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
               },
             ],
             details: buildDetails('listSaved'),
+          };
+        }
+
+        if (params.pool === 'result') {
+          if (!params.id)
+            return {
+              content: [{ type: 'text', text: 'result requires id' }],
+              details: emptyDetails('result'),
+              isError: true,
+            };
+          const active = pool
+            .list()
+            .find((a: PoolAgentInfo) => a.id === params.id);
+          const record = pool.getRegistryEntry(params.id);
+          const response = selectPoolResultText(active, record);
+          const errorMessage = record?.errorMessage;
+          if (!active && !record)
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Saved session "${params.id}" not found`,
+                },
+              ],
+              details: emptyDetails('result', params.id),
+              isError: true,
+            };
+          if (!response && !errorMessage)
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `No saved result for "${params.id}" yet.`,
+                },
+              ],
+              details: buildDetails('result', params.id, true),
+            };
+          const header = `Result from ${params.id} (${record?.agentName ?? active?.agentName ?? 'unknown'}):`;
+          return {
+            content: [
+              {
+                type: 'text',
+                text: errorMessage
+                  ? `${header}\n\n✗ ${errorMessage}\n\n${response}`
+                  : `${header}\n\n${response}`,
+              },
+            ],
+            details: buildDetails('result', params.id, true),
+            isError: Boolean(errorMessage && !response),
           };
         }
 
@@ -339,6 +432,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
               details: emptyDetails('resume', params.id),
               isError: true,
             };
+          const resumePlan = planPoolResume(record, params.message);
           const resumeResult = await pool.spawn({
             id: record.id,
             name: record.name,
@@ -354,6 +448,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             allowedSubagents: parseAllowedSubagentsEnv(
               process.env.OMO_ALLOWED_SUBAGENTS,
             ),
+            resumeSessionFile: resumePlan.resumeSessionFile,
+            resumeMessage: resumePlan.resumeMessage,
           });
           if (resumeResult.error) {
             return {
@@ -371,7 +467,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             content: [
               {
                 type: 'text',
-                text: `✓ Agent "${record.id}" (${record.agentName}) resumed with task context.`,
+                text: resumePlan.successText,
               },
             ],
             details: buildDetails('resume', record.id, true),

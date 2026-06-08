@@ -188,7 +188,7 @@ export function resolveSubagentToolNamesForAgent(
   return resolveAgentToolNames(runtime, groups, allToolNames);
 }
 
-interface PoolAgentRecord {
+export interface PoolAgentRecord {
   id: string;
   name: string;
   agentName: string;
@@ -201,6 +201,11 @@ interface PoolAgentRecord {
   stageResultPath?: string;
   sessionFile?: string;
   spawnedAt: number;
+  status?: 'starting' | 'idle' | 'streaming' | 'dead' | 'completed' | 'failed';
+  lastResponse?: string;
+  errorMessage?: string;
+  completedAt?: number;
+  messageCount?: number;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -226,6 +231,7 @@ export interface PoolAgentInfo {
   messageCount: number;
   model: string;
   lastResponse?: string;
+  sessionFile?: string;
 }
 
 // ─── One-shot runner ──────────────────────────────────────────────────────
@@ -236,6 +242,24 @@ function extractText(content: unknown): string {
     .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
     .map((c: any) => c.text);
   return parts.join('\n').trim();
+}
+
+function extractAssistantMessageText(message: any): string {
+  if (message?.role !== 'assistant') return '';
+  return extractText(message.content);
+}
+
+function extractLatestAssistantText(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const text = extractAssistantMessageText(messages[i]);
+    if (text) return text;
+  }
+  return '';
+}
+
+function preferNonEmptyText(next: string | undefined, previous: string | undefined): string {
+  return next?.trim() ? next : previous ?? '';
 }
 
 export async function runIsolatedTask(opts: {
@@ -382,12 +406,15 @@ interface PoolEntry {
   parentRunId?: string;
   depth?: number;
   taskPreview?: string;
+  sessionFile?: string;
 }
 
 export interface AgentPoolOptions {
   timeoutMs?: number;
   sessionDir?: string;
   createSession?: typeof createAgentSession;
+  createSessionManager?: (cwd: string, sessionDir: string) => any;
+  openSessionManager?: (sessionFile: string) => any;
   /** Resolve modelId string to Model object. */
   resolveModel?: (modelId: string) => any | undefined;
   /** Resolve all runtime tool names for expression expansion. */
@@ -407,6 +434,8 @@ export class AgentPool {
   private readonly timeoutMs: number;
   private readonly sessionDir: string;
   private readonly createSession: typeof createAgentSession;
+  private readonly createSessionManager: (cwd: string, sessionDir: string) => any;
+  private readonly openSessionManager: (sessionFile: string) => any;
   private readonly resolveModel:
     | ((modelId: string) => any | undefined)
     | undefined;
@@ -421,6 +450,12 @@ export class AgentPool {
     this.timeoutMs = options.timeoutMs ?? 600_000;
     this.sessionDir = options.sessionDir ?? SESSION_DIR;
     this.createSession = options.createSession ?? createAgentSession;
+    this.createSessionManager =
+      options.createSessionManager ??
+      ((cwd, sessionDir) => SessionManager.create(cwd, sessionDir));
+    this.openSessionManager =
+      options.openSessionManager ??
+      ((sessionFile) => SessionManager.open(sessionFile));
     this.resolveModel = options.resolveModel;
     this.resolveAllToolNames = options.resolveAllToolNames;
   }
@@ -484,6 +519,8 @@ export class AgentPool {
     allowedSubagents?: readonly string[];
     parentRunId?: string;
     stageResultPath?: string;
+    resumeSessionFile?: string;
+    resumeMessage?: string;
   }): Promise<{ response: string; error?: string }> {
     if (this.agents.has(opts.id)) {
       return {
@@ -506,24 +543,30 @@ export class AgentPool {
         process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(',');
       process.env.OMO_AGENT_ID = opts.id;
 
-      // Resolve model from the already-discovered runtime agent config.
-      // /preset persists the active preset before discovery; avoid re-reading
-      // stale config here and overriding the selected preset with an old value.
-      const modelStr = opts.model || opts.agent.model;
-      const resolvedModel =
-        modelStr && this.resolveModel ? this.resolveModel(modelStr) : undefined;
-
       let session: AgentSession | undefined;
-      const allToolNames = this.resolveAllToolNames?.() ?? [];
-      const resolvedTools = resolveSubagentToolNamesForAgent(
-        opts.agent.name,
-        opts.cwd,
-        allToolNames,
-      );
+      let existingRecord: PoolAgentRecord | undefined;
       try {
+        // Resolve model from the already-discovered runtime agent config.
+        // /preset persists the active preset before discovery; avoid re-reading
+        // stale config here and overriding the selected preset with an old value.
+        const modelStr = opts.model || opts.agent.model;
+        const resolvedModel =
+          modelStr && this.resolveModel
+            ? this.resolveModel(modelStr)
+            : undefined;
+        const allToolNames = this.resolveAllToolNames?.() ?? [];
+        const resolvedTools = resolveSubagentToolNamesForAgent(
+          opts.agent.name,
+          opts.cwd,
+          allToolNames,
+        );
+        existingRecord = this.getRegistryEntry(opts.id);
+        const sessionManager = opts.resumeSessionFile
+          ? this.openSessionManager(opts.resumeSessionFile)
+          : this.createSessionManager(opts.cwd ?? process.cwd(), this.sessionDir);
         const created = await this.createSession({
           cwd: opts.cwd,
-          sessionManager: SessionManager.inMemory(),
+          sessionManager,
           model: resolvedModel,
           tools: resolvedTools,
         });
@@ -550,6 +593,10 @@ export class AgentPool {
         const sessionModel = sessAny.model
           ? `${sessAny.model.provider}/${sessAny.model.id}`
           : undefined;
+        const sessionFile =
+          typeof sessAny.sessionFile === 'string' && sessAny.sessionFile.trim()
+            ? sessAny.sessionFile
+            : opts.resumeSessionFile;
 
         const entry: PoolEntry = {
           id: opts.id,
@@ -560,11 +607,12 @@ export class AgentPool {
           startedAt: Date.now(),
           messageCount: 0,
           model: sessionModel || modelStr || 'default',
-          lastResponse: '',
+          lastResponse: existingRecord?.lastResponse ?? '',
           busy: false,
           parentRunId: opts.parentRunId,
           depth: opts.depth,
           taskPreview: opts.task,
+          sessionFile,
         };
 
         this.agents.set(opts.id, entry);
@@ -595,21 +643,25 @@ export class AgentPool {
           }
           if (event.type === 'turn_start') {
             entry.status = 'streaming';
+            this.updateRegistry(opts.id, { status: 'streaming' });
+          }
+          if (event.type === 'message_end') {
+            const text = extractAssistantMessageText(event.message);
+            if (text) {
+              entry.lastResponse = text;
+              this.updateRegistry(opts.id, { lastResponse: text });
+            }
           }
           if (event.type === 'agent_end') {
             entry.status = 'idle';
             entry.messageCount++;
-            const msgs = event.messages ?? [];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              const m = msgs[i];
-              if (m.role === 'assistant') {
-                const text = extractText(m.content);
-                if (text) {
-                  entry.lastResponse = text;
-                  break;
-                }
-              }
-            }
+            const text = extractLatestAssistantText(event.messages ?? []);
+            if (text) entry.lastResponse = text;
+            this.updateRegistry(opts.id, {
+              status: 'idle',
+              messageCount: entry.messageCount,
+              lastResponse: entry.lastResponse,
+            });
           }
         });
         (entry as any)._unsubscribe = unsubscribe;
@@ -625,17 +677,40 @@ export class AgentPool {
           depth: opts.depth,
           allowedSubagents: opts.allowedSubagents,
           stageResultPath: opts.stageResultPath,
+          sessionFile,
           spawnedAt: Date.now(),
+          status: 'starting',
+          messageCount: existingRecord?.messageCount ?? 0,
+          lastResponse: existingRecord?.lastResponse ?? '',
         });
 
-        const taskText = opts.agent.systemPrompt
-          ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
-          : opts.task;
+        const taskText = opts.resumeSessionFile
+          ? opts.resumeMessage ||
+            [
+              'Continue the previous sub-agent session from its existing context.',
+              '',
+              'If the previous work was interrupted, resume from the last useful point.',
+              'If it was already complete, summarize the final result and any remaining risks.',
+            ].join('\n')
+          : opts.agent.systemPrompt
+            ? `${opts.agent.systemPrompt}\n\n## Initial Task\n${opts.task}`
+            : opts.task;
 
         // 异步执行，不阻塞主 agent
         this.sendPrompt(opts.id, taskText, undefined, { emitErrorEvent: false })
           .then((result) => {
             if (result.error) {
+              this.updateRegistry(opts.id, {
+                status: 'failed',
+                errorMessage: result.error,
+                lastResponse: preferNonEmptyText(
+                  entry.lastResponse,
+                  existingRecord?.lastResponse,
+                ),
+                completedAt: Date.now(),
+                messageCount: entry.messageCount,
+                sessionFile: entry.sessionFile,
+              });
               if (this.initialRunActive(opts.id)) {
                 this.recordRunEvent({
                   type: 'run_finished',
@@ -652,6 +727,17 @@ export class AgentPool {
                 error: result.error,
               });
             } else {
+              this.updateRegistry(opts.id, {
+                status: 'completed',
+                lastResponse: preferNonEmptyText(
+                  result.response,
+                  existingRecord?.lastResponse,
+                ),
+                completedAt: Date.now(),
+                messageCount: entry.messageCount,
+                errorMessage: undefined,
+                sessionFile: entry.sessionFile,
+              });
               if (this.initialRunActive(opts.id)) {
                 this.recordRunEvent({
                   type: 'run_finished',
@@ -670,6 +756,17 @@ export class AgentPool {
             }
           })
           .catch((err) => {
+            this.updateRegistry(opts.id, {
+              status: 'failed',
+              errorMessage: err.message,
+              lastResponse: preferNonEmptyText(
+                entry.lastResponse,
+                existingRecord?.lastResponse,
+              ),
+              completedAt: Date.now(),
+              messageCount: entry.messageCount,
+              sessionFile: entry.sessionFile,
+            });
             if (this.initialRunActive(opts.id)) {
               this.recordRunEvent({
                 type: 'run_finished',
@@ -696,6 +793,14 @@ export class AgentPool {
           session.dispose();
         }
         const spawnError = `Failed to spawn sub-agent: ${err.message}`;
+        this.updateRegistry(opts.id, {
+          status: 'failed',
+          errorMessage: spawnError,
+          lastResponse: existingRecord?.lastResponse ?? '',
+          completedAt: Date.now(),
+          messageCount: existingRecord?.messageCount ?? 0,
+          sessionFile: existingRecord?.sessionFile ?? opts.resumeSessionFile,
+        });
         this.emit({
           type: 'error',
           poolId: opts.id,
@@ -764,20 +869,33 @@ export class AgentPool {
         }
       }
 
-      const messages = (sess.messages ?? []) as any[];
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
-        if (m.role === 'assistant') {
-          const text = extractText(m.content);
-          if (text) {
-            entry.lastResponse = text;
-            return { response: text };
-          }
-        }
+      const messages =
+        sess.messages ?? sess.state?.messages ?? sess.agent?.state?.messages ?? [];
+      const text = extractLatestAssistantText(messages);
+      if (text) {
+        entry.lastResponse = text;
+        this.updateRegistry(id, {
+          status: entry.status,
+          lastResponse: text,
+          messageCount: entry.messageCount,
+        });
+        return { response: text };
       }
+      this.updateRegistry(id, {
+        status: entry.status,
+        lastResponse: entry.lastResponse,
+        messageCount: entry.messageCount,
+      });
       return { response: entry.lastResponse };
     } catch (err: any) {
       const errorMsg = err.message ?? String(err);
+      this.updateRegistry(id, {
+        status: 'failed',
+        errorMessage: errorMsg,
+        lastResponse: entry.lastResponse,
+        completedAt: Date.now(),
+        messageCount: entry.messageCount,
+      });
       if (options.emitErrorEvent !== false) {
         this.emit({
           type: 'error',
@@ -804,6 +922,7 @@ export class AgentPool {
         messageCount: entry.messageCount,
         model: entry.model,
         lastResponse: entry.lastResponse.slice(0, 200),
+        sessionFile: entry.sessionFile,
       });
     }
     return result;
@@ -837,6 +956,15 @@ export class AgentPool {
       });
     }
     entry.status = 'dead';
+    const record = this.getRegistryEntry(id);
+    if (record?.status !== 'completed' && record?.status !== 'failed') {
+      this.updateRegistry(id, {
+        status: 'dead',
+        lastResponse: entry.lastResponse,
+        messageCount: entry.messageCount,
+        completedAt: Date.now(),
+      });
+    }
     if (entry.session) {
       try {
         await entry.session.abort();
@@ -870,6 +998,15 @@ export class AgentPool {
     } catch {}
   }
 
+  private updateRegistry(id: string, patch: Partial<PoolAgentRecord>): void {
+    try {
+      const existing = this.loadRegistry();
+      const current = existing.get(id);
+      if (!current) return;
+      this.saveToRegistry({ ...current, ...patch });
+    } catch {}
+  }
+
   loadRegistry(): Map<string, PoolAgentRecord> {
     try {
       const raw = JSON.parse(fs.readFileSync(this.registryPath, 'utf-8'));
@@ -882,6 +1019,10 @@ export class AgentPool {
 
   listRegistryEntries(): PoolAgentRecord[] {
     return [...this.loadRegistry().values()];
+  }
+
+  getRegistryEntry(id: string): PoolAgentRecord | undefined {
+    return this.loadRegistry().get(id);
   }
 }
 

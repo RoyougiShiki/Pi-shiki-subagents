@@ -7,7 +7,8 @@ export type SubagentToolAction =
   | 'list'
   | 'kill'
   | 'resume'
-  | 'listSaved';
+  | 'listSaved'
+  | 'result';
 
 export interface SubagentRunDetailEventView {
   type: string;

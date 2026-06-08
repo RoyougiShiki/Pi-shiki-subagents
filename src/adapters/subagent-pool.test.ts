@@ -123,6 +123,26 @@ function mockCreateSession() {
         rp(undefined);
       }
     },
+    _simulateMessageEndOnly(text: string) {
+      const message = { role: 'assistant', content: [{ type: 'text', text }] };
+      for (const cb of listeners) {
+        cb({ type: 'message_end', message });
+      }
+      if (resolvePrompt) {
+        const rp = resolvePrompt;
+        resolvePrompt = null;
+        rejectPrompt = null;
+        rp(undefined);
+      }
+    },
+    _rejectPrompt(message: string) {
+      if (rejectPrompt) {
+        const rj = rejectPrompt;
+        rejectPrompt = null;
+        resolvePrompt = null;
+        rj(new Error(message));
+      }
+    },
   };
 
   const createSession = mock(async () => ({
@@ -132,6 +152,26 @@ function mockCreateSession() {
   }));
 
   return { session, createSession };
+}
+
+function mockCreateSessionWithFile(sessionFile: string) {
+  const created = mockCreateSession();
+  (created.session as any).sessionFile = sessionFile;
+  return created;
+}
+
+function makeSessionManagerFactories() {
+  return {
+    createSessionManager: mock((cwd: string, sessionDir: string) => ({
+      kind: 'create',
+      cwd,
+      sessionDir,
+    })),
+    openSessionManager: mock((sessionFile: string) => ({
+      kind: 'open',
+      sessionFile,
+    })),
+  };
 }
 
 /** Wait for the next pool event (completed or error). */
@@ -404,7 +444,11 @@ describe('resolveDelegationCaller', () => {
 describe('AgentPool basic operations', () => {
   test('spawn creates agent and sends initial prompt', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const managers = makeSessionManagerFactories();
+    const pool = new AgentPool({
+      createSession: createSession as any,
+      ...managers,
+    });
 
     // Spawn returns immediately with a startup message
     const spawnResult = await pool.spawn({
@@ -427,6 +471,10 @@ describe('AgentPool basic operations', () => {
       'write',
       'edit',
     ]);
+    expect(createSession.mock.calls[0]?.[0]?.sessionManager).toBeDefined();
+    expect(createSession.mock.calls[0]?.[0]?.sessionManager.kind).toBe(
+      'create',
+    );
     expect(pool.list()).toHaveLength(1);
     expect(pool.list()[0].id).toBe('test-agent');
     expect(pool.list()[0].status).toBe('idle');
@@ -435,13 +483,332 @@ describe('AgentPool basic operations', () => {
     expect(pool.list()).toHaveLength(0);
   });
 
+  test('completion response is captured from assistant message_end events', async () => {
+    const { session, createSession } = mockCreateSession();
+    const pool = new AgentPool({
+      createSession: createSession as any,
+      ...makeSessionManagerFactories(),
+    });
+
+    const spawnResult = await pool.spawn({
+      id: 'message-end-agent',
+      name: 'message-end-agent',
+      agent: makeAgent(),
+      task: 'emit message_end only',
+    });
+    expect(spawnResult.response).toContain('已启动');
+
+    const eventPromise = onNextPoolEvent(pool);
+    session._simulateMessageEndOnly('message-end done');
+    const event = await eventPromise;
+
+    expect(event.type).toBe('completed');
+    expect(event.response).toBe('message-end done');
+    expect(pool.list()[0].lastResponse).toBe('message-end done');
+
+    await pool.kill('message-end-agent');
+  });
+
+  test('completed message_end response is persisted in registry', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-subagent-registry-result-'),
+    );
+    try {
+      const { session, createSession } = mockCreateSession();
+      const pool = new AgentPool({
+        sessionDir: dir,
+        createSession: createSession as any,
+        ...makeSessionManagerFactories(),
+      });
+
+      await pool.spawn({
+        id: 'persisted-result-agent',
+        name: 'persisted-result-agent',
+        agent: makeAgent(),
+        task: 'persist message_end result',
+      });
+
+      const eventPromise = onNextPoolEvent(pool);
+      session._simulateMessageEndOnly('persisted message-end done');
+      await eventPromise;
+
+      const entry = pool.getRegistryEntry('persisted-result-agent');
+      expect(entry?.status).toBe('completed');
+      expect(entry?.lastResponse).toBe('persisted message-end done');
+      expect(entry?.messageCount).toBe(0);
+      expect(entry?.completedAt).toBeGreaterThan(0);
+
+      const restoredPool = new AgentPool({ sessionDir: dir });
+      expect(
+        restoredPool.getRegistryEntry('persisted-result-agent')?.lastResponse,
+      ).toBe('persisted message-end done');
+
+      await pool.kill('persisted-result-agent');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('spawn persists sdk session file in registry', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-subagent-session-file-'),
+    );
+    try {
+      const sessionFile = path.join(dir, 'child-session.jsonl');
+      const { session, createSession } = mockCreateSessionWithFile(sessionFile);
+      const pool = new AgentPool({
+        sessionDir: dir,
+        createSession: createSession as any,
+        ...makeSessionManagerFactories(),
+      });
+
+      await pool.spawn({
+        id: 'file-backed-agent',
+        name: 'file-backed-agent',
+        agent: makeAgent(),
+        task: 'persist session file',
+      });
+
+      const eventPromise = onNextPoolEvent(pool);
+      session._simulateResponse('file-backed done');
+      await eventPromise;
+
+      expect(pool.list()[0].sessionFile).toBe(sessionFile);
+      expect(pool.getRegistryEntry('file-backed-agent')?.sessionFile).toBe(
+        sessionFile,
+      );
+
+      await pool.kill('file-backed-agent');
+      expect(pool.getRegistryEntry('file-backed-agent')?.status).toBe(
+        'completed',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('resume opens saved session file and sends continuation prompt', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-subagent-resume-file-'),
+    );
+    try {
+      const sessionFile = path.join(dir, 'child-session.jsonl');
+      fs.writeFileSync(sessionFile, '{"type":"session"}\n');
+      const { session, createSession } = mockCreateSessionWithFile(sessionFile);
+      const pool = new AgentPool({
+        sessionDir: dir,
+        createSession: createSession as any,
+        timeoutMs: 5,
+        ...makeSessionManagerFactories(),
+      });
+
+      const result = await pool.spawn({
+        id: 'resumed-agent',
+        name: 'resumed-agent',
+        agent: makeAgent(),
+        task: 'original task',
+        resumeSessionFile: sessionFile,
+        resumeMessage: 'continue from here',
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(createSession.mock.calls[0]?.[0]?.sessionManager).toBeDefined();
+      expect(createSession.mock.calls[0]?.[0]?.sessionManager).toEqual({
+        kind: 'open',
+        sessionFile,
+      });
+      expect(session.prompt).toHaveBeenCalledWith('continue from here');
+
+      const eventPromise = onNextPoolEvent(pool);
+      session._simulateResponse('resumed done');
+      await eventPromise;
+      expect(pool.getRegistryEntry('resumed-agent')?.sessionFile).toBe(
+        sessionFile,
+      );
+      expect(pool.getRegistryEntry('resumed-agent')?.lastResponse).toBe(
+        'resumed done',
+      );
+
+      await pool.kill('resumed-agent');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('session manager open failure restores subagent env', async () => {
+    const previousAgent = process.env.OMO_AGENT_NAME;
+    const previousSubAgent = process.env.OMO_SUB_AGENT;
+    const previousAgentId = process.env.OMO_AGENT_ID;
+    process.env.OMO_AGENT_NAME = 'parent-agent';
+    delete process.env.OMO_SUB_AGENT;
+    delete process.env.OMO_AGENT_ID;
+    try {
+      const pool = new AgentPool({
+        createSession: (() => {
+          throw new Error('createSession should not run');
+        }) as any,
+        openSessionManager: () => {
+          throw new Error('bad session file');
+        },
+      });
+
+      const result = await pool.spawn({
+        id: 'bad-resume-agent',
+        name: 'bad-resume-agent',
+        agent: makeAgent(),
+        task: 'resume',
+        resumeSessionFile: '/tmp/missing-session.jsonl',
+      });
+
+      expect(result.error).toContain('bad session file');
+      expect(process.env.OMO_AGENT_NAME).toBe('parent-agent');
+      expect(process.env.OMO_SUB_AGENT).toBeUndefined();
+      expect(process.env.OMO_AGENT_ID).toBeUndefined();
+    } finally {
+      if (previousAgent === undefined) delete process.env.OMO_AGENT_NAME;
+      else process.env.OMO_AGENT_NAME = previousAgent;
+      if (previousSubAgent === undefined) delete process.env.OMO_SUB_AGENT;
+      else process.env.OMO_SUB_AGENT = previousSubAgent;
+      if (previousAgentId === undefined) delete process.env.OMO_AGENT_ID;
+      else process.env.OMO_AGENT_ID = previousAgentId;
+    }
+  });
+
+  test('tool resolution failure after env setup restores subagent env', async () => {
+    const previousAgent = process.env.OMO_AGENT_NAME;
+    const previousSubAgent = process.env.OMO_SUB_AGENT;
+    const previousAgentId = process.env.OMO_AGENT_ID;
+    process.env.OMO_AGENT_NAME = 'parent-agent';
+    delete process.env.OMO_SUB_AGENT;
+    delete process.env.OMO_AGENT_ID;
+    try {
+      const pool = new AgentPool({
+        createSession: (() => {
+          throw new Error('createSession should not run');
+        }) as any,
+        resolveAllToolNames: () => {
+          throw new Error('tool resolver failed');
+        },
+      });
+
+      const result = await pool.spawn({
+        id: 'bad-tools-agent',
+        name: 'bad-tools-agent',
+        agent: makeAgent(),
+        task: 'spawn',
+      });
+
+      expect(result.error).toContain('tool resolver failed');
+      expect(process.env.OMO_AGENT_NAME).toBe('parent-agent');
+      expect(process.env.OMO_SUB_AGENT).toBeUndefined();
+      expect(process.env.OMO_AGENT_ID).toBeUndefined();
+    } finally {
+      if (previousAgent === undefined) delete process.env.OMO_AGENT_NAME;
+      else process.env.OMO_AGENT_NAME = previousAgent;
+      if (previousSubAgent === undefined) delete process.env.OMO_SUB_AGENT;
+      else process.env.OMO_SUB_AGENT = previousSubAgent;
+      if (previousAgentId === undefined) delete process.env.OMO_AGENT_ID;
+      else process.env.OMO_AGENT_ID = previousAgentId;
+    }
+  });
+
+  test('resume open failure marks existing registry entry failed', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-subagent-open-failed-'),
+    );
+    try {
+      const sessionFile = path.join(dir, 'child-session.jsonl');
+      const pool = new AgentPool({
+        sessionDir: dir,
+        createSession: (() => {
+          throw new Error('createSession should not run');
+        }) as any,
+        openSessionManager: () => {
+          throw new Error('bad session file');
+        },
+      });
+      pool['saveToRegistry']({
+        id: 'open-failed-agent',
+        name: 'open-failed-agent',
+        agentName: 'worker',
+        task: 'original task',
+        spawnedAt: Date.now(),
+        sessionFile,
+        status: 'streaming',
+        lastResponse: 'previous useful result',
+        messageCount: 3,
+      });
+
+      const result = await pool.spawn({
+        id: 'open-failed-agent',
+        name: 'open-failed-agent',
+        agent: makeAgent(),
+        task: 'original task',
+        resumeSessionFile: sessionFile,
+      });
+
+      const entry = pool.getRegistryEntry('open-failed-agent');
+      expect(result.error).toContain('bad session file');
+      expect(entry?.status).toBe('failed');
+      expect(entry?.errorMessage).toContain('bad session file');
+      expect(entry?.lastResponse).toBe('previous useful result');
+      expect(entry?.messageCount).toBe(3);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('resume failure preserves previous registry response', async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-subagent-resume-preserve-'),
+    );
+    try {
+      const sessionFile = path.join(dir, 'child-session.jsonl');
+      const { session, createSession } = mockCreateSessionWithFile(sessionFile);
+      const pool = new AgentPool({
+        sessionDir: dir,
+        createSession: createSession as any,
+        ...makeSessionManagerFactories(),
+      });
+      pool['saveToRegistry']({
+        id: 'preserve-agent',
+        name: 'preserve-agent',
+        agentName: 'worker',
+        task: 'original task',
+        spawnedAt: Date.now(),
+        sessionFile,
+        status: 'completed',
+        lastResponse: 'previous useful result',
+      });
+
+      const eventPromise = onNextPoolEvent(pool);
+      await pool.spawn({
+        id: 'preserve-agent',
+        name: 'preserve-agent',
+        agent: makeAgent(),
+        task: 'original task',
+        resumeSessionFile: sessionFile,
+        resumeMessage: 'continue',
+      });
+      session._rejectPrompt('resume failed');
+
+      const event = await eventPromise;
+      expect(event.type).toBe('error');
+      expect(pool.getRegistryEntry('preserve-agent')?.lastResponse).toBe(
+        'previous useful result',
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('initial prompt timeout emits exactly one pool error event', async () => {
     const { createSession } = mockCreateSession();
     const pool = new AgentPool({
       createSession: createSession as any,
       timeoutMs: 1,
     });
-    const eventsPromise = collectPoolEvents(pool, 30);
+    const eventsPromise = collectPoolEvents(pool, 100);
 
     await pool.spawn({
       id: 'timeout-agent',
