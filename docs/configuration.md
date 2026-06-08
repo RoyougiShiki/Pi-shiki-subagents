@@ -112,6 +112,11 @@ definitions live in `workflows.list`; if the list is missing or empty, Pi seeds 
 workflow definitions. Non-pipeline modes do not need a workflow and bypass workflow stage
 gates.
 
+Modes with `requiresUserCommand: true` can only be activated by user-driven mode changes
+such as `/mode` or restored session state. Model-initiated `switch_mode` requests to those
+modes are rejected before the approval prompt.
+Use this for explicit rescue modes that should not be entered by model initiative.
+
 ```jsonc
 {
   "agents": {
@@ -122,7 +127,8 @@ gates.
     },
     "fallback": {
       "type": "mode",
-      "pipelineMode": false
+      "pipelineMode": false,
+      "requiresUserCommand": true
     }
   },
   "workflows": {

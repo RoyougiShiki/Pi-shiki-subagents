@@ -61,13 +61,18 @@ describe('default workflows and agent tool matrix', () => {
     expect(resolveWorkflowList({ list: custom })).toBe(custom);
   });
 
-  test('agent config schema accepts pipeline mode workflow bindings', () => {
+  test('agent config schema accepts pipeline mode workflow bindings and user-command modes', () => {
     const parsed = PluginConfigSchema.parse({
       agents: {
         customLead: {
           type: 'mode',
           pipelineMode: true,
           workflow: 'custom-flow',
+        },
+        customRescue: {
+          type: 'mode',
+          pipelineMode: false,
+          requiresUserCommand: true,
         },
       },
       workflows: {
@@ -83,6 +88,7 @@ describe('default workflows and agent tool matrix', () => {
 
     expect(parsed.agents?.customLead?.pipelineMode).toBe(true);
     expect(parsed.agents?.customLead?.workflow).toBe('custom-flow');
+    expect(parsed.agents?.customRescue?.requiresUserCommand).toBe(true);
   });
 
   test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {

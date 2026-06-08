@@ -161,6 +161,9 @@
               "type": "string",
               "minLength": 1
             },
+            "requiresUserCommand": {
+              "type": "boolean"
+            },
             "hidden": {
               "type": "boolean"
             },
@@ -282,6 +285,9 @@
           "workflow": {
             "type": "string",
             "minLength": 1
+          },
+          "requiresUserCommand": {
+            "type": "boolean"
           },
           "hidden": {
             "type": "boolean"

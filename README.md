@@ -40,7 +40,7 @@ Legacy OpenCode adapter code has been removed. The package keeps a lightweight `
 - `search` — read/search fact gathering.
 - `designer` — technical design after requirements are clear.
 - `fixer` / `worker` / `dispatcher` — implementation paths with scoped responsibilities.
-- `fallback` — explicit fallback mode with broad tools.
+- `fallback` — explicit user-driven rescue mode with broad tools.
 
 ## Control Model
 
