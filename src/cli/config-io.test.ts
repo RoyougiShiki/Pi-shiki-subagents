@@ -235,7 +235,6 @@ describe('config-io', () => {
 
     const result = writeLiteConfig({
       installSkills: false,
-      installCustomSkills: false,
       reset: false,
     });
     expect(result.success).toBe(true);

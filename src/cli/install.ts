@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { MODEL_PLACEHOLDER } from '../config/constants';
 import {
   addPluginToOpenCodeConfig,
   detectCurrentConfig,
@@ -10,8 +11,6 @@ import {
   isOpenCodeInstalled,
   writeLiteConfig,
 } from './config-manager';
-import { MODEL_PLACEHOLDER } from '../config/constants';
-import { CUSTOM_SKILLS, installCustomSkill } from './custom-skills';
 import { getExistingLiteConfigPath } from './paths';
 import { installSkill, RECOMMENDED_SKILLS } from './skills';
 import type { ConfigMergeResult, InstallArgs, InstallConfig } from './types';
@@ -108,7 +107,6 @@ async function runInstall(config: InstallConfig): Promise<number> {
 
   let totalSteps = 5;
   if (config.installSkills) totalSteps += 1;
-  if (config.installCustomSkills) totalSteps += 1;
 
   let step = 1;
 
@@ -196,32 +194,6 @@ async function runInstall(config: InstallConfig): Promise<number> {
     }
   }
 
-  // Install custom skills if requested
-  if (config.installCustomSkills) {
-    printStep(step++, totalSteps, 'Installing custom skills...');
-    if (config.dryRun) {
-      printInfo('Dry run mode - would install custom skills:');
-      for (const skill of CUSTOM_SKILLS) {
-        printInfo(`  - ${skill.name}`);
-      }
-    } else {
-      let customSkillsInstalled = 0;
-      for (const skill of CUSTOM_SKILLS) {
-        printInfo(`Installing ${skill.name}...`);
-        if (installCustomSkill(skill)) {
-          printSuccess(`Installed: ${skill.name}`);
-          customSkillsInstalled++;
-        } else {
-          printInfo(`Skipped: ${skill.name} (already installed)`);
-        }
-      }
-      const totalCustom = CUSTOM_SKILLS.length;
-      printSuccess(
-        `${customSkillsInstalled}/${totalCustom} custom skills processed`,
-      );
-    }
-  }
-
   const statusMsg = isUpdate
     ? 'Configuration updated!'
     : 'Installation complete!';
@@ -238,9 +210,13 @@ async function runInstall(config: InstallConfig): Promise<number> {
   console.log('  2. Refresh the models OpenCode can see:');
   console.log(`     ${BLUE}$ opencode models --refresh${RESET}`);
   console.log();
-  console.log(`  3. Edit your generated config and replace ${MODEL_PLACEHOLDER}:`);
+  console.log(
+    `  3. Edit your generated config and replace ${MODEL_PLACEHOLDER}:`,
+  );
   console.log(`     ${BLUE}${configPath}${RESET}`);
-  console.log('     Use a real provider/model that appears in opencode models.');
+  console.log(
+    '     Use a real provider/model that appears in opencode models.',
+  );
   console.log();
   console.log('  4. Start OpenCode:');
   console.log(`     ${BLUE}$ opencode${RESET}`);
@@ -249,8 +225,7 @@ async function runInstall(config: InstallConfig): Promise<number> {
   console.log(`     ${BLUE}> ping all agents${RESET}`);
   console.log();
 
-  const modelsInfo =
-    `Generated presets use ${MODEL_PLACEHOLDER} placeholders; no provider/model is selected automatically.`;
+  const modelsInfo = `Generated presets use ${MODEL_PLACEHOLDER} placeholders; no provider/model is selected automatically.`;
   console.log(`${modelsInfo}`);
   const altProviders = 'For the full configuration reference, see:';
   console.log(altProviders);
@@ -266,7 +241,6 @@ async function runInstall(config: InstallConfig): Promise<number> {
 export async function install(args: InstallArgs): Promise<number> {
   const config: InstallConfig = {
     installSkills: args.skills === 'yes',
-    installCustomSkills: args.skills === 'yes',
     dryRun: args.dryRun,
     reset: args.reset ?? false,
   };

@@ -33,7 +33,7 @@ oh-my-opencode-slim installer
 Usage: bunx oh-my-opencode-slim install [OPTIONS]
 
 Options:
-  --skills=yes|no        Install recommended and bundled skills (default: yes)
+  --skills=yes|no        Install recommended external skills (default: yes)
   --no-tui               Non-interactive mode
   --dry-run              Simulate install without writing files
   --reset                Force overwrite of existing configuration

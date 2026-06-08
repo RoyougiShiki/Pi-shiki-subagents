@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { WorkflowDefinition } from '../../core/workflow-types';
+import type { WorkflowDefinition } from '../../config/workflow-types';
 import { checkWorkflowStageTargetAllowed, classifyWorkflowStageTarget, getStageAllowedAgents } from './workflow-stage-policy';
 
 const workflow: WorkflowDefinition = {

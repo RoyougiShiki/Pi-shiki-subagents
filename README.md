@@ -27,8 +27,8 @@ The repository is split into two maintained layers:
 
 - **Shared layer**:
   - `src/adapters/**` — agent prompts, agent definitions, discovery, delegation rules
-  - `src/config/**` — config schema, loader, presets, council schema
-  - `src/core/**` — shared workflow/config types
+  - `src/config/**` — config schema, loader, presets, council schema, workflow config types
+  - `src/cli/**` — installer and generated config helpers
 
 Legacy OpenCode adapter code has been removed. The package keeps a lightweight `src/index.ts` only so the npm `main` entry remains importable while the maintained runtime is loaded through Pi extensions.
 
@@ -71,9 +71,7 @@ The npm package is expected to include:
 - `src/pi/**`
 - `src/adapters/**`
 - `src/config/**`
-- `src/core/**`
 - `src/cli/**`
-- `src/skills/**`
 - `dist/**`
 - `oh-my-opencode-slim.schema.json`
 

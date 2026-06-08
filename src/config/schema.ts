@@ -1,8 +1,11 @@
 import { z } from 'zod';
-import { AGENT_ALIASES, ALL_AGENT_NAMES, PRESET_CONFIGURABLE_AGENT_NAMES } from './constants';
+import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
 import { CouncilConfigSchema } from './council-schema';
-import type { WorkflowNode, WorkflowDefinition } from '../core/workflow-types';
-
+import type {
+  WorkflowDefinition,
+  WorkflowNode,
+  WorkflowsConfig as WorkflowTypesConfig,
+} from './workflow-types';
 
 export const ProviderModelIdSchema = z
   .string()
@@ -233,7 +236,9 @@ export const HarnessConfigSchema = z
         thresholds: z
           .object({
             default: z.number().int().positive().optional(),
-            byTool: z.record(z.string(), z.number().int().positive()).optional(),
+            byTool: z
+              .record(z.string(), z.number().int().positive())
+              .optional(),
           })
           .strict()
           .optional(),
@@ -273,37 +278,70 @@ export const WorkflowDefinitionSchema = z.object({
 
 export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
   {
-    name: "standard-dev",
-    description: "标准开发流程：分析 → 计划 → 标准实施",
+    name: 'standard-dev',
+    description: '标准开发流程：分析 → 计划 → 标准实施',
     stages: [
-      { id: "analyst", agent: "analyst", description: "分析需求边界、影响范围、方案和风险", outputSchema: "analysis", allowedSubagents: ["search"] },
-      { id: "plan", agent: "designer", description: "生成实施计划与任务文件", outputSchema: "plan" },
-      { id: "implement", agent: "dispatcher", description: "按计划驱动实现与审查", outputSchema: "implementation" },
+      {
+        id: 'analyst',
+        agent: 'analyst',
+        description: '分析需求边界、影响范围、方案和风险',
+        outputSchema: 'analysis',
+        allowedSubagents: ['search'],
+      },
+      {
+        id: 'plan',
+        agent: 'designer',
+        description: '生成实施计划与任务文件',
+        outputSchema: 'plan',
+      },
+      {
+        id: 'implement',
+        agent: 'dispatcher',
+        description: '按计划驱动实现与审查',
+        outputSchema: 'implementation',
+      },
     ],
   },
   {
-    name: "quick-fix",
-    description: "快速修复流程：分析 → 快速实施",
+    name: 'quick-fix',
+    description: '快速修复流程：分析 → 快速实施',
     stages: [
-      { id: "analyst", agent: "analyst", description: "分析修复范围、边界和风险", outputSchema: "analysis", allowedSubagents: ["search"] },
-      { id: "worker", agent: "worker", description: "驱动 fixer 实现并用 oracle 审查", outputSchema: "implementation" },
+      {
+        id: 'analyst',
+        agent: 'analyst',
+        description: '分析修复范围、边界和风险',
+        outputSchema: 'analysis',
+        allowedSubagents: ['search'],
+      },
+      {
+        id: 'worker',
+        agent: 'worker',
+        description: '驱动 fixer 实现并用 oracle 审查',
+        outputSchema: 'implementation',
+      },
     ],
   },
   {
-    name: "research-only",
-    description: "研究流程：分析",
+    name: 'research-only',
+    description: '研究流程：分析',
     stages: [
-      { id: "analyst", agent: "analyst", description: "分析研究问题并做只读研究结论", outputSchema: "analysis", allowedSubagents: ["search"] },
+      {
+        id: 'analyst',
+        agent: 'analyst',
+        description: '分析研究问题并做只读研究结论',
+        outputSchema: 'analysis',
+        allowedSubagents: ['search'],
+      },
     ],
   },
 ];
 
 export const WorkflowsConfigSchema = z.object({
-  default: z.string().default("standard-dev"),
+  default: z.string().default('standard-dev'),
   list: z.array(WorkflowDefinitionSchema).default(DEFAULT_WORKFLOWS),
 });
 
-export type WorkflowsConfig = z.infer<typeof WorkflowsConfigSchema>;
+export type WorkflowsConfig = WorkflowTypesConfig;
 
 function validateCustomOnlyPromptFields(
   overrides: Record<string, z.infer<typeof AgentOverrideConfigSchema>>,
@@ -358,7 +396,7 @@ export const PluginConfigSchema = z
           'Agents listed here are not advertised for delegation or mode switching. ' +
           'Use this for optional agents you do not want surfaced in runtime prompts.',
       ),
-      disabled_mcps: z.array(z.string()).optional(),
+    disabled_mcps: z.array(z.string()).optional(),
 
     interview: InterviewConfigSchema.optional(),
     sessionManager: SessionManagerConfigSchema.optional(),

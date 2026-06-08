@@ -16,7 +16,6 @@ export interface OpenCodeConfig {
 
 export interface InstallConfig {
   installSkills: boolean;
-  installCustomSkills: boolean;
   dryRun?: boolean;
   reset: boolean;
 }

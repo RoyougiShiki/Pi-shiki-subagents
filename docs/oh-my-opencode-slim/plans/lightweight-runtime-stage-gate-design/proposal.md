@@ -36,7 +36,7 @@ The codebase already has these pieces:
 - verification warnings via `src/pi/policy/verification-evidence-policy.ts`,
 - subagent task contract checks via `src/pi/policy/subagent-contract-policy.ts`,
 - delegation matrix checks via `src/adapters/delegation-rules.ts`,
-- workflow type/config definitions via `src/core/workflow-types.ts` and `src/config/schema.ts`.
+- workflow type/config definitions via `src/config/workflow-types.ts` and `src/config/schema.ts`.
 
 ### Confirmed gaps
 

@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach } from 'bun:test';
-import type { WorkflowsConfig } from '../../core/workflow-types';
+import type { WorkflowsConfig } from '../../config/workflow-types';
 import { consumePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from './pipeline-delegation-grants';
 import { createToolCallGates, createWorkflowStageGateHelpers, SWITCH_MODE_APPROVAL_MESSAGE } from './tool-call-gates';
 

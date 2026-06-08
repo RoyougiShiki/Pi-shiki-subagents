@@ -14,6 +14,7 @@ Superseded notes:
 - P0.1 subagent tool resolution consistency has since been addressed through shared runtime agent/tool resolution behavior and regression coverage.
 - P0.2 subagent default agents path resolution has since been addressed through shared default agent path helpers and regression coverage.
 - Subagent pool recovery has since been extended with file-backed child sessions, persisted `sessionFile` metadata, `resume`, and `result` behavior.
+- The former `src/core/workflow-types.ts` file has since moved into `src/config/workflow-types.ts`; current workflow config types live with the config schema.
 
 Reporting rule: final user-facing audit reports should be grouped by capability/function name; code paths belong in evidence/appendix sections only.
 
@@ -31,7 +32,6 @@ Included areas:
 - `src/adapters/**`
 - `src/cli/**`
 - `src/config/**`
-- `src/core/**`
 - `src/pi/**` including core, meeting, subagent, harness, policy, preset, agents, and prompt modules
 - `src/policy/**`
 - tests under the same module trees

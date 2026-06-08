@@ -1,5 +1,5 @@
 import type { HarnessConfig } from '../config/schema';
-import type { WorkflowsConfig } from '../core/workflow-types';
+import type { WorkflowsConfig } from '../config/workflow-types';
 
 export interface PiCouncilParticipantConfig {
   name?: string;

@@ -1,4 +1,4 @@
-import type { StageNode, WorkflowDefinition } from "../../core/workflow-types";
+import type { StageNode, WorkflowDefinition } from "../../config/workflow-types";
 
 export type WorkflowStageTargetKind = "current" | "next" | "future" | "past" | "unrelated" | "invalid";
 

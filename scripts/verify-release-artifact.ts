@@ -30,9 +30,8 @@ const staticPackagedRequiredFiles = [
   'dist/cli/index.js',
   'oh-my-opencode-slim.schema.json',
   'src/adapters/agents-default.json',
-  'src/core/workflow-types.ts',
+  'src/config/workflow-types.ts',
   'src/cli/index.ts',
-  'src/skills/simplify/SKILL.md',
 ];
 
 function fail(message: string): never {
@@ -94,10 +93,11 @@ function findRequiredRuntimeSourceFiles(): string[] {
     path.join(repoRoot, 'src', 'config'),
   ];
   const runtimeSources = runtimeSourceRoots.flatMap((root) =>
-    walkFiles(root).filter((file) =>
-      file.endsWith('.ts') &&
-      !file.endsWith('.test.ts') &&
-      !file.endsWith('.d.ts'),
+    walkFiles(root).filter(
+      (file) =>
+        file.endsWith('.ts') &&
+        !file.endsWith('.test.ts') &&
+        !file.endsWith('.d.ts'),
     ),
   );
 
@@ -105,10 +105,12 @@ function findRequiredRuntimeSourceFiles(): string[] {
 }
 
 function getPackagedRequiredFiles(): string[] {
-  return [...new Set([
-    ...staticPackagedRequiredFiles,
-    ...findRequiredRuntimeSourceFiles(),
-  ])].sort();
+  return [
+    ...new Set([
+      ...staticPackagedRequiredFiles,
+      ...findRequiredRuntimeSourceFiles(),
+    ]),
+  ].sort();
 }
 
 function verifyDistHasNoLeakedPaths() {

@@ -8,7 +8,6 @@ describe('providers', () => {
   test('generateLiteConfig generates preset templates with placeholders', () => {
     const config = generateLiteConfig({
       installSkills: false,
-      installCustomSkills: false,
       reset: false,
     });
 

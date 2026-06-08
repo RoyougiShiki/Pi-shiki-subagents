@@ -1,4 +1,4 @@
-import type { StageNode, WorkflowsConfig } from "../../core/workflow-types";
+import type { StageNode, WorkflowsConfig } from "../../config/workflow-types";
 import { checkSubagentSpawnContract } from "./subagent-contract-policy";
 import { classifyWorkflowStageTarget } from "./workflow-stage-policy";
 import { issuePipelineDelegationGrant } from "./pipeline-delegation-grants";

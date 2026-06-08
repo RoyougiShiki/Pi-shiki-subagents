@@ -38,10 +38,8 @@
     "dist",
     "src/pi",
     "src/adapters",
-    "src/core",
     "src/config",
     "src/cli",
-    "src/skills",
     "oh-my-opencode-slim.schema.json",
     "README.md",
     "LICENSE"
@@ -49,7 +47,7 @@
   "scripts": {
     "build:plugin": "bun build src/index.ts --outdir dist --target node --format esm --external @ast-grep/napi --external @opencode-ai/plugin --external @opencode-ai/sdk --external jsdom --external zod",
     "build:cli": "bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external @ast-grep/napi --external @opencode-ai/plugin --external @opencode-ai/sdk --external jsdom --external zod",
-    "build": "bun run build:plugin && bun run build:cli && tsc --emitDeclarationOnly && bun run generate-schema",
+    "build": "bun run build:plugin && bun run build:cli && node ./node_modules/typescript/bin/tsc --emitDeclarationOnly && bun run generate-schema",
     "prepare": "bun run build",
     "contributors:add": "all-contributors add",
     "contributors:check": "all-contributors check",
@@ -60,7 +58,7 @@
     "pi:sync:check": "bun run scripts/pi-dev-sync.ts --check",
     "pi:sync:build": "bun run build && bun run scripts/pi-dev-sync.ts --write --skip-schema",
     "verify:release": "bun run scripts/verify-release-artifact.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "lint": "biome lint .",
     "format": "biome format . --write",

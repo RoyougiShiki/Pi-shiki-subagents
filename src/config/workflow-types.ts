@@ -1,8 +1,8 @@
 // ============================================================
-// Stage Output（子代理输出契约）
+// Stage output contract
 // ============================================================
 export interface StageOutput {
-  status?: "complete" | "needs_user" | "failed";
+  status?: 'complete' | 'needs_user' | 'failed';
   summary: string;
   /** Minimal context passed to the next stage; not a full process log. */
   context: string;
@@ -29,7 +29,7 @@ export interface StageOutput {
 }
 
 // ============================================================
-// Workflow 树形节点
+// Workflow stage definition
 // ============================================================
 export interface StageNode {
   id?: string;
@@ -59,32 +59,62 @@ export interface WorkflowsConfig {
 }
 
 export interface StageResultComplete {
-  type: "complete";
+  type: 'complete';
   summary: string;
   context: string;
-  evidence?: StageOutput["evidence"];
-  artifacts?: StageOutput["artifacts"];
-  suggestedNext?: StageOutput["suggestedNext"];
+  evidence?: StageOutput['evidence'];
+  artifacts?: StageOutput['artifacts'];
+  suggestedNext?: StageOutput['suggestedNext'];
 }
 
 export interface StageResultAskUser {
-  type: "ask_user";
+  type: 'ask_user';
   summary: string;
   question: string;
   options?: string[];
-  evidence?: StageOutput["evidence"];
-  artifacts?: StageOutput["artifacts"];
-  suggestedNext?: StageOutput["suggestedNext"];
+  evidence?: StageOutput['evidence'];
+  artifacts?: StageOutput['artifacts'];
+  suggestedNext?: StageOutput['suggestedNext'];
 }
 
 export type WorkflowStageToolResult = StageResultComplete | StageResultAskUser;
 
 export type StageEvent =
-  | { type: "running"; agent: string; stageId: string; poolId: string }
-  | { type: "message"; agent: string; stageId: string; poolId: string; text: string }
-
-  | { type: "waiting_user"; agent: string; stageId: string; poolId: string; output: StageOutput }
-  | { type: "transition_approval"; agent: string; stageId: string; poolId: string; output: StageOutput; nextStage?: string }
-  | { type: "complete"; agent: string; stageId: string; poolId: string; output: StageOutput }
-  | { type: "workflow_complete"; workflow: string; output?: StageOutput }
-  | { type: "error"; agent: string; stageId?: string; poolId?: string; error: string };
+  | { type: 'running'; agent: string; stageId: string; poolId: string }
+  | {
+      type: 'message';
+      agent: string;
+      stageId: string;
+      poolId: string;
+      text: string;
+    }
+  | {
+      type: 'waiting_user';
+      agent: string;
+      stageId: string;
+      poolId: string;
+      output: StageOutput;
+    }
+  | {
+      type: 'transition_approval';
+      agent: string;
+      stageId: string;
+      poolId: string;
+      output: StageOutput;
+      nextStage?: string;
+    }
+  | {
+      type: 'complete';
+      agent: string;
+      stageId: string;
+      poolId: string;
+      output: StageOutput;
+    }
+  | { type: 'workflow_complete'; workflow: string; output?: StageOutput }
+  | {
+      type: 'error';
+      agent: string;
+      stageId?: string;
+      poolId?: string;
+      error: string;
+    };

@@ -3,7 +3,7 @@
 > 状态:历史设计草案,当前事实已部分变化;请以 README、package.json 和 whole-module-complexity-audit 为准。
 > 日期:2026-06-01
 > 目标:整理当前维护中的平台适配层,保留可复用共享层,清理长期未维护的旧 OpenCode adapter 实现。
-> 当前快照: package.json 只声明 `./src/pi/core/pi.ts` 一个 Pi extension; `src/index.ts` 已是 legacy warning stub,不是旧 OpenCode adapter 导出。
+> 当前快照: package.json 只声明 `./src/pi/core/pi.ts` 一个 Pi extension; `src/index.ts` 已是 legacy warning stub,不是旧 OpenCode adapter 导出; workflow config types 已迁入 `src/config/workflow-types.ts`。
 
 ---
 
@@ -12,7 +12,7 @@
 本仓库不应被描述为 "Pi-only"。更准确的边界是:
 
 - 当前正在维护和运行的是 **Pi adapter**。
-- `config` / `core` / `adapters` 中的 agent 定义、配置 schema、运行时配置加载等仍是**共享层**,未来可供其他平台 adapter 复用。
+- `config` / `adapters` 中的 agent 定义、配置 schema、workflow config types、运行时配置加载等仍是**共享层**,未来可供其他平台 adapter 复用。
 - 旧 OpenCode adapter 长期未维护,且当前 Pi 扩展不依赖,应作为 legacy platform adapter 清理。
 
 因此本设计目标是:
@@ -58,7 +58,6 @@ src/adapters/agent-discovery.ts
 src/adapters/delegation-rules.ts
 src/adapters/pi-env.d.ts
 src/config/**
-src/core/workflow-types.ts
 oh-my-opencode-slim.schema.json
 ```
 
@@ -67,7 +66,7 @@ oh-my-opencode-slim.schema.json
 - `src/adapters/agents/**` 是平台无关的 agent prompt 源。
 - `agents-default.json` 是 agent 定义与工具/角色边界的配置源。
 - `config/schema.ts` 仍提供共享配置 schema 和 `DEFAULT_WORKFLOWS` 种子。
-- `workflow-types.ts` 当前仍被 Pi/config 使用;不能随旧 OpenCode 一起删除。
+- `src/config/workflow-types.ts` 当前仍被 Pi/config 使用;不能随旧 OpenCode 一起删除。
 
 ### 1.3 Legacy OpenCode adapter
 
@@ -146,7 +145,6 @@ verify:release
 src/pi
 src/adapters
 src/config
-src/core
 oh-my-opencode-slim.schema.json
 README.md
 LICENSE
@@ -213,7 +211,6 @@ src/vendor/**
 src/pi/**
 src/adapters/**
 src/config/**
-src/core/workflow-types.ts
 ```
 
 验收:
