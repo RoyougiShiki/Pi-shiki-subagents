@@ -177,6 +177,12 @@ interface SwitchModeGateInput {
   mode?: unknown;
 }
 
+interface SwitchModeTargetPolicy {
+  exists: boolean;
+  usableAsMode: boolean;
+  requiresUserCommand: boolean;
+}
+
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -261,6 +267,7 @@ export function createToolCallGates(args: {
   notifyWorkflowStageGateSkipped: (ctx?: GateUiContext) => void;
   isCurrentModePipeline: () => boolean;
   resolveDelegationCaller: () => string | undefined;
+  resolveSwitchModeTarget?: (mode: string) => SwitchModeTargetPolicy | undefined;
   emitWorkflowStageNotice?: (text: string) => void;
 }) {
   const gatePipelineSubagent = async (ctx: GateUiContext, input: SubagentGateInput): Promise<GateDecision> => {
@@ -436,8 +443,21 @@ ${contractDecision.hint}` : ""}`);
   };
 
   const gateSwitchMode = async (ctx: GateUiContext, input: SwitchModeGateInput): Promise<GateDecision> => {
-    const mode = stringValue(input?.mode);
+    const mode = stringValue(input?.mode).toLowerCase();
     if (!mode) return allow();
+
+    const target = args.resolveSwitchModeTarget?.(mode);
+    if (target) {
+      if (!target.exists) {
+        return deny(`模式切换被拒绝：不存在该 agent「${mode}」。`);
+      }
+      if (!target.usableAsMode) {
+        return deny(`模式切换被拒绝：「${mode}」是子代理，不能作为模式切换。`);
+      }
+      if (target.requiresUserCommand) {
+        return deny(`模式切换被拒绝：「${mode}」必须由用户使用 /mode 命令切换。`);
+      }
+    }
 
     const approval = await requestApproval(
       ctx,

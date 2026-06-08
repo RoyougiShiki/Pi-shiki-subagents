@@ -1199,6 +1199,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     notifyWorkflowStageGateSkipped,
     isCurrentModePipeline,
     resolveDelegationCaller,
+    resolveSwitchModeTarget: (mode: string) => {
+      const agent = getAgent(mode);
+      return {
+        exists: Boolean(agent),
+        usableAsMode: agent?.type === 'mode' || agent?.type === 'both',
+        requiresUserCommand: agent?.requiresUserCommand === true,
+      };
+    },
     emitWorkflowStageNotice: (text: string) => {
       try {
         pi.sendMessage(

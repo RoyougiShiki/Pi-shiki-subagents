@@ -28,6 +28,7 @@ function makeGates(args: {
   caller?: string;
   workflowName?: string | null;
   workflowsConfig?: WorkflowsConfig;
+  resolveSwitchModeTarget?: Parameters<typeof createToolCallGates>[0]['resolveSwitchModeTarget'];
 } = {}) {
   const helpers = createWorkflowStageGateHelpers({
     workflows: args.workflowsConfig ?? workflows,
@@ -54,6 +55,7 @@ function makeGates(args: {
     notifyWorkflowStageGateSkipped: () => {},
     isCurrentModePipeline: () => args.pipeline === true,
     resolveDelegationCaller: () => args.caller,
+    resolveSwitchModeTarget: args.resolveSwitchModeTarget,
     emitWorkflowStageNotice: (text) => args.notices?.push(text),
   });
   const ctx = { ui: { confirm: async () => approvals.shift() ?? true } };
@@ -360,6 +362,80 @@ describe('tool call workflow stage gates', () => {
 
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.reason).toContain('ui.confirm');
+  });
+
+  test('agent switch_mode calls to user-command-only modes are blocked before approval', async () => {
+    let confirmCalled = false;
+    const requestedModes: string[] = [];
+    const { gates } = makeGates({
+      resolveSwitchModeTarget: (mode) => {
+        requestedModes.push(mode);
+        return {
+          exists: true,
+          usableAsMode: true,
+          requiresUserCommand: true,
+        };
+      },
+    });
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async () => {
+          confirmCalled = true;
+          return true;
+        },
+      },
+    }, { mode: 'Fallback' });
+
+    expect(decision.ok).toBe(false);
+    expect(confirmCalled).toBe(false);
+    expect(requestedModes).toEqual(['fallback']);
+    if (!decision.ok) expect(decision.reason).toContain('/mode');
+  });
+
+  test('agent switch_mode calls to missing modes are blocked before approval', async () => {
+    let confirmCalled = false;
+    const { gates } = makeGates({
+      resolveSwitchModeTarget: () => ({
+        exists: false,
+        usableAsMode: false,
+        requiresUserCommand: false,
+      }),
+    });
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async () => {
+          confirmCalled = true;
+          return true;
+        },
+      },
+    }, { mode: 'missing-mode' });
+
+    expect(decision.ok).toBe(false);
+    expect(confirmCalled).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('不存在');
+  });
+
+  test('agent switch_mode calls to subagent-only targets are blocked before approval', async () => {
+    let confirmCalled = false;
+    const { gates } = makeGates({
+      resolveSwitchModeTarget: () => ({
+        exists: true,
+        usableAsMode: false,
+        requiresUserCommand: false,
+      }),
+    });
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async () => {
+          confirmCalled = true;
+          return true;
+        },
+      },
+    }, { mode: 'oracle' });
+
+    expect(decision.ok).toBe(false);
+    expect(confirmCalled).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('子代理');
   });
 
   test('switch_mode calls without target mode do not request approval', async () => {
