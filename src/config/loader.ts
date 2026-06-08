@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { homedir } from 'node:os';
 import { type PluginConfig, PluginConfigSchema } from './schema';
 import { parseJsonc } from './jsonc';
+import { TOOL_GROUPS_CONFIG_KEY } from './config-keys';
 
 const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
 
@@ -185,6 +186,10 @@ export function loadPluginConfig(directory: string, options?: LoadPluginConfigOp
       fallback: deepMerge(config.fallback, projectConfig.fallback),
       harness: deepMerge(config.harness, projectConfig.harness),
       council: deepMerge(config.council, projectConfig.council),
+      [TOOL_GROUPS_CONFIG_KEY]: deepMerge(
+        config[TOOL_GROUPS_CONFIG_KEY],
+        projectConfig[TOOL_GROUPS_CONFIG_KEY],
+      ),
     };
   }
 
@@ -280,5 +285,3 @@ export function loadAgentPrompt(
 
   return result;
 }
-
-

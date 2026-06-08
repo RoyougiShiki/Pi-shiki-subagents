@@ -18,13 +18,12 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadRuntimeAgentDefinitions, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
+import { loadRuntimeAgentDefinitions, loadRuntimeToolGroups, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
 import { parseJsonc } from "../../config/jsonc";
 import {
   getPiNativeConfigPath,
-  readPiNativeConfigObject,
 } from "../../config/pi-native";
-import { DEFAULT_WORKFLOWS } from "../../config/schema";
+import { DEFAULT_WORKFLOWS, resolveWorkflowList } from "../../config/workflow-defaults";
 import { setToolScope, getToolScope } from "../policy/tool-scope-manager";
 
 // ── 类型 ──────────────────────────────────────────────────────────────────
@@ -145,19 +144,7 @@ export function getIntentPattern(name: string): RegExp {
 
 function ensureToolGroups(): Record<string, string[]> {
   if (_toolGroups) return _toolGroups;
-  // Try user config first
-  const raw = readPiNativeConfigObject();
-  if (raw._tool_groups) {
-    _toolGroups = raw._tool_groups;
-    return _toolGroups!;
-  }
-  // Fall back to defaults
-  try {
-    const raw = parseJsonc<Record<string, any>>(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
-    _toolGroups = raw._tool_groups || {};
-  } catch {
-    _toolGroups = {};
-  }
+  _toolGroups = loadRuntimeToolGroups();
   return _toolGroups!;
 }
 
@@ -517,10 +504,7 @@ export function validateModeWorkflowBinding(args: {
     return `Pipeline mode "${args.modeName}" must set agents.${args.modeName}.workflow; workflows.default is not used at runtime`;
   }
 
-  const workflowList =
-    args.workflows?.list && args.workflows.list.length > 0
-      ? args.workflows.list
-      : DEFAULT_WORKFLOWS;
+  const workflowList = resolveWorkflowList(args.workflows);
   if (!workflowList.some((workflow) => workflow.name === workflowName)) {
     return `Pipeline mode "${args.modeName}" references missing workflow "${workflowName}"`;
   }

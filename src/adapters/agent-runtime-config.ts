@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { deepMerge, loadPluginConfig } from "../config/loader";
+import { TOOL_GROUPS_CONFIG_KEY } from "../config/config-keys";
 import { parseJsonc } from "../config/jsonc";
 import {
   getPiNativeConfigPath,
@@ -26,6 +27,8 @@ export interface ToolExpressionResolveOptions {
   maxDepth?: number;
 }
 
+export type RuntimeToolGroups = Record<string, string[]>;
+
 function escapeRegexLiteral(value: string): string {
   return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -37,6 +40,20 @@ function normalizeStringList(items: readonly string[] | undefined): string[] {
     if (trimmed) result.add(trimmed);
   }
   return [...result];
+}
+
+function isInternalConfigKey(name: string): boolean {
+  return name.trim() === TOOL_GROUPS_CONFIG_KEY;
+}
+
+function filterRuntimeAgentDefinitions(
+  agents: Record<string, RuntimeAgentDefinition>,
+): Record<string, RuntimeAgentDefinition> {
+  const result: Record<string, RuntimeAgentDefinition> = {};
+  for (const [name, definition] of Object.entries(agents)) {
+    if (!isInternalConfigKey(name)) result[name] = definition;
+  }
+  return result;
 }
 
 export function resolveToolExpressions(
@@ -121,9 +138,9 @@ export function resolveAgentToolNames(
   return undefined;
 }
 
-function readJsonFile(filePath: string): Record<string, any> {
+function readJsonFile(filePath: string): Record<string, unknown> {
   try {
-    return parseJsonc<Record<string, any>>(fs.readFileSync(filePath, "utf-8"));
+    return parseJsonc<Record<string, unknown>>(fs.readFileSync(filePath, "utf-8"));
   } catch {
     return {};
   }
@@ -137,15 +154,21 @@ export function getUserConfigPath(): string {
   return getPiNativeConfigPath();
 }
 
-function normalizeConfigAgents(config: Record<string, any>): Record<string, RuntimeAgentDefinition> {
+function normalizeConfigAgents(config: Record<string, unknown>): Record<string, RuntimeAgentDefinition> {
   let agents = config.agents && typeof config.agents === "object"
     ? config.agents as Record<string, RuntimeAgentDefinition>
     : {};
 
   const envPreset = process.env.OH_MY_OPENCODE_SLIM_PRESET;
-  const presetName = envPreset || config.preset;
-  const preset = presetName && config.presets && typeof config.presets === "object"
-    ? config.presets[presetName]
+  const configPreset = typeof config.preset === "string"
+    ? config.preset
+    : undefined;
+  const presetName = envPreset || configPreset;
+  const presets = config.presets && typeof config.presets === "object"
+    ? config.presets as Record<string, unknown>
+    : undefined;
+  const preset = presetName && presets
+    ? presets[presetName]
     : undefined;
   if (preset && typeof preset === "object") {
     agents = (deepMerge(
@@ -154,7 +177,7 @@ function normalizeConfigAgents(config: Record<string, any>): Record<string, Runt
     ) ?? agents) as Record<string, RuntimeAgentDefinition>;
   }
 
-  return agents;
+  return filterRuntimeAgentDefinitions(agents);
 }
 
 function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinition> {
@@ -168,6 +191,48 @@ function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinit
   return deepMerge(piNativeAgents, sharedAgents) ?? {};
 }
 
+function normalizeToolGroups(groups: unknown): RuntimeToolGroups {
+  const normalized: RuntimeToolGroups = {};
+  if (!groups || typeof groups !== "object") return normalized;
+
+  for (const [name, tools] of Object.entries(
+    groups as Record<string, unknown>,
+  )) {
+    const groupName = name.trim();
+    if (!groupName || !Array.isArray(tools)) continue;
+    const entries = normalizeStringList(
+      tools.filter((tool): tool is string => typeof tool === "string"),
+    );
+    normalized[groupName] = entries;
+  }
+
+  return normalized;
+}
+
+function mergeToolGroups(
+  ...sources: readonly unknown[]
+): RuntimeToolGroups {
+  const merged: RuntimeToolGroups = {};
+  for (const source of sources) {
+    for (const [name, tools] of Object.entries(normalizeToolGroups(source))) {
+      merged[name] = tools;
+    }
+  }
+  return merged;
+}
+
+export function loadRuntimeToolGroups(cwd = process.cwd()): RuntimeToolGroups {
+  const defaults = readJsonFile(getDefaultAgentsPath())[TOOL_GROUPS_CONFIG_KEY];
+  const piNative = readPiNativeConfigObject()[TOOL_GROUPS_CONFIG_KEY];
+  const sharedConfig = loadPluginConfig(cwd, { quiet: true });
+
+  return mergeToolGroups(
+    defaults,
+    piNative,
+    sharedConfig[TOOL_GROUPS_CONFIG_KEY],
+  );
+}
+
 export function normalizeRuntimeModel(model: RuntimeAgentDefinition["model"]): string | undefined {
   if (typeof model === "string") return model;
   if (!Array.isArray(model)) return undefined;
@@ -177,7 +242,9 @@ export function normalizeRuntimeModel(model: RuntimeAgentDefinition["model"]): s
 }
 
 export function loadRuntimeAgentDefinitions(cwd = process.cwd()): Record<string, RuntimeAgentDefinition> {
-  const defaults = readJsonFile(getDefaultAgentsPath()) as Record<string, RuntimeAgentDefinition>;
+  const defaults = filterRuntimeAgentDefinitions(
+    readJsonFile(getDefaultAgentsPath()) as Record<string, RuntimeAgentDefinition>,
+  );
   const runtimeAgents = getRuntimeConfigAgents(cwd);
 
   const merged: Record<string, RuntimeAgentDefinition> = { ...defaults };

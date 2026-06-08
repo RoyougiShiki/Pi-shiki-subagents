@@ -131,7 +131,7 @@ import {
   PRESET_CONFIGURABLE_AGENT_NAMES,
   PRIMARY_MODE_AGENT_NAME,
 } from '../../config/constants';
-import { DEFAULT_WORKFLOWS } from '../../config/schema';
+import { resolveWorkflowList } from '../../config/workflow-defaults';
 import {
   createToolCallGates,
   createWorkflowStageGateHelpers,
@@ -731,10 +731,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   const workflowGateHelpers = createWorkflowStageGateHelpers({
     workflows: {
-      list:
-        config?.workflows?.list && config.workflows.list.length > 0
-          ? config.workflows.list
-          : DEFAULT_WORKFLOWS,
+      list: resolveWorkflowList(config?.workflows),
     },
     knownAgents: Object.keys(loadRuntimeAgentDefinitions()),
     getActiveWorkflowName: getActiveModeWorkflow,
@@ -933,10 +930,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         console.error(`[omo-modes] health-check: ${err}`);
       }
       const workflowErr = validateActiveModeWorkflow({
-        list:
-          config?.workflows?.list && config.workflows.list.length > 0
-            ? config.workflows.list
-            : DEFAULT_WORKFLOWS,
+        list: resolveWorkflowList(config?.workflows),
       });
       if (workflowErr) {
         ctx.ui.notify(`[workflow] 健康检查失败: ${workflowErr}`, 'error');

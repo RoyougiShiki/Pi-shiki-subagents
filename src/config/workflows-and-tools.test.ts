@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DEFAULT_WORKFLOWS, WorkflowsConfigSchema } from './schema';
+import { DEFAULT_WORKFLOWS, WorkflowsConfigSchema, resolveWorkflowList } from './schema';
 
 describe('default workflows and agent tool matrix', () => {
   test('default workflows include the expected named flows with stage metadata', () => {
@@ -31,6 +31,20 @@ describe('default workflows and agent tool matrix', () => {
     expect(parsed.list.map((workflow) => workflow.name)).toEqual(
       DEFAULT_WORKFLOWS.map((workflow) => workflow.name),
     );
+  });
+
+  test('resolveWorkflowList is the single fallback for missing workflow lists', () => {
+    const custom = [
+      {
+        name: 'custom-flow',
+        description: 'Custom',
+        stages: [{ agent: 'custom-agent' }],
+      },
+    ];
+
+    expect(resolveWorkflowList(undefined)).toBe(DEFAULT_WORKFLOWS);
+    expect(resolveWorkflowList({ list: [] })).toBe(DEFAULT_WORKFLOWS);
+    expect(resolveWorkflowList({ list: custom })).toBe(custom);
   });
 
   test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {

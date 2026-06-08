@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
+import { TOOL_GROUPS_CONFIG_KEY } from './config-keys';
 import { CouncilConfigSchema } from './council-schema';
 import type {
-  WorkflowDefinition,
   WorkflowNode,
   WorkflowsConfig as WorkflowTypesConfig,
 } from './workflow-types';
+import { DEFAULT_WORKFLOWS } from './workflow-defaults';
+export { DEFAULT_WORKFLOWS, resolveWorkflowList } from './workflow-defaults';
 
 export const ProviderModelIdSchema = z
   .string()
@@ -73,6 +75,7 @@ export const AgentOverrideConfigSchema = z
     skills: z.array(z.string()).optional(), // skills this agent can use ("*" = all, "!item" = exclude)
     mcps: z.array(z.string()).optional(), // MCPs this agent can use ("*" = all, "!item" = exclude)
     type: z.enum(['mode', 'subagent', 'both']).optional(),
+    roles: z.array(z.string()).optional(),
     tools: z.array(z.string()).optional(),
     delegates: z.array(z.string()).optional(),
     workflow: z.string().min(1).optional(),
@@ -92,6 +95,10 @@ export type ModelEntry = { id: string; variant?: string };
 export const PresetSchema = z.record(z.string(), AgentOverrideConfigSchema);
 
 export type Preset = z.infer<typeof PresetSchema>;
+
+export const ToolGroupsConfigSchema = z.record(z.string(), z.array(z.string()));
+
+export type ToolGroupsConfig = z.infer<typeof ToolGroupsConfigSchema>;
 
 // MCP names
 export const McpNameSchema = z.enum(['context7', 'grep_app']);
@@ -277,66 +284,6 @@ export const WorkflowDefinitionSchema = z.object({
   stages: z.array(WorkflowNodeSchema),
 });
 
-export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
-  {
-    name: 'standard-dev',
-    description: '标准开发流程：分析 → 计划 → 标准实施',
-    stages: [
-      {
-        id: 'analyst',
-        agent: 'analyst',
-        description: '分析需求边界、影响范围、方案和风险',
-        outputSchema: 'analysis',
-        allowedSubagents: ['search'],
-      },
-      {
-        id: 'plan',
-        agent: 'designer',
-        description: '生成实施计划与任务文件',
-        outputSchema: 'plan',
-      },
-      {
-        id: 'implement',
-        agent: 'dispatcher',
-        description: '按计划驱动实现与审查',
-        outputSchema: 'implementation',
-      },
-    ],
-  },
-  {
-    name: 'quick-fix',
-    description: '快速修复流程：分析 → 快速实施',
-    stages: [
-      {
-        id: 'analyst',
-        agent: 'analyst',
-        description: '分析修复范围、边界和风险',
-        outputSchema: 'analysis',
-        allowedSubagents: ['search'],
-      },
-      {
-        id: 'worker',
-        agent: 'worker',
-        description: '驱动 fixer 实现并用 oracle 审查',
-        outputSchema: 'implementation',
-      },
-    ],
-  },
-  {
-    name: 'research-only',
-    description: '研究流程：分析',
-    stages: [
-      {
-        id: 'analyst',
-        agent: 'analyst',
-        description: '分析研究问题并做只读研究结论',
-        outputSchema: 'analysis',
-        allowedSubagents: ['search'],
-      },
-    ],
-  },
-];
-
 export const WorkflowsConfigSchema = z.object({
   default: z.string().optional(),
   list: z.array(WorkflowDefinitionSchema).default(DEFAULT_WORKFLOWS),
@@ -389,6 +336,9 @@ export const PluginConfigSchema = z
     manualPlan: ManualPlanSchema.optional(),
     presets: z.record(z.string(), PresetSchema).optional(),
     agents: z.record(z.string(), AgentOverrideConfigSchema).optional(),
+    [TOOL_GROUPS_CONFIG_KEY]: ToolGroupsConfigSchema.optional().describe(
+      'Named tool expression groups. Agent roles and @group tool entries resolve through this map.',
+    ),
     disabled_agents: z
       .array(z.string())
       .optional()

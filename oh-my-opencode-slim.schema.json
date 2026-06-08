@@ -136,6 +136,12 @@
                 "both"
               ]
             },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "tools": {
               "type": "array",
               "items": {
@@ -249,6 +255,12 @@
               "both"
             ]
           },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "tools": {
             "type": "array",
             "items": {
@@ -288,6 +300,19 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    "_tool_groups": {
+      "description": "Named tool expression groups. Agent roles and @group tool entries resolve through this map.",
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
       }
     },
     "disabled_agents": {

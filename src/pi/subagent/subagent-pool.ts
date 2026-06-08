@@ -19,14 +19,12 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { AgentConfig } from '../../adapters/agent-discovery';
 import {
-  getDefaultAgentsPath,
   loadRuntimeAgentDefinitions,
+  loadRuntimeToolGroups,
   resolveAgentToolNames,
   type RuntimeAgentDefinition,
 } from '../../adapters/agent-runtime-config';
-import { parseJsonc } from '../../config/jsonc';
 import { getToolScope } from '../policy/tool-scope-manager';
-import { readPiNativeConfigObject } from '../../config/pi-native';
 import { toSubagentRunEvents } from './subagent-run-adapter';
 import type { SubagentRunEvent, SubagentRunStatus } from './subagent-run-state';
 import {
@@ -117,7 +115,6 @@ function restoreAgentEnv(saved: AgentEnv): void {
   }
 }
 
-const DEFAULTS_PATH = getDefaultAgentsPath();
 const REGISTRY_FILENAME = 'pool-registry.json';
 const SESSION_DIR = path.join(
   os.homedir(),
@@ -126,53 +123,6 @@ const SESSION_DIR = path.join(
   'sessions',
   'subagents',
 );
-
-function readConfigObject(filePath: string): Record<string, any> {
-  try {
-    return parseJsonc<Record<string, any>>(fs.readFileSync(filePath, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function readFirstConfigObject(filePaths: readonly string[]): Record<string, any> {
-  for (const filePath of filePaths) {
-    const config = readConfigObject(filePath);
-    if (Object.keys(config).length > 0) return config;
-  }
-  return {};
-}
-function readToolGroups(cwd = process.cwd()): Record<string, string[]> {
-  const merged: Record<string, string[]> = {};
-  const mergeGroups = (groups: unknown) => {
-    if (!groups || typeof groups !== 'object') return;
-    for (const [name, tools] of Object.entries(
-      groups as Record<string, unknown>,
-    )) {
-      if (Array.isArray(tools))
-        merged[name] = tools.filter(
-          (tool): tool is string =>
-            typeof tool === 'string' && tool.trim().length > 0,
-        );
-    }
-  };
-
-  mergeGroups(readConfigObject(DEFAULTS_PATH)._tool_groups);
-  mergeGroups(readPiNativeConfigObject()._tool_groups);
-  const projectConfigBase = path.join(
-    cwd,
-    '.opencode',
-    'oh-my-opencode-slim',
-  );
-  mergeGroups(
-    readFirstConfigObject([
-      `${projectConfigBase}.jsonc`,
-      `${projectConfigBase}.json`,
-    ])._tool_groups,
-  );
-  return merged;
-}
-
 
 export function resolveSubagentToolNamesForAgent(
   agentName: string,
@@ -184,7 +134,7 @@ export function resolveSubagentToolNamesForAgent(
     | undefined;
   if (!runtime) return undefined;
 
-  const groups = readToolGroups(cwd);
+  const groups = loadRuntimeToolGroups(cwd);
   return resolveAgentToolNames(runtime, groups, allToolNames);
 }
 

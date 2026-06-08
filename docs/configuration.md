@@ -71,6 +71,36 @@ At runtime, Pi syncs managed markdown prompts into `~/.pi/agents/`.
 
 Prompt files should describe role boundaries and behavior. Tool access and delegates should remain in `agents-default.json` / runtime config, not duplicated in markdown.
 
+## Tool Groups
+
+Tool permissions are configured on agent definitions with `roles` and `tools`.
+Named groups live in the root-level `_tool_groups` map and are shared by modes
+and subagents. Resolution order is built-in defaults, then Pi native config,
+then shared OpenCode user/project config.
+
+```jsonc
+{
+  "_tool_groups": {
+    "review": ["read", "grep", "find"],
+    "implementation": ["read", "write", "edit", "bash"]
+  },
+  "agents": {
+    "custom-reviewer": {
+      "type": "subagent",
+      "roles": ["review"]
+    },
+    "custom-fixer": {
+      "type": "subagent",
+      "tools": ["@implementation"]
+    }
+  }
+}
+```
+
+Markdown prompt files should not duplicate these permissions. They can describe
+how an agent should behave, but the active tool allowlist comes from runtime
+config and the tool-scope snapshot.
+
 ## Workflow Config
 
 Mode is the user-facing entry point. A pipeline mode binds one workflow internally with

@@ -164,6 +164,41 @@ describe('loadPluginConfig', () => {
     );
   });
 
+  test('loads and merges tool groups from user and project config', () => {
+    const defaultConfigDir = path.join(userConfigDir, 'opencode');
+    fs.mkdirSync(defaultConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(defaultConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        _tool_groups: {
+          shared: ['read'],
+          userOnly: ['grep'],
+        },
+      }),
+    );
+
+    const projectDir = path.join(tempDir, 'project');
+    const projectConfigDir = path.join(projectDir, '.opencode');
+    fs.mkdirSync(projectConfigDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        _tool_groups: {
+          shared: ['write'],
+          projectOnly: ['edit'],
+        },
+      }),
+    );
+
+    const config = loadPluginConfig(projectDir);
+
+    expect(config._tool_groups).toEqual({
+      shared: ['write'],
+      userOnly: ['grep'],
+      projectOnly: ['edit'],
+    });
+  });
+
   test('ignores invalid config (schema violation or malformed JSON)', () => {
     const projectDir = path.join(tempDir, 'project');
     const projectConfigDir = path.join(projectDir, '.opencode');
