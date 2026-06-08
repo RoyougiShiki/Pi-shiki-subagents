@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
-  realpathSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -45,9 +46,9 @@ function toNativeCwd(cwd: string): string {
   return realpathSync.native(cwd);
 }
 
-function parseWslUncPath(filePath: string):
-  | { distro: string; linuxPath: string }
-  | null {
+function parseWslUncPath(
+  filePath: string,
+): { distro: string; linuxPath: string } | null {
   const match = filePath.match(/^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.+)$/i);
   if (!match) return null;
   return {
@@ -84,7 +85,14 @@ function runInWsl(
 ): string {
   const result = spawnSync(
     'wsl',
-    ['-d', distro, '--', 'bash', '-lc', `cd ${shellQuote(options.cwd)} && ${command}`],
+    [
+      '-d',
+      distro,
+      '--',
+      'bash',
+      '-lc',
+      `cd ${shellQuote(options.cwd)} && ${command}`,
+    ],
     {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -157,6 +165,75 @@ function getPackagedRequiredFiles(): string[] {
   ].sort();
 }
 
+function readPackageFilesConfig(): string[] {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
+  ) as { files?: unknown };
+  return Array.isArray(packageJson.files)
+    ? packageJson.files.filter(
+        (entry): entry is string => typeof entry === 'string',
+      )
+    : [];
+}
+
+function isUnderPackagePath(filePath: string, packagePath: string): boolean {
+  const normalized = packagePath.replace(/\/+$/, '');
+  return filePath === normalized || filePath.startsWith(`${normalized}/`);
+}
+
+function verifyPackagedPathsMatchCurrentSource(packagedFiles: Set<string>) {
+  const allowedSourcePrefixes = readPackageFilesConfig()
+    .filter((entry) => entry === 'src' || entry.startsWith('src/'))
+    .map((entry) => entry.replace(/\/+$/, ''));
+
+  const unexpectedSourceFiles = [...packagedFiles].filter(
+    (file) =>
+      file.startsWith('src/') &&
+      !allowedSourcePrefixes.some((prefix) => isUnderPackagePath(file, prefix)),
+  );
+
+  if (unexpectedSourceFiles.length > 0) {
+    fail(
+      `npm pack artifact contains source files outside package.json.files:\n${unexpectedSourceFiles.join('\n')}`,
+    );
+  }
+
+  const invalidDistRoots = [
+    ...new Set(
+      [...packagedFiles]
+        .map((file) => file.match(/^dist\/([^/]+)\//)?.[1])
+        .filter((root): root is string => Boolean(root)),
+    ),
+  ].filter((root) => {
+    const sourceRoot = `src/${root}`;
+    return (
+      !existsSync(path.join(repoRoot, sourceRoot)) ||
+      !allowedSourcePrefixes.some((prefix) =>
+        isUnderPackagePath(sourceRoot, prefix),
+      )
+    );
+  });
+
+  if (invalidDistRoots.length > 0) {
+    fail(
+      `npm pack artifact contains dist roots without matching package source roots:\n${invalidDistRoots.map((root) => `dist/${root}/`).join('\n')}`,
+    );
+  }
+
+  const staleDistDeclarations = [...packagedFiles].filter((file) => {
+    const sourcePath = file.match(/^dist\/(.+)\.d\.ts$/)?.[1];
+    return (
+      sourcePath && !existsSync(path.join(repoRoot, 'src', `${sourcePath}.ts`))
+    );
+  });
+
+  if (staleDistDeclarations.length > 0) {
+    fail(
+      `npm pack artifact contains declaration files without matching source files:\n${staleDistDeclarations.join('\n')}`,
+    );
+  }
+}
+
 function verifyDistHasNoLeakedPaths() {
   console.log('Checking dist for leaked machine paths...');
   const files = walkFiles(distDir).filter((file) =>
@@ -200,6 +277,8 @@ function packArtifact() {
   const packagedFiles = new Set(
     (parsed[0]?.files ?? []).map((file) => file.path),
   );
+  verifyPackagedPathsMatchCurrentSource(packagedFiles);
+
   for (const requiredFile of getPackagedRequiredFiles()) {
     if (!packagedFiles.has(requiredFile)) {
       fail(`npm pack artifact is missing required file: ${requiredFile}`);
