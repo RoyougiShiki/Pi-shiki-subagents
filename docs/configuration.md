@@ -94,6 +94,28 @@ Prompt files should describe role boundaries and behavior. Tool access and deleg
 
 The coordinator chooses the shortest safe path dynamically; it does not receive an injected current workflow step.
 
+## Subagent Pool Sessions
+
+Pool subagents use Pi SDK sessions that are separate from the main agent session tree.
+
+| Path | Purpose |
+|------|---------|
+| `~/.pi/agent/sessions/subagents/` | File-backed Pi sessions for pool subagents |
+| `~/.pi/agent/sessions/subagents/pool-registry.json` | Pool registry metadata for saved subagent runs |
+
+The registry stores bounded recovery metadata such as:
+
+- pool id, agent name, task, model, cwd, parent agent, depth, and allowed subagents;
+- `sessionFile`, when the Pi SDK provides a persisted child session file;
+- `status`, `lastResponse`, `errorMessage`, `completedAt`, and `messageCount`.
+
+Pool recovery behavior:
+
+- `resume` opens the saved `sessionFile` when it exists, then sends the optional resume message into that saved session context.
+- If the saved session file is missing, `resume` falls back to restarting from the saved task context and says so in the tool result.
+- `result` returns the latest available result. A live pool entry is treated as the freshest source; the registry is the fallback after restart.
+- Failed resume/open attempts keep the previous non-empty result and mark the registry entry as failed instead of leaving stale running state.
+
 ## Council
 
 Council configuration is split between:

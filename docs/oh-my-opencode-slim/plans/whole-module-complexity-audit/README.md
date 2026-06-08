@@ -2,7 +2,18 @@
 
 ## Status
 
-Draft for oracle review. This audit intentionally covers the whole extension, not only the harness/subagent area. It is a lightweight complexity review: recommendations prefer deletion, simplification, and boundary clarification over new abstractions or feature expansion.
+Historical audit snapshot. This audit intentionally covers the whole extension, not only the harness/subagent area. It is a lightweight complexity review: recommendations prefer deletion, simplification, and boundary clarification over new abstractions or feature expansion.
+
+Some findings have been superseded by later implementation work. Treat the
+evidence and recommendations below as a dated follow-up queue, not as the
+current runtime specification. Current user-facing behavior belongs in
+`docs/configuration.md`.
+
+Superseded notes:
+
+- P0.1 subagent tool resolution consistency has since been addressed through shared runtime agent/tool resolution behavior and regression coverage.
+- P0.2 subagent default agents path resolution has since been addressed through shared default agent path helpers and regression coverage.
+- Subagent pool recovery has since been extended with file-backed child sessions, persisted `sessionFile` metadata, `resume`, and `result` behavior.
 
 Reporting rule: final user-facing audit reports should be grouped by capability/function name; code paths belong in evidence/appendix sections only.
 
@@ -98,6 +109,8 @@ Subagent review status:
 
 ### P0.1 Fix subagent tool resolution consistency
 
+Status: superseded by later implementation and regression tests.
+
 Recommendation: simplify/fix.
 
 Rationale:
@@ -121,6 +134,8 @@ Validation:
 - Spawn smoke for at least one subagent role.
 
 ### P0.2 Fix or share subagent default agents path resolution
+
+Status: superseded by later implementation and regression tests.
 
 Recommendation: simplify/fix.
 
@@ -471,9 +486,11 @@ Do not do these as part of this audit:
 
 ## Suggested Execution Order
 
+Historical order from the original audit:
+
 1. Finish audit review and oracle approval.
-2. P0.2 fix: subagent default agents path should use the shared default agents path or equivalent tested path.
-3. P0.1 fix/design: define and share one resolver semantics for subagent and mode tool expression expansion, with role/group tests before broader cleanup.
+2. P0.2 fix: subagent default agents path should use the shared default agents path or equivalent tested path. Superseded.
+3. P0.1 fix/design: define and share one resolver semantics for subagent and mode tool expression expansion, with role/group tests before broader cleanup. Superseded.
 4. P1.3 guardrail: keep `omo_council mode=meeting` on the structured meeting backend and keep the dormant chat bridge out of default terminal flows unless an explicit `/chat` command contract is added.
 5. P1.5 parser equivalence: add tests first, then centralize a tiny JSONC parser helper or document unsupported differences; place this near docs/config cleanup and before large core/meeting extraction.
 6. P1 docs/config cleanup: correct README/package extension mismatch and mark/update stale platform-adapter cleanup plan.
