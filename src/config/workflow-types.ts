@@ -54,7 +54,8 @@ export interface WorkflowDefinition {
 }
 
 export interface WorkflowsConfig {
-  default: string;
+  /** Deprecated compatibility field. Runtime workflow selection comes from the active mode. */
+  default?: string;
   list: WorkflowDefinition[];
 }
 

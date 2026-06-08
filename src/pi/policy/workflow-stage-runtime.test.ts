@@ -43,6 +43,34 @@ describe('workflow stage runtime', () => {
     expect(runtime.getSnapshot().recoveryCandidate).toBeUndefined();
   });
 
+  test('reset clears recovery context by default', () => {
+    const runtime = createWorkflowStageRuntime({
+      sessionWasResumed: true,
+      recoveryCandidate: { workflowName: 'flow', stageIndex: 1, markerEvent: 'transition_approved', source: 'session_marker' },
+    });
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(true);
+
+    runtime.reset({ workflowName: 'flow', initialStageIndex: 0 });
+    const snapshot = runtime.getSnapshot();
+    expect(snapshot.sessionWasResumed).toBe(false);
+    expect(snapshot.recoveryCandidate).toBeUndefined();
+    expect(snapshot.recoveryConsumed).toBe(false);
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(false);
+  });
+
+  test('reset can preserve recovery context for internal workflow alignment', () => {
+    const runtime = createWorkflowStageRuntime({
+      sessionWasResumed: true,
+      recoveryCandidate: { workflowName: 'flow', stageIndex: 1, markerEvent: 'transition_approved', source: 'session_marker' },
+    });
+
+    runtime.reset({ workflowName: 'flow', initialStageIndex: 0, preserveRecoveryContext: true });
+    const snapshot = runtime.getSnapshot();
+    expect(snapshot.sessionWasResumed).toBe(true);
+    expect(snapshot.recoveryCandidate?.workflowName).toBe('flow');
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(true);
+  });
+
   test('records attempts append-only', () => {
     const runtime = createWorkflowStageRuntime();
     runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', timestamp: 1 });

@@ -9,6 +9,7 @@ import {
   type WorkflowStageRuntimeSnapshot,
 } from "./workflow-stage-runtime";
 import { formatWorkflowStageMarker } from "./workflow-stage-marker";
+import { isSubagentExecutionPoolAction } from "../subagent/subagent-tool-actions";
 
 export type ApprovalResult = { approved: true } | { approved: false; reason: string };
 export type GateDecision = { ok: true } | { ok: false; reason: string };
@@ -28,7 +29,9 @@ export interface WorkflowStageGateContext {
 
 export interface WorkflowStageGateHelpers {
   getWorkflowStageGateContext: () => WorkflowStageGateContext | null;
+  getWorkflowStageGateConfigError: () => string | undefined;
   getWorkflowStageRuntimeSnapshot: () => WorkflowStageRuntimeSnapshot;
+  resetWorkflowStageRuntime: (workflowName?: string) => void;
   advanceWorkflowStage: (args: {
     workflowName: string;
     fromStageIndex: number;
@@ -54,16 +57,18 @@ export interface WorkflowStageGateHelpers {
 export function createWorkflowStageGateHelpers(args: {
   workflows: WorkflowsConfig | undefined;
   knownAgents: string[];
+  getActiveWorkflowName?: () => string | undefined;
   getSessionRecoveryState?: () => { sessionWasResumed: boolean; recoveryCandidate?: WorkflowStageRecoveryCandidate | null };
+  clearSessionRecoveryState?: () => void;
 }): WorkflowStageGateHelpers {
   const workflowConfigSnapshot = args.workflows;
   // Snapshot tradeoff: dynamic config/agent changes during a session are not reflected.
   // Restart the session to refresh workflow/agent definitions used by this gate.
   const knownAgentNamesSnapshot = args.knownAgents;
   const runtime = createWorkflowStageRuntime({
-    workflowName: workflowConfigSnapshot?.default,
     initialStageIndex: 0,
   });
+  let lastConfigError: string | undefined;
 
   const syncRecoveryState = () => {
     const state = args.getSessionRecoveryState?.();
@@ -73,16 +78,42 @@ export function createWorkflowStageGateHelpers(args: {
     });
   };
 
+  const resolveActiveWorkflowName = (): string | undefined => {
+    const name = args.getActiveWorkflowName?.()?.trim();
+    return name || undefined;
+  };
+
+  const ensureRuntimeWorkflow = (workflowName: string): void => {
+    if (runtime.getSnapshot().workflowName !== workflowName) {
+      runtime.reset({ workflowName, initialStageIndex: 0, preserveRecoveryContext: true });
+    }
+  };
+
   const getWorkflowStageGateContext = (): WorkflowStageGateContext | null => {
     syncRecoveryState();
+    lastConfigError = undefined;
     const workflows = workflowConfigSnapshot;
-    const snapshot = runtime.getSnapshot();
-    const workflowName = snapshot.workflowName?.trim() || workflows?.default?.trim();
-    if (!workflows || !workflowName || workflows.list.length === 0) return null;
+    const workflowName = resolveActiveWorkflowName();
+    if (!workflowName) {
+      lastConfigError = "Pipeline mode requires agents.<mode>.workflow; workflows.default is not used at runtime.";
+      return null;
+    }
+    if (!workflows || workflows.list.length === 0) {
+      lastConfigError = `Pipeline mode workflow "${workflowName}" cannot run because workflows.list is missing or empty.`;
+      return null;
+    }
     const workflow = workflows.list.find((candidate) => candidate.name === workflowName);
+    if (!workflow) {
+      lastConfigError = `Pipeline mode workflow "${workflowName}" was not found in workflows.list.`;
+      return null;
+    }
+    ensureRuntimeWorkflow(workflowName);
     const stageIndex = runtime.getCurrentStageIndex();
-    const stage = workflow?.stages[stageIndex];
-    if (!stage) return null;
+    const stage = workflow.stages[stageIndex];
+    if (!stage) {
+      lastConfigError = `Workflow "${workflowName}" has no stage at index ${stageIndex}.`;
+      return null;
+    }
     return {
       workflows: workflows.list,
       workflowName,
@@ -94,9 +125,14 @@ export function createWorkflowStageGateHelpers(args: {
 
   return {
     getWorkflowStageGateContext,
+    getWorkflowStageGateConfigError: () => lastConfigError,
     getWorkflowStageRuntimeSnapshot: () => {
       syncRecoveryState();
       return runtime.getSnapshot();
+    },
+    resetWorkflowStageRuntime: (workflowName) => {
+      args.clearSessionRecoveryState?.();
+      runtime.reset({ workflowName, initialStageIndex: 0 });
     },
     advanceWorkflowStage: (next) => runtime.advanceToNextStage(next),
     confirmWorkflowStageRecovery: (next) => runtime.confirmRecovery(next),
@@ -191,6 +227,7 @@ function issueGrant(args: {
 
 export function createToolCallGates(args: {
   getWorkflowStageGateContext: () => WorkflowStageGateContext | null;
+  getWorkflowStageGateConfigError?: () => string | undefined;
   getWorkflowStageRuntimeSnapshot: () => WorkflowStageRuntimeSnapshot;
   advanceWorkflowStage: WorkflowStageGateHelpers["advanceWorkflowStage"];
   confirmWorkflowStageRecovery: WorkflowStageGateHelpers["confirmWorkflowStageRecovery"];
@@ -201,18 +238,22 @@ export function createToolCallGates(args: {
   emitWorkflowStageNotice?: (text: string) => void;
 }) {
   const gatePipelineSubagent = async (ctx: any, input: any): Promise<GateDecision> => {
-    // 非 spawn 路径不做子代理审批 gate
-    if (input?.pool !== "spawn") return allow();
+    const isExecutionAction = isSubagentExecutionPoolAction(input?.pool);
+    if (!isExecutionAction) return allow();
 
-    // 先做参数完整性预检：缺参直接拒绝且不触发审批
-    if (!input?.id || !input?.agent || !input?.task) {
-      return deny("pool spawn requires id, agent, and task");
-    }
+    const isSpawn = input?.pool === "spawn";
 
-    const contractDecision = checkSubagentSpawnContract(input);
-    if (contractDecision.action === "block") {
-      return deny(`${contractDecision.reason ?? "subagent_task_contract_failed"}${contractDecision.hint ? `
+    if (isSpawn) {
+      // 先做参数完整性预检：缺参直接拒绝且不触发审批
+      if (!input?.id || !input?.agent || !input?.task) {
+        return deny("pool spawn requires id, agent, and task");
+      }
+
+      const contractDecision = checkSubagentSpawnContract(input);
+      if (contractDecision.action === "block") {
+        return deny(`${contractDecision.reason ?? "subagent_task_contract_failed"}${contractDecision.hint ? `
 ${contractDecision.hint}` : ""}`);
+      }
     }
 
     // Non-pipeline rescue modes (for example fallback) must not be constrained
@@ -222,8 +263,10 @@ ${contractDecision.hint}` : ""}`);
     const stageContext = args.getWorkflowStageGateContext();
     if (!stageContext) {
       args.notifyWorkflowStageGateSkipped(ctx);
-      return allow();
+      return deny(args.getWorkflowStageGateConfigError?.() ?? "Pipeline workflow stage gate is unavailable.");
     }
+
+    if (!isSpawn) return allow();
 
     const classification = classifyWorkflowStageTarget({
       workflows: stageContext.workflows,

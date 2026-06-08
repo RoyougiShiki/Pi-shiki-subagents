@@ -13,6 +13,7 @@ export interface RuntimeAgentDefinition {
   tools?: string[];
   roles?: string[];
   delegates?: string[];
+  workflow?: string;
   hidden?: boolean;
   instructions?: string;
   model?: string | Array<string | { id: string; variant?: string }>;

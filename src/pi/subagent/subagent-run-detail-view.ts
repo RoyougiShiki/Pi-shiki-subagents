@@ -1,14 +1,8 @@
+import type { SubagentPoolAction } from './subagent-tool-actions';
 import type { SubagentRunStatus } from './subagent-run-state';
 import type { SubagentRunTreeView, SubagentRunViewNode } from './subagent-run-view';
 
-export type SubagentToolAction =
-  | 'spawn'
-  | 'send'
-  | 'list'
-  | 'kill'
-  | 'resume'
-  | 'listSaved'
-  | 'result';
+export type SubagentToolAction = SubagentPoolAction;
 
 export interface SubagentRunDetailEventView {
   type: string;

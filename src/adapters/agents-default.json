@@ -10,6 +10,7 @@
       "oracle"
     ],
     "pipelineMode": true,
+    "workflow": "standard-dev",
     "label": "主控模式"
   },
   "analyst": {

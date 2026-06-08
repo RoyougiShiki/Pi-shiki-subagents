@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MODE_MESSAGE_TYPES, emitModeSwitched, runWithModeSwitchOrigin, validateModeAllowlist } from './pi-modes';
+import { MODE_MESSAGE_TYPES, emitModeSessionNotice, emitModeSwitched, runWithModeSwitchOrigin, validateActiveModeWorkflow, validateModeAllowlist, validateModeWorkflowBinding } from './pi-modes';
 import { setToolScope, resetToolScope } from '../policy/tool-scope-manager';
 
 describe('mode switch notices', () => {
@@ -22,6 +22,7 @@ describe('mode switch notices', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.switched);
     expect(sent[0].message.content).toContain('[mode] source-mode -> target-mode');
+    expect(sent[0].message.content).toContain('[workflow] none');
     expect(sent[0].options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
   });
 
@@ -40,6 +41,25 @@ describe('mode switch notices', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0].options).toEqual({ deliverAs: 'followUp', triggerTurn: true });
+  });
+
+  test('emitModeSessionNotice shows the workflow bound to a pipeline mode', () => {
+    resetToolScope();
+    setToolScope(['omo_subagent'], 'mode', 'coordinator');
+
+    const sent: Array<{ message: any; options: any }> = [];
+    const pi = {
+      sendMessage(message: any, options: any) {
+        sent.push({ message, options });
+      },
+    } as any;
+
+    emitModeSessionNotice(pi, 'started', 'coordinator');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.sessionStarted);
+    expect(sent[0].message.content).toContain('[workflow] standard-dev');
+    expect(sent[0].message.details.workflow).toBe('standard-dev');
   });
 
   test('runWithModeSwitchOrigin restores previous origin after scoped mode switch work', () => {
@@ -84,5 +104,19 @@ describe('mode tool config parsing', () => {
       else process.env.HOME = previousHome;
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  test('validates pipeline mode workflow binding without using workflows.default', () => {
+    expect(validateActiveModeWorkflow({ list: [{ name: 'standard-dev' }] })).toBeNull();
+  });
+
+  test('reports pipeline mode missing workflow binding', () => {
+    const err = validateModeWorkflowBinding({
+      modeName: 'custom-pipeline',
+      agent: { pipelineMode: true },
+      workflows: { list: [{ name: 'standard-dev' }] },
+    });
+    expect(err).toContain('agents.custom-pipeline.workflow');
+    expect(err).toContain('workflows.default is not used');
   });
 });

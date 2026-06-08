@@ -353,6 +353,7 @@ describe('Pi adapter config helpers', () => {
         list: [{ name: 'flow', description: 'Flow', stages: [{ id: 'stage', agent: 'primary' }] }],
       },
       knownAgents: ['primary'],
+      getActiveWorkflowName: () => 'flow',
     });
 
     expect(helpers.getWorkflowStageGateContext()).toEqual({
@@ -366,8 +367,8 @@ describe('Pi adapter config helpers', () => {
 
   test('workflow stage helper returns null when workflow config is missing or empty', async () => {
     const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
-    expect(createWorkflowStageGateHelpers({ workflows: undefined, knownAgents: [] }).getWorkflowStageGateContext()).toBeNull();
-    expect(createWorkflowStageGateHelpers({ workflows: { default: 'flow', list: [] }, knownAgents: [] }).getWorkflowStageGateContext()).toBeNull();
+    expect(createWorkflowStageGateHelpers({ workflows: undefined, knownAgents: [], getActiveWorkflowName: () => 'flow' }).getWorkflowStageGateContext()).toBeNull();
+    expect(createWorkflowStageGateHelpers({ workflows: { default: 'flow', list: [] }, knownAgents: [], getActiveWorkflowName: () => 'flow' }).getWorkflowStageGateContext()).toBeNull();
   });
 
   test('pipeline subagent approval is required only for pipeline primary stage agents', async () => {
@@ -389,6 +390,7 @@ describe('Pi adapter config helpers', () => {
           stages: [{ id: 'analysis', agent: 'analyst', allowedSubagents: ['search'], review: { agent: 'oracle' } }],
         }],
       },
+      getActiveWorkflowName: () => 'custom-flow',
     });
 
     const context = helpers.getWorkflowStageGateContext();

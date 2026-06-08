@@ -19,6 +19,7 @@ import {
 } from './subagent-run-tool-renderer';
 import type { SubagentToolAction } from './subagent-run-detail-view';
 import { ensureSubagentRunWidgetRegistered } from './subagent-run-widget';
+import { SUBAGENT_POOL_ACTION, SUBAGENT_POOL_ACTIONS } from './subagent-tool-actions';
 
 function buildDetails(action: SubagentToolAction, runId?: string, focusRun = false) {
   return buildOmoSubagentToolDetails(getPool().getRunTreeView({ maxRecentLines: 10 }), {
@@ -71,6 +72,8 @@ export function selectPoolResultText(
 }
 
 export function registerSubagentTool(pi: ExtensionAPI): void {
+  const poolActionDescription = `Pool action: ${SUBAGENT_POOL_ACTIONS.join(' | ')}`;
+
   pi.registerTool({
     name: 'omo_subagent',
     label: 'OMO Subagent',
@@ -96,8 +99,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
         task: { type: 'string', description: 'Task prompt (for single mode)' },
         pool: {
           type: 'string',
-          description:
-            'Pool action: spawn | send | list | kill | listSaved | result | resume',
+          description: poolActionDescription,
         },
         id: {
           type: 'string',
@@ -160,7 +162,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
 
       if (params.pool) {
         const pool = getPool();
-        if (params.pool === 'spawn') {
+        if (params.pool === SUBAGENT_POOL_ACTION.spawn) {
           if (!params.id || !params.agent || !params.task) {
             return {
               content: [
@@ -231,7 +233,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'send') {
+        if (params.pool === SUBAGENT_POOL_ACTION.send) {
           if (!params.id || !params.message) {
             return {
               content: [
@@ -280,7 +282,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'list') {
+        if (params.pool === SUBAGENT_POOL_ACTION.list) {
           const list = pool.list();
           if (list.length === 0)
             return {
@@ -302,7 +304,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'kill') {
+        if (params.pool === SUBAGENT_POOL_ACTION.kill) {
           if (!params.id)
             return {
               content: [{ type: 'text', text: 'pool kill requires id' }],
@@ -323,7 +325,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'listSaved') {
+        if (params.pool === SUBAGENT_POOL_ACTION.listSaved) {
           const entries = pool.listRegistryEntries();
           if (entries.length === 0)
             return {
@@ -351,7 +353,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'result') {
+        if (params.pool === SUBAGENT_POOL_ACTION.result) {
           if (!params.id)
             return {
               content: [{ type: 'text', text: 'result requires id' }],
@@ -400,7 +402,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           };
         }
 
-        if (params.pool === 'resume') {
+        if (params.pool === SUBAGENT_POOL_ACTION.resume) {
           if (!params.id)
             return {
               content: [{ type: 'text', text: 'resume requires id' }],

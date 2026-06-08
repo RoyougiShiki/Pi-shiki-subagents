@@ -51,6 +51,7 @@ export interface WorkflowStageRuntime {
   getSnapshot(): WorkflowStageRuntimeSnapshot;
   getCurrentStageIndex(): number;
   setRecoveryContext(args: { sessionWasResumed?: boolean; recoveryCandidate?: WorkflowStageRecoveryCandidate | null }): void;
+  reset(args?: { workflowName?: string; initialStageIndex?: number; preserveRecoveryContext?: boolean }): void;
   advanceToNextStage(args: {
     workflowName: string;
     fromStageIndex: number;
@@ -121,6 +122,16 @@ export function createWorkflowStageRuntime(args: {
         recoveryCandidate = undefined;
         recoveryConsumed = false;
       }
+    },
+    reset(next = {}) {
+      workflowName = next.workflowName?.trim() || undefined;
+      currentStageIndex = normalizeStageIndex(next.initialStageIndex ?? 0);
+      if (!next.preserveRecoveryContext) {
+        sessionWasResumed = false;
+        recoveryCandidate = undefined;
+      }
+      recoveryConsumed = next.preserveRecoveryContext ? recoveryConsumed : false;
+      history.length = 0;
     },
     advanceToNextStage(next) {
       const requestedFrom = normalizeStageIndex(next.fromStageIndex);

@@ -25,9 +25,9 @@ describe('default workflows and agent tool matrix', () => {
     }
   });
 
-  test('workflows schema defaults to standard-dev and embeds DEFAULT_WORKFLOWS', () => {
+  test('workflows schema embeds DEFAULT_WORKFLOWS without a runtime default', () => {
     const parsed = WorkflowsConfigSchema.parse({});
-    expect(parsed.default).toBe('standard-dev');
+    expect(parsed.default).toBeUndefined();
     expect(parsed.list.map((workflow) => workflow.name)).toEqual(
       DEFAULT_WORKFLOWS.map((workflow) => workflow.name),
     );
@@ -35,11 +35,12 @@ describe('default workflows and agent tool matrix', () => {
 
   test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
-    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; delegates?: string[] }>;
+    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; delegates?: string[]; workflow?: string }>;
 
     // coordinator 使用工具组引用
     expect(defs.coordinator?.tools).toEqual(['@交互', '@子代理']);
     expect(defs.coordinator?.delegates).toEqual(['search', 'oracle']);
+    expect(defs.coordinator?.workflow).toBe('standard-dev');
 
     // fallback 使用 "*" 表示全部工具
     expect(defs.fallback?.tools).toEqual(['*']);

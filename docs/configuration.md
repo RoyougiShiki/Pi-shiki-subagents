@@ -7,7 +7,7 @@ Complete reference for the maintained Pi adapter and shared configuration surfac
 | File | Purpose |
 |------|---------|
 | `~/.pi/agent/oh-my-opencode-slim.jsonc` | Pi adapter runtime settings; JSONC variant; takes precedence over `.json` |
-| `~/.pi/agent/oh-my-opencode-slim.json` | Pi adapter runtime settings — agents, modes, tool groups, workflows seed data, council |
+| `~/.pi/agent/oh-my-opencode-slim.json` | Pi adapter runtime settings — agents, modes, tool groups, workflow definitions, council |
 | `~/.config/opencode/oh-my-opencode-slim.jsonc` | Legacy-compatible user config JSONC path still read by the shared loader; takes precedence over `.json` |
 | `~/.config/opencode/oh-my-opencode-slim.json` | Legacy-compatible user config path still read by the shared loader |
 | `.opencode/oh-my-opencode-slim.jsonc` | Project-local JSONC overrides; takes precedence over `.json` |
@@ -73,12 +73,29 @@ Prompt files should describe role boundaries and behavior. Tool access and deleg
 
 ## Workflow Config
 
-`workflows` remains as configuration seed/template data. The old workflow runtime is no longer active.
+Mode is the user-facing entry point. A pipeline mode binds one workflow internally with
+`agents.<mode>.workflow`; runtime does not read `workflows.default` and there is no runtime
+workflow switch command.
+
+`pipelineMode: true` modes must set `workflow` to a known workflow definition. Custom
+definitions live in `workflows.list`; if the list is missing or empty, Pi seeds the built-in
+workflow definitions. Non-pipeline modes do not need a workflow and bypass workflow stage
+gates.
 
 ```jsonc
 {
+  "agents": {
+    "coordinator": {
+      "type": "mode",
+      "pipelineMode": true,
+      "workflow": "standard-dev"
+    },
+    "fallback": {
+      "type": "mode",
+      "pipelineMode": false
+    }
+  },
   "workflows": {
-    "default": "standard-dev",
     "list": [
       {
         "name": "standard-dev",
@@ -92,7 +109,8 @@ Prompt files should describe role boundaries and behavior. Tool access and deleg
 }
 ```
 
-The coordinator chooses the shortest safe path dynamically; it does not receive an injected current workflow step.
+`workflows.default` is a deprecated compatibility field. It may still be accepted by the
+schema for older configs, but the Pi runtime ignores it.
 
 ## Subagent Pool Sessions
 

@@ -148,6 +148,10 @@
                 "type": "string"
               }
             },
+            "workflow": {
+              "type": "string",
+              "minLength": 1
+            },
             "hidden": {
               "type": "boolean"
             },
@@ -257,6 +261,10 @@
               "type": "string"
             }
           },
+          "workflow": {
+            "type": "string",
+            "minLength": 1
+          },
           "hidden": {
             "type": "boolean"
           },
@@ -353,7 +361,6 @@
       "type": "object",
       "properties": {
         "default": {
-          "default": "standard-dev",
           "type": "string"
         },
         "list": {

@@ -44,6 +44,8 @@ interface AgentDefinition {
   requiresUserCommand?: boolean;
   /** If true, this mode drives a pipeline (step validation + approval gate). */
   pipelineMode?: boolean;
+  /** Workflow bound to this pipeline mode. */
+  workflow?: string;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────────────────
@@ -314,6 +316,24 @@ export function isCurrentModePipeline(): boolean {
   return false;
 }
 
+export function getModeWorkflow(name: string): string | undefined {
+  const workflow = getAgent(name)?.workflow?.trim();
+  return workflow || undefined;
+}
+
+function getCurrentModeName(): string {
+  const snapshot = getToolScope();
+  if (snapshot?.source === "mode") {
+    const sourceName = snapshot.sourceName.trim();
+    if (sourceName) return sourceName;
+  }
+  return loadActiveMode();
+}
+
+export function getActiveModeWorkflow(): string | undefined {
+  return getModeWorkflow(getCurrentModeName());
+}
+
 function loadToolGroups(): Record<string, string[]> {
   return ensureToolGroups();
 }
@@ -399,6 +419,10 @@ function getModeToolSummary(): { tools: string[]; line: string } {
   return { tools, line };
 }
 
+function getWorkflowSummaryLine(mode: string): string {
+  return `\n[workflow] ${getModeWorkflow(mode) ?? "none"}`;
+}
+
 export function emitModeSwitched(
   pi: ExtensionAPI,
   fromMode: string,
@@ -406,15 +430,17 @@ export function emitModeSwitched(
   triggerTurn: boolean,
 ): void {
   const { tools, line: toolLine } = getModeToolSummary();
+  const workflowLine = getWorkflowSummaryLine(toMode);
 
   pi.sendMessage({
     customType: MODE_MESSAGE_TYPES.switched,
-    content: `[mode] ${fromMode} -> ${toMode}${toolLine}`,
+    content: `[mode] ${fromMode} -> ${toMode}${workflowLine}${toolLine}`,
     display: true,
     details: {
       kind: "switched",
       fromMode,
       mode: toMode,
+      workflow: getModeWorkflow(toMode) ?? null,
       tools,
       toolCount: tools.length,
       timestamp: Date.now(),
@@ -428,17 +454,19 @@ export function emitModeSessionNotice(
   mode: string,
 ): void {
   const { tools, line: toolLine } = getModeToolSummary();
+  const workflowLine = getWorkflowSummaryLine(mode);
   const customType = kind === "resumed"
     ? MODE_MESSAGE_TYPES.sessionResumed
     : MODE_MESSAGE_TYPES.sessionStarted;
 
   pi.sendMessage({
     customType,
-    content: `[mode-session] ${kind} | mode: ${mode}${toolLine}`,
+    content: `[mode-session] ${kind} | mode: ${mode}${workflowLine}${toolLine}`,
     display: true,
     details: {
       kind,
       mode,
+      workflow: getModeWorkflow(mode) ?? null,
       tools,
       toolCount: tools.length,
       timestamp: Date.now(),
@@ -475,6 +503,40 @@ export function validateModeAllowlist(allTools: string[]): string | null {
   if (dupes.length > 0) return `Mode "${name}" allowedTools has duplicates: ${dupes.join(", ")}`;
   if (unknown.length > 0) return `Mode "${name}" allowedTools contains unknown tools: ${unknown.join(", ")}`;
   return null;
+}
+
+export function validateModeWorkflowBinding(args: {
+  modeName: string;
+  agent: { pipelineMode?: boolean; workflow?: string } | undefined;
+  workflows: { list?: Array<{ name: string }> } | undefined;
+}): string | null {
+  if (!args.agent || args.agent.pipelineMode !== true) return null;
+
+  const workflowName = args.agent.workflow?.trim();
+  if (!workflowName) {
+    return `Pipeline mode "${args.modeName}" must set agents.${args.modeName}.workflow; workflows.default is not used at runtime`;
+  }
+
+  const workflowList =
+    args.workflows?.list && args.workflows.list.length > 0
+      ? args.workflows.list
+      : DEFAULT_WORKFLOWS;
+  if (!workflowList.some((workflow) => workflow.name === workflowName)) {
+    return `Pipeline mode "${args.modeName}" references missing workflow "${workflowName}"`;
+  }
+
+  return null;
+}
+
+export function validateActiveModeWorkflow(
+  workflows: { list?: Array<{ name: string }> } | undefined,
+): string | null {
+  const name = getCurrentModeName();
+  return validateModeWorkflowBinding({
+    modeName: name,
+    agent: getAgent(name),
+    workflows,
+  });
 }
 
 function switchToModeByName(pi: ExtensionAPI, ctx: ExtensionContext, name: string): boolean {
@@ -518,7 +580,6 @@ export function registerModeCommands(pi: ExtensionAPI): void {
 
     if (!raw.workflows || !Array.isArray(raw.workflows?.list) || raw.workflows.list.length === 0) {
       raw.workflows = {
-        default: "standard-dev",
         list: DEFAULT_WORKFLOWS,
       };
       changed = true;

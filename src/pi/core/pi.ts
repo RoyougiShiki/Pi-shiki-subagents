@@ -40,10 +40,13 @@ import {
   setOnModeChange,
   setOnBeforeModeChange,
   validateModeAllowlist,
+  validateActiveModeWorkflow,
   getFirstModeAgent,
   isCurrentModePipeline,
   emitModeSwitched,
   getAgent,
+  getActiveModeWorkflow,
+  getModeWorkflow,
   rehydrateActiveModeTools,
   registerModeCommands,
   registerModeHooks,
@@ -128,6 +131,7 @@ import {
   PRESET_CONFIGURABLE_AGENT_NAMES,
   PRIMARY_MODE_AGENT_NAME,
 } from '../../config/constants';
+import { DEFAULT_WORKFLOWS } from '../../config/schema';
 import {
   createToolCallGates,
   createWorkflowStageGateHelpers,
@@ -726,16 +730,26 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   } = { sessionWasResumed: false, recoveryCandidate: null };
 
   const workflowGateHelpers = createWorkflowStageGateHelpers({
-    workflows: config?.workflows,
+    workflows: {
+      list:
+        config?.workflows?.list && config.workflows.list.length > 0
+          ? config.workflows.list
+          : DEFAULT_WORKFLOWS,
+    },
     knownAgents: Object.keys(loadRuntimeAgentDefinitions()),
+    getActiveWorkflowName: getActiveModeWorkflow,
     getSessionRecoveryState: () => workflowSessionRecoveryState,
+    clearSessionRecoveryState: () => {
+      workflowSessionRecoveryState.sessionWasResumed = false;
+      workflowSessionRecoveryState.recoveryCandidate = null;
+    },
   });
   const getWorkflowStageGateContext =
     workflowGateHelpers.getWorkflowStageGateContext;
 
   const notifyWorkflowStageGateSkipped = (ctx?: any): void => {
     const message =
-      'Workflow stage gate skipped: workflow config is missing or empty.';
+      'Workflow stage gate blocked: pipeline mode workflow config is missing or invalid.';
     console.warn(`[oh-my-opencode-slim] ${message}`);
     try {
       ctx?.ui?.notify?.(message, 'warning');
@@ -894,6 +908,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       setOnModeChange((event) => {
         const prevMode = currentMode;
         currentMode = event.mode;
+        workflowGateHelpers.resetWorkflowStageRuntime(getModeWorkflow(event.mode));
         ctx.ui.setStatus('mode', `Mode: ${event.mode}`);
         try {
           emitModeSwitched(
@@ -916,6 +931,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       if (err) {
         ctx.ui.notify(`[mode] 健康检查失败: ${err}`, 'error');
         console.error(`[omo-modes] health-check: ${err}`);
+      }
+      const workflowErr = validateActiveModeWorkflow({
+        list:
+          config?.workflows?.list && config.workflows.list.length > 0
+            ? config.workflows.list
+            : DEFAULT_WORKFLOWS,
+      });
+      if (workflowErr) {
+        ctx.ui.notify(`[workflow] 健康检查失败: ${workflowErr}`, 'error');
+        console.error(`[omo-workflows] health-check: ${workflowErr}`);
       }
     } catch (e) {
       console.warn('[omo-modes] health-check error:', e);
@@ -1104,6 +1129,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   // are blocked as defense-in-depth.
   const { gatePipelineSubagent, gateSwitchMode } = createToolCallGates({
     getWorkflowStageGateContext,
+    getWorkflowStageGateConfigError:
+      workflowGateHelpers.getWorkflowStageGateConfigError,
     getWorkflowStageRuntimeSnapshot:
       workflowGateHelpers.getWorkflowStageRuntimeSnapshot,
     advanceWorkflowStage: workflowGateHelpers.advanceWorkflowStage,

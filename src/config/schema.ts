@@ -75,6 +75,7 @@ export const AgentOverrideConfigSchema = z
     type: z.enum(['mode', 'subagent', 'both']).optional(),
     tools: z.array(z.string()).optional(),
     delegates: z.array(z.string()).optional(),
+    workflow: z.string().min(1).optional(),
     hidden: z.boolean().optional(),
     label: z.string().optional(),
     prompt: z.string().min(1).optional(),
@@ -337,7 +338,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
 ];
 
 export const WorkflowsConfigSchema = z.object({
-  default: z.string().default('standard-dev'),
+  default: z.string().optional(),
   list: z.array(WorkflowDefinitionSchema).default(DEFAULT_WORKFLOWS),
 });
 
