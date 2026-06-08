@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  realpathSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -19,6 +20,8 @@ const distDir = path.join(repoRoot, 'dist');
 const suspiciousPathPatterns = [
   /\/Users\/[^\s'"`]+oh-my-opencode-slim\/(?:src|scripts|docs|dist)[^\s'"`]*/,
   /\/home\/[^\s'"`]+oh-my-opencode-slim\/(?:src|scripts|docs|dist)[^\s'"`]*/,
+  /[A-Z]:\\+[^\s'"`]+oh-my-opencode-slim\\+(?:src|scripts|docs|dist)[^\s'"`]*/i,
+  /\\+wsl(?:\.localhost|\$)\\+[^\s'"`]+\\+oh-my-opencode-slim\\+(?:src|scripts|docs|dist)[^\s'"`]*/i,
 ];
 
 const staticPackagedRequiredFiles = [
@@ -38,9 +41,28 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+function toNativeCwd(cwd: string): string {
+  return realpathSync.native(cwd);
+}
+
+function parseWslUncPath(filePath: string):
+  | { distro: string; linuxPath: string }
+  | null {
+  const match = filePath.match(/^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.+)$/i);
+  if (!match) return null;
+  return {
+    distro: match[1],
+    linuxPath: `/${match[2].replace(/\\/g, '/')}`,
+  };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function run(command: string, args: string[], options: { cwd?: string } = {}) {
   const result = spawnSync(command, args, {
-    cwd: options.cwd ?? repoRoot,
+    cwd: toNativeCwd(options.cwd ?? repoRoot),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -50,6 +72,28 @@ function run(command: string, args: string[], options: { cwd?: string } = {}) {
     fail(
       `Command failed: ${command} ${args.join(' ')}${detail ? `\n${detail}` : ''}`,
     );
+  }
+
+  return result.stdout.trim();
+}
+
+function runInWsl(
+  distro: string,
+  command: string,
+  options: { cwd: string },
+): string {
+  const result = spawnSync(
+    'wsl',
+    ['-d', distro, '--', 'bash', '-lc', `cd ${shellQuote(options.cwd)} && ${command}`],
+    {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+
+  if (result.status !== 0) {
+    const detail = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    fail(`Command failed in WSL: ${command}${detail ? `\n${detail}` : ''}`);
   }
 
   return result.stdout.trim();
@@ -138,9 +182,14 @@ function verifyDistHasNoLeakedPaths() {
 
 function packArtifact() {
   console.log('Packing npm artifact...');
-  const output = run('npm', ['pack', '--json', '--ignore-scripts'], {
-    cwd: repoRoot,
-  });
+  const wslPath = parseWslUncPath(repoRoot);
+  const output = wslPath
+    ? runInWsl(wslPath.distro, 'npm pack --json --ignore-scripts', {
+        cwd: wslPath.linuxPath,
+      })
+    : run('npm', ['pack', '--json', '--ignore-scripts'], {
+        cwd: repoRoot,
+      });
   const parsed = parsePackJson(output);
   const tarball = parsed[0]?.filename;
 
@@ -217,6 +266,14 @@ function verifyFreshInstall(tarballPath: string) {
 }
 
 function cleanupTarball(tarballPath: string) {
+  const wslPath = parseWslUncPath(tarballPath);
+  if (wslPath) {
+    runInWsl(wslPath.distro, `rm -f ${shellQuote(wslPath.linuxPath)}`, {
+      cwd: '/',
+    });
+    return;
+  }
+
   rmSync(tarballPath, { force: true });
 }
 

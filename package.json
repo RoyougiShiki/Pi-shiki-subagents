@@ -58,6 +58,7 @@
     "pi:sync:check": "bun run scripts/pi-dev-sync.ts --check",
     "pi:sync:build": "bun run build && bun run scripts/pi-dev-sync.ts --write --skip-schema",
     "verify:release": "bun run scripts/verify-release-artifact.ts",
+    "verify:host-smoke": "bun run scripts/verify-opencode-host-smoke.ts",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "lint": "biome lint .",

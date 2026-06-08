@@ -174,6 +174,14 @@ function makeSessionManagerFactories() {
   };
 }
 
+function makeMockPoolOptions(createSession: unknown, extra: Record<string, unknown> = {}) {
+  return {
+    createSession: createSession as any,
+    ...makeSessionManagerFactories(),
+    ...extra,
+  };
+}
+
 /** Wait for the next pool event (completed or error). */
 function onNextPoolEvent(pool: AgentPool): Promise<any> {
   return new Promise((resolve) => {
@@ -804,10 +812,7 @@ describe('AgentPool basic operations', () => {
 
   test('initial prompt timeout emits exactly one pool error event', async () => {
     const { createSession } = mockCreateSession();
-    const pool = new AgentPool({
-      createSession: createSession as any,
-      timeoutMs: 1,
-    });
+    const pool = new AgentPool(makeMockPoolOptions(createSession, { timeoutMs: 1 }));
     const eventsPromise = collectPoolEvents(pool, 100);
 
     await pool.spawn({
@@ -830,10 +835,7 @@ describe('AgentPool basic operations', () => {
     const resolveModel = mock((modelId: string) =>
       modelId === 'dmxapi-responses/gpt-5.5' ? resolvedModel : undefined,
     );
-    const pool = new AgentPool({
-      createSession: createSession as any,
-      resolveModel,
-    });
+    const pool = new AgentPool(makeMockPoolOptions(createSession, { resolveModel }));
     const agent = { ...makeAgent('oracle'), model: 'dmxapi-responses/gpt-5.5' };
 
     const spawnResult = await pool.spawn({
@@ -855,7 +857,7 @@ describe('AgentPool basic operations', () => {
 
   test('sendPrompt sends to an existing agent', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     // Spawn returns immediately
     const spawnResult = await pool.spawn({
@@ -885,7 +887,7 @@ describe('AgentPool basic operations', () => {
 
   test('list returns agent info', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     await pool.spawn({
       id: 'list-agent',
@@ -912,7 +914,7 @@ describe('AgentPool basic operations', () => {
 
   test('kill removes agent from pool', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     await pool.spawn({
       id: 'kill-test',
@@ -945,7 +947,7 @@ describe('AgentPool basic operations', () => {
   test('registry persists across pool instances', () => {
     const dir = '/tmp/omo-subagent-test-registry';
     const { createSession: cs1 } = mockCreateSession();
-    const pool1 = new AgentPool({ sessionDir: dir, createSession: cs1 as any });
+    const pool1 = new AgentPool(makeMockPoolOptions(cs1, { sessionDir: dir }));
 
     // Write directly to registry
     pool1['saveToRegistry']({
@@ -967,11 +969,8 @@ describe('AgentPool basic operations', () => {
   });
 
   test('timeout does not kill the agent, agent remains in pool', async () => {
-    const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({
-      timeoutMs: 5,
-      createSession: createSession as any,
-    });
+    const { createSession } = mockCreateSession();
+    const pool = new AgentPool(makeMockPoolOptions(createSession, { timeoutMs: 5 }));
 
     // Spawn returns immediately
     const spawnResult = await pool.spawn({
@@ -995,8 +994,8 @@ describe('AgentPool basic operations', () => {
   });
 
   test('kill during pending prompt resolves with error', async () => {
-    const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const { createSession } = mockCreateSession();
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     // Spawn returns immediately
     const spawnResult = await pool.spawn({
@@ -1021,7 +1020,7 @@ describe('AgentPool basic operations', () => {
 
   test('run snapshot records spawn identity and explicit parent only', async () => {
     const { createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     await pool.spawn({
       id: 'child-run',
@@ -1040,9 +1039,7 @@ describe('AgentPool basic operations', () => {
     await pool.kill('child-run');
 
     const { createSession: createSession2 } = mockCreateSession();
-    const parentedPool = new AgentPool({
-      createSession: createSession2 as any,
-    });
+    const parentedPool = new AgentPool(makeMockPoolOptions(createSession2));
     await parentedPool.spawn({
       id: 'parent-run',
       name: 'Parent Run',
@@ -1077,7 +1074,7 @@ describe('AgentPool basic operations', () => {
 
   test('run snapshot records session events and optional usage', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     await pool.spawn({
       id: 'observed-run',
@@ -1114,7 +1111,7 @@ describe('AgentPool basic operations', () => {
 
   test('initial run completion is not corrupted by later send or kill', async () => {
     const { session, createSession } = mockCreateSession();
-    const pool = new AgentPool({ createSession: createSession as any });
+    const pool = new AgentPool(makeMockPoolOptions(createSession));
 
     await pool.spawn({
       id: 'persistent-run',

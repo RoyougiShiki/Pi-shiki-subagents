@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize, parse } from 'node:path';
 
 function getDefaultOpenCodeConfigDir(): string {
   const userConfigDir = process.env.XDG_CONFIG_HOME
@@ -13,6 +13,18 @@ function getDefaultOpenCodeConfigDir(): string {
 function getCustomOpenCodeConfigDir(): string | undefined {
   const configDir = process.env.OPENCODE_CONFIG_DIR?.trim();
   return configDir || undefined;
+}
+
+function normalizeConfigDirKey(dir: string): string {
+  const normalized = normalize(dir);
+  const root = parse(normalized).root;
+  let key = normalized;
+
+  while (key.length > root.length && /[\\/]+$/.test(key)) {
+    key = key.slice(0, -1);
+  }
+
+  return key;
 }
 
 /**
@@ -43,9 +55,14 @@ export function getConfigDir(): string {
  */
 export function getConfigSearchDirs(): string[] {
   const dirs = [getCustomOpenCodeConfigDir(), getDefaultOpenCodeConfigDir()];
+  const seen = new Set<string>();
 
-  return dirs.filter((dir, index): dir is string => {
-    return Boolean(dir) && dirs.indexOf(dir) === index;
+  return dirs.filter((dir): dir is string => {
+    if (!dir) return false;
+    const key = normalizeConfigDirKey(dir);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
