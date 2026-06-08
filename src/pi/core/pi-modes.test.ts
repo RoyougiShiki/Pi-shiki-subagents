@@ -22,7 +22,7 @@ describe('mode switch notices', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.switched);
     expect(sent[0].message.content).toContain('[mode] source-mode -> target-mode');
-    expect(sent[0].message.content).toContain('[workflow] none');
+    expect(sent[0].message.content).toContain('[workflow] none (non-pipeline/rescue)');
     expect(sent[0].options).toEqual({ deliverAs: 'followUp', triggerTurn: false });
   });
 
@@ -58,7 +58,7 @@ describe('mode switch notices', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.sessionStarted);
-    expect(sent[0].message.content).toContain('[workflow] standard-dev');
+    expect(sent[0].message.content).toContain('[workflow] standard-dev (stage-gated; next stage requires approval)');
     expect(sent[0].message.details.workflow).toBe('standard-dev');
   });
 

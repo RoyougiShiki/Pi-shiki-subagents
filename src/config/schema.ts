@@ -78,6 +78,7 @@ export const AgentOverrideConfigSchema = z
     roles: z.array(z.string()).optional(),
     tools: z.array(z.string()).optional(),
     delegates: z.array(z.string()).optional(),
+    pipelineMode: z.boolean().optional(),
     workflow: z.string().min(1).optional(),
     hidden: z.boolean().optional(),
     label: z.string().optional(),

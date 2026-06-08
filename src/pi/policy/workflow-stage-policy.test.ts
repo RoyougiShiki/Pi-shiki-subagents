@@ -15,6 +15,7 @@ const workflow: WorkflowDefinition = {
     {
       id: 'stage-two',
       agent: 'future-agent',
+      allowedSubagents: ['future-helper'],
     },
     {
       id: 'stage-three',
@@ -23,12 +24,13 @@ const workflow: WorkflowDefinition = {
   ],
 };
 
-const knownAgents = ['stage-agent', 'helper-agent', 'review-agent', 'future-agent', 'final-agent', 'outside-agent'];
+const knownAgents = ['stage-agent', 'helper-agent', 'review-agent', 'future-agent', 'future-helper', 'final-agent', 'outside-agent'];
 
 describe('workflow stage policy', () => {
   test('classifies current, next, future, past, unrelated, and invalid targets', () => {
     expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'stage-agent', knownAgents }).kind).toBe('current');
     expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'future-agent', knownAgents }).kind).toBe('next');
+    expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'future-helper', knownAgents }).kind).toBe('next');
     expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'final-agent', knownAgents }).kind).toBe('future');
     expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 2, targetAgent: 'stage-agent', knownAgents }).kind).toBe('past');
     expect(classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'outside-agent', knownAgents }).kind).toBe('unrelated');
@@ -97,6 +99,14 @@ describe('workflow stage policy', () => {
     const result = checkWorkflowStageTargetAllowed({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'future-agent', knownAgents });
     expect(result.allowed).toBe(false);
     expect(result.allowedAgents).toEqual(['stage-agent', 'helper-agent']);
+  });
+
+  test('classifies later stage allowedSubagents as workflow targets instead of unrelated agents', () => {
+    const result = classifyWorkflowStageTarget({ workflows: [workflow], workflowName: 'flow', stageIndex: 0, targetAgent: 'future-helper', knownAgents });
+
+    expect(result.kind).toBe('next');
+    expect(result.targetStageId).toBe('stage-two');
+    expect(result.requiresApproval).toBe(false);
   });
 
   test('blocks blank target agent', () => {

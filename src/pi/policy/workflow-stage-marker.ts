@@ -43,7 +43,7 @@ export function formatWorkflowStageResumeNotice(args: { candidate?: WorkflowStag
   return [
     "[workflow-stage-resume]",
     "这是恢复后的对话。请先回顾历史中的 [workflow-stage-marker]、pool 完成通知、todo 和当前 git diff/修改文件。",
-    "确认中断前所处 stage 和已完成进度后，再调用对应 stage 子代理继续。",
+    "确认中断前所处 stage 和已完成进度后，再调用对应 stage 子代理继续；同一话题优先使用 pool send/resume 恢复原子代理。",
     "系统只会对历史 marker 对应的 stage 触发恢复 runtime 位置审批；其他 future stage 仍会被系统拦截。",
     candidateLine,
     "[/workflow-stage-resume]",
@@ -53,7 +53,11 @@ export function formatWorkflowStageResumeNotice(args: { candidate?: WorkflowStag
 function extractTextPart(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (!value || typeof value !== "object") return [];
-  const obj = value as any;
+  const obj = value as {
+    text?: unknown;
+    content?: unknown;
+    message?: unknown;
+  };
   const parts: string[] = [];
 
   if (typeof obj.text === "string") parts.push(obj.text);
@@ -119,10 +123,11 @@ export function parseWorkflowStageMarkersFromEntries(entries: unknown[], options
     const text = extractEntryText(entry);
     if (!text) continue;
     const regex = /\[workflow-stage-marker\]([\s\S]*?)\[\/workflow-stage-marker\]/g;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(text))) {
+    let match = regex.exec(text);
+    while (match) {
       const parsed = parseMarkerBlock(match[1] ?? "", options);
       if (parsed) last = parsed;
+      match = regex.exec(text);
     }
   }
   return last;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DEFAULT_WORKFLOWS, WorkflowsConfigSchema, resolveWorkflowList } from './schema';
+import { DEFAULT_WORKFLOWS, PluginConfigSchema, WorkflowsConfigSchema, resolveWorkflowList } from './schema';
 
 describe('default workflows and agent tool matrix', () => {
   test('default workflows include the expected named flows with stage metadata', () => {
@@ -18,11 +18,25 @@ describe('default workflows and agent tool matrix', () => {
         expect(stage.agent).toBeTruthy();
         expect(stage.description).toBeTruthy();
         expect(stage.outputSchema).toBeTruthy();
-        if (stage.id === 'analyst') {
+        if (stage.id === 'analysis') {
           expect(stage.allowedSubagents).toContain('search');
         }
       }
     }
+
+    const standardDev = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'standard-dev');
+    expect(standardDev?.stages.map((stage) => stage.agent)).toEqual([
+      'analyst',
+      'designer',
+      'fixer',
+    ]);
+    expect(standardDev?.stages.at(-1)?.allowedSubagents).toContain('oracle');
+
+    const quickFix = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'quick-fix');
+    expect(quickFix?.stages.map((stage) => stage.agent)).toEqual([
+      'analyst',
+      'fixer',
+    ]);
   });
 
   test('workflows schema embeds DEFAULT_WORKFLOWS without a runtime default', () => {
@@ -45,6 +59,30 @@ describe('default workflows and agent tool matrix', () => {
     expect(resolveWorkflowList(undefined)).toBe(DEFAULT_WORKFLOWS);
     expect(resolveWorkflowList({ list: [] })).toBe(DEFAULT_WORKFLOWS);
     expect(resolveWorkflowList({ list: custom })).toBe(custom);
+  });
+
+  test('agent config schema accepts pipeline mode workflow bindings', () => {
+    const parsed = PluginConfigSchema.parse({
+      agents: {
+        customLead: {
+          type: 'mode',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+        },
+      },
+      workflows: {
+        list: [
+          {
+            name: 'custom-flow',
+            description: 'Custom',
+            stages: [{ id: 'work', agent: 'customWorker' }],
+          },
+        ],
+      },
+    });
+
+    expect(parsed.agents?.customLead?.pipelineMode).toBe(true);
+    expect(parsed.agents?.customLead?.workflow).toBe('custom-flow');
   });
 
   test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {

@@ -126,7 +126,11 @@ import {
   getPiNativeConfigPath as resolvePiNativeConfigPath,
   readPiNativeConfigObject,
 } from '../../config/pi-native';
-import { loadRuntimeAgentDefinitions } from '../../adapters/agent-runtime-config';
+import {
+  loadRuntimeAgentDefinitions,
+  resolveRuntimeConfigAgents,
+  type RuntimeAgentDefinition,
+} from '../../adapters/agent-runtime-config';
 import {
   PRESET_CONFIGURABLE_AGENT_NAMES,
   PRIMARY_MODE_AGENT_NAME,
@@ -335,35 +339,79 @@ export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
 
 // ─── Coordinator System Prompt Builder ─────────────────────────────────────
 
-/** Load agent definitions from agents-default.json (built-in defaults). */
-function loadAgentDefinitions(): Record<
-  string,
-  { type?: string; label?: string; delegates?: string[]; roles?: string[] }
-> {
-  try {
-    const defaultsPath = path.join(
-      __dirname,
-      '..',
-      '..',
-      'adapters',
-      'agents-default.json',
-    );
-    const raw = JSON.parse(fs.readFileSync(defaultsPath, 'utf-8'));
-    // Strip internal keys starting with _
-    const result: Record<string, any> = {};
-    for (const [key, val] of Object.entries(raw)) {
-      if (!key.startsWith('_')) result[key] = val as any;
-    }
-    return result;
-  } catch {
-    return {};
+function buildPromptAgentDefinitions(
+  config: OmniMoConfig | null,
+): Record<string, RuntimeAgentDefinition> {
+  if (!config) return loadRuntimeAgentDefinitions(process.cwd());
+
+  const defaults = loadRuntimeAgentDefinitions(process.cwd());
+  const overrides = resolveRuntimeConfigAgents(config as Record<string, unknown>);
+  return deepMerge(defaults, overrides) ?? defaults;
+}
+
+function getKnownAgentNames(
+  agentDefs: Record<string, RuntimeAgentDefinition>,
+  disabledAgents: readonly string[] = [],
+): string[] {
+  const disabledSet = new Set(disabledAgents);
+  return Object.entries(agentDefs)
+    .filter(([name, def]) => !def.hidden && !disabledSet.has(name))
+    .map(([name]) => name);
+}
+
+function formatWorkflowStageForPrompt(
+  stage: { id?: string; agent: string; allowedSubagents?: string[] },
+  index: number,
+  disabledSet: Set<string>,
+  agentDefs: Record<string, RuntimeAgentDefinition>,
+): string {
+  const id = stage.id?.trim() || String(index + 1);
+  const stageAgent = stage.agent.trim();
+  if (!stageAgent || disabledSet.has(stageAgent) || agentDefs[stageAgent]?.hidden) return '';
+  const allowed = (stage.allowedSubagents ?? [])
+    .map((agent) => agent.trim())
+    .filter((agent) => agent && !disabledSet.has(agent) && !agentDefs[agent]?.hidden);
+  const helpers = allowed.length > 0 ? ` (+${allowed.join(', ')})` : '';
+  return `${index + 1}.${id}:${stageAgent}${helpers}`;
+}
+
+function buildModeWorkflowLines(
+  agentDefs: Record<string, RuntimeAgentDefinition>,
+  config: OmniMoConfig | null,
+  disabledSet: Set<string>,
+): string[] {
+  const workflows = resolveWorkflowList(config?.workflows);
+  const workflowByName = new Map(
+    workflows.map((workflow) => [workflow.name, workflow]),
+  );
+  const lines: string[] = [];
+
+  for (const [name, def] of Object.entries(agentDefs)) {
+    if (def.hidden || disabledSet.has(name) || def.pipelineMode !== true) continue;
+    const workflowName = def.workflow?.trim();
+    if (!workflowName) continue;
+
+    const workflow = workflowByName.get(workflowName);
+    const stageSummary = workflow
+      ? workflow.stages
+          .map((stage, index) =>
+            formatWorkflowStageForPrompt(stage, index, disabledSet, agentDefs)
+          )
+          .filter(Boolean)
+          .join(' -> ')
+      : '(missing workflow definition)';
+    if (workflow && !stageSummary) continue;
+    lines.push(`  @${name} -> ${workflowName}: ${stageSummary}`);
   }
+
+  return lines.sort();
 }
 
 export function buildPiOrchestratorPrompt(
   disabledAgents: string[],
   config: OmniMoConfig | null,
   capabilities: PiDelegationCapabilities,
+  agentDefinitions?: Record<string, RuntimeAgentDefinition>,
 ): string {
   const constPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
   let constText = '';
@@ -372,29 +420,33 @@ export function buildPiOrchestratorPrompt(
       constText = fs.readFileSync(constPath, 'utf-8').trim();
   } catch {}
 
-  const agentDefs = loadAgentDefinitions();
+  const agentDefs = agentDefinitions ?? buildPromptAgentDefinitions(config);
   const disabledSet = new Set(disabledAgents);
 
-  // Build available-agents section from AGENT_PROMPTS + agent defs
+  // Build available-agents section from the same runtime definitions used by
+  // tool scopes and delegation gates.
   const agentLines: string[] = [];
-  for (const [name, info] of Object.entries(AGENT_PROMPTS)) {
+  for (const [name, def] of Object.entries(agentDefs)) {
+    if (def.hidden) continue;
     if (disabledSet.has(name)) continue;
-    const def = agentDefs[name];
     const typeLabel =
-      def?.type === 'mode'
+      def.type === 'mode'
         ? '(模式)'
-        : def?.type === 'subagent'
+        : def.type === 'subagent'
           ? '(子代理)'
+          : def.type === 'both'
+            ? '(模式/子代理)'
           : '';
-    const label = def?.label || info.description || name;
-    const staticDelegates = def?.delegates?.length
+    const label = def.label || AGENT_PROMPTS[name]?.description || name;
+    const staticDelegates = def.delegates?.length
       ? [...new Set(def.delegates)].filter((delegate) => !disabledSet.has(delegate))
       : [];
     const delegates = staticDelegates.length
-      ? ` → 静态可委托: ${staticDelegates.join(', ')}`
+      ? ` → 非阶段可委托: ${staticDelegates.join(', ')}`
       : '';
     agentLines.push(`  @${name} ${typeLabel} — ${label}${delegates}`);
   }
+  const workflowLines = buildModeWorkflowLines(agentDefs, config, disabledSet);
 
   const capabilitiesNotes: string[] = [];
   if (capabilities.hasPiAgents)
@@ -409,6 +461,17 @@ export function buildPiOrchestratorPrompt(
   if (agentLines.length > 0) {
     parts.push(
       `\n<AvailableAgents>\n${agentLines.join('\n')}\n</AvailableAgents>`,
+    );
+  }
+
+  if (workflowLines.length > 0) {
+    parts.push(
+      [
+        '\n<ModeWorkflows>',
+        ...workflowLines,
+        '  规则: 当前阶段主子代理由 workflow stage gate 放行；进入下一阶段需要用户审批；同一话题继续用 pool send/resume。',
+        '</ModeWorkflows>',
+      ].join('\n'),
     );
   }
 
@@ -715,6 +778,8 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   const config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? 'default';
+  const runtimeAgentDefinitions = buildPromptAgentDefinitions(config);
+  const disabledAgents = config?.disabled_agents ?? [];
 
   // ── Harness hooks (completion auditor + tool result budget + verifier/nudge) ──
   const harnessRuntime = registerHarnessHooks(pi, { config: config?.harness });
@@ -733,7 +798,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     workflows: {
       list: resolveWorkflowList(config?.workflows),
     },
-    knownAgents: Object.keys(loadRuntimeAgentDefinitions()),
+    knownAgents: getKnownAgentNames(runtimeAgentDefinitions, disabledAgents),
     getActiveWorkflowName: getActiveModeWorkflow,
     getSessionRecoveryState: () => workflowSessionRecoveryState,
     clearSessionRecoveryState: () => {
@@ -746,7 +811,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
 
   const notifyWorkflowStageGateSkipped = (ctx?: any): void => {
     const message =
-      'Workflow stage gate blocked: pipeline mode workflow config is missing or invalid.';
+      'Workflow stage gate blocked: active pipeline mode has no valid workflow binding. Configure agents.<mode>.workflow and workflows.list before running staged delegation.';
     console.warn(`[oh-my-opencode-slim] ${message}`);
     try {
       ctx?.ui?.notify?.(message, 'warning');
@@ -1010,11 +1075,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     }
 
     const capabilities = refreshDelegationCapabilities(event.systemPrompt);
-    const disabledAgents = config?.disabled_agents ?? [];
     const omniPrompt = buildPiOrchestratorPrompt(
       disabledAgents,
       config,
       capabilities,
+      runtimeAgentDefinitions,
     );
 
     // Trim verbose tool descriptions in system prompt

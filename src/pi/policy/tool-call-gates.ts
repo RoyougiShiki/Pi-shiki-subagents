@@ -155,8 +155,34 @@ function allow(): GateDecision {
   return { ok: true };
 }
 
+type ConfirmResponse =
+  | boolean
+  | { approved: boolean; reason?: string };
+
+interface GateUiContext {
+  ui?: {
+    confirm?: (title: string, message: string) => ConfirmResponse | Promise<ConfirmResponse>;
+    input?: (title: string, message: string) => string | undefined | Promise<string | undefined>;
+  };
+}
+
+interface SubagentGateInput {
+  pool?: unknown;
+  id?: unknown;
+  agent?: unknown;
+  task?: unknown;
+}
+
+interface SwitchModeGateInput {
+  mode?: unknown;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 async function requestApproval(
-  ctx: any,
+  ctx: GateUiContext,
   title: string,
   message: string,
 ): Promise<ApprovalResult | null> {
@@ -232,20 +258,23 @@ export function createToolCallGates(args: {
   advanceWorkflowStage: WorkflowStageGateHelpers["advanceWorkflowStage"];
   confirmWorkflowStageRecovery: WorkflowStageGateHelpers["confirmWorkflowStageRecovery"];
   recordWorkflowStageAttempt: WorkflowStageGateHelpers["recordWorkflowStageAttempt"];
-  notifyWorkflowStageGateSkipped: (ctx?: any) => void;
+  notifyWorkflowStageGateSkipped: (ctx?: GateUiContext) => void;
   isCurrentModePipeline: () => boolean;
   resolveDelegationCaller: () => string | undefined;
   emitWorkflowStageNotice?: (text: string) => void;
 }) {
-  const gatePipelineSubagent = async (ctx: any, input: any): Promise<GateDecision> => {
+  const gatePipelineSubagent = async (ctx: GateUiContext, input: SubagentGateInput): Promise<GateDecision> => {
     const isExecutionAction = isSubagentExecutionPoolAction(input?.pool);
     if (!isExecutionAction) return allow();
 
     const isSpawn = input?.pool === "spawn";
+    const agent = stringValue(input?.agent);
+    const id = stringValue(input?.id);
+    const task = stringValue(input?.task);
 
     if (isSpawn) {
       // 先做参数完整性预检：缺参直接拒绝且不触发审批
-      if (!input?.id || !input?.agent || !input?.task) {
+      if (!id || !agent || !task) {
         return deny("pool spawn requires id, agent, and task");
       }
 
@@ -272,12 +301,12 @@ ${contractDecision.hint}` : ""}`);
       workflows: stageContext.workflows,
       workflowName: stageContext.workflowName,
       stageIndex: stageContext.stageIndex,
-      targetAgent: input.agent,
+      targetAgent: agent,
       knownAgents: stageContext.knownAgents,
     });
 
     if (classification.kind === "invalid") {
-      return deny(`Workflow stage gate blocked "${input.agent}": ${classification.reason ?? "invalid workflow stage target"}`);
+      return deny(`Workflow stage gate blocked "${agent}": ${classification.reason ?? "invalid workflow stage target"}`);
     }
 
     if (classification.kind === "unrelated") {
@@ -285,7 +314,7 @@ ${contractDecision.hint}` : ""}`);
     }
 
     if (classification.kind === "past") {
-      return deny(`Workflow stage gate blocked "${input.agent}": target belongs to a past workflow stage "${classification.targetStageId ?? classification.targetStageIndex}".`);
+      return deny(`Workflow stage gate blocked "${agent}": target belongs to a past workflow stage "${classification.targetStageId ?? classification.targetStageIndex}".`);
     }
 
     if (classification.kind === "current") {
@@ -293,39 +322,44 @@ ${contractDecision.hint}` : ""}`);
         workflowName: stageContext.workflowName,
         stageIndex: stageContext.stageIndex,
         stageId: classification.currentStageId,
-        targetAgent: input.agent,
+        targetAgent: agent,
       });
-      issueGrant({ caller: args.resolveDelegationCaller(), target: input.agent, stage: stageContext.stage });
+      issueGrant({ caller: args.resolveDelegationCaller(), target: agent, stage: stageContext.stage });
       return allow();
     }
 
-    const targetStage = getWorkflowStage(stageContext, classification.targetStageIndex);
-    const targetStageId = stageId(targetStage, classification.targetStageIndex);
+    const targetStageIndex = classification.targetStageIndex;
+    if (targetStageIndex === undefined) {
+      return deny(`Workflow stage gate blocked "${agent}": missing target stage index.`);
+    }
+
+    const targetStage = getWorkflowStage(stageContext, targetStageIndex);
+    const targetStageId = stageId(targetStage, targetStageIndex);
     const snapshot = args.getWorkflowStageRuntimeSnapshot();
     const candidate = snapshot.recoveryCandidate;
     const candidateMatches = snapshot.sessionWasResumed === true
       && snapshot.recoveryConsumed !== true
       && candidate?.workflowName === stageContext.workflowName
-      && candidate.stageIndex === classification.targetStageIndex;
+      && candidate.stageIndex === targetStageIndex;
 
     // On resumed sessions, recovery of a previously reached stage must take
     // precedence over normal next-stage transition. Otherwise a recovered
     // stage-1 marker would be re-approved as a new 0→1 transition instead of
     // restoring the runtime cursor with a recovery_confirmed marker.
-    if ((classification.kind === "next" || classification.kind === "future") && candidateMatches) {
+    if ((classification.kind === "next" || classification.kind === "future") && candidateMatches && candidate) {
       const approval = await requestApproval(
         ctx,
         "恢复工作流阶段",
-        `检测到这是恢复后的会话。历史 stage marker 显示 workflow「${candidate!.workflowName}」曾进入阶段「${candidate!.stageId ?? candidate!.stageIndex}」。模型请求委托「${input.agent}」继续该阶段。若你确认这是恢复中断前进度，请同意恢复 runtime stage 位置并放行。`,
+        `检测到这是恢复后的会话。历史 stage marker 显示 workflow「${candidate.workflowName}」曾进入阶段「${candidate.stageId ?? candidate.stageIndex}」。模型请求委托「${agent}」继续该阶段。确认后会恢复 runtime stage 位置并放行；同一话题后续应继续使用 pool send/resume。`,
       );
       if (!approval) return deny("阶段恢复被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
       if (!approval.approved) return deny(`用户拒绝恢复工作流阶段。原因：${approval.reason}`);
 
       const recovered = args.confirmWorkflowStageRecovery({
         workflowName: stageContext.workflowName,
-        stageIndex: classification.targetStageIndex!,
+        stageIndex: targetStageIndex,
         stageId: targetStageId,
-        targetAgent: input.agent,
+        targetAgent: agent,
       });
       if (!recovered.ok) return deny(`阶段恢复失败：${recovered.reason}`);
 
@@ -334,27 +368,31 @@ ${contractDecision.hint}` : ""}`);
         text: formatWorkflowStageMarker({
           event: "recovery_confirmed",
           workflowName: stageContext.workflowName,
-          stageIndex: classification.targetStageIndex!,
+          stageIndex: targetStageIndex,
           stageId: targetStageId,
           stageAgent: targetStage?.agent,
-          targetAgent: input.agent,
+          targetAgent: agent,
         }),
       });
       args.recordWorkflowStageAttempt({
         workflowName: stageContext.workflowName,
-        stageIndex: classification.targetStageIndex!,
+        stageIndex: targetStageIndex,
         stageId: targetStageId,
-        targetAgent: input.agent,
+        targetAgent: agent,
       });
-      issueGrant({ caller: args.resolveDelegationCaller(), target: input.agent, stage: targetStage });
+      issueGrant({ caller: args.resolveDelegationCaller(), target: agent, stage: targetStage });
       return allow();
     }
 
     if (classification.kind === "next") {
+      if (!classification.requiresApproval) {
+        return deny(`Workflow stage gate blocked "${agent}": target belongs to the next workflow stage "${targetStageId ?? targetStageIndex}" but is not the stage primary agent. Enter the stage through "${targetStage?.agent ?? "the stage primary agent"}" before using auxiliary agents.`);
+      }
+
       const approval = await requestApproval(
         ctx,
         "进入下一阶段",
-        `模型请求进入 workflow「${stageContext.workflowName}」的下一阶段「${targetStageId ?? classification.targetStageIndex}」，并委托「${input.agent}」执行，是否同意？`,
+        `模型请求从当前阶段进入 workflow「${stageContext.workflowName}」的下一阶段「${targetStageId ?? targetStageIndex}」，并委托「${agent}」执行。请确认上一阶段结论、unknowns 和风险已处理；同意后会记录 stage marker 并放行。`,
       );
       if (!approval) return deny("阶段推进被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
       if (!approval.approved) return deny(`用户拒绝进入下一阶段。原因：${approval.reason}`);
@@ -362,10 +400,10 @@ ${contractDecision.hint}` : ""}`);
       const advanced = args.advanceWorkflowStage({
         workflowName: stageContext.workflowName,
         fromStageIndex: stageContext.stageIndex,
-        toStageIndex: classification.targetStageIndex!,
+        toStageIndex: targetStageIndex,
         fromStageId: classification.currentStageId,
         toStageId: targetStageId,
-        targetAgent: input.agent,
+        targetAgent: agent,
       });
       if (!advanced.ok) return deny(`阶段推进失败：${advanced.reason}`);
 
@@ -374,42 +412,43 @@ ${contractDecision.hint}` : ""}`);
         text: formatWorkflowStageMarker({
           event: "transition_approved",
           workflowName: stageContext.workflowName,
-          stageIndex: classification.targetStageIndex!,
+          stageIndex: targetStageIndex,
           stageId: targetStageId,
           stageAgent: targetStage?.agent,
-          targetAgent: input.agent,
+          targetAgent: agent,
         }),
       });
       args.recordWorkflowStageAttempt({
         workflowName: stageContext.workflowName,
-        stageIndex: classification.targetStageIndex!,
+        stageIndex: targetStageIndex,
         stageId: targetStageId,
-        targetAgent: input.agent,
+        targetAgent: agent,
       });
-      issueGrant({ caller: args.resolveDelegationCaller(), target: input.agent, stage: targetStage });
+      issueGrant({ caller: args.resolveDelegationCaller(), target: agent, stage: targetStage });
       return allow();
     }
 
     if (classification.kind === "future") {
-      return deny(`Workflow stage gate blocked "${input.agent}": target belongs to a future workflow stage "${targetStageId ?? classification.targetStageIndex}" and does not match the resume recovery candidate.`);
+      return deny(`Workflow stage gate blocked "${agent}": target belongs to a future workflow stage "${targetStageId ?? targetStageIndex}" and does not match the resume recovery candidate.`);
     }
 
-    return deny(`Workflow stage gate blocked "${input.agent}": unsupported workflow stage classification "${classification.kind}".`);
+    return deny(`Workflow stage gate blocked "${agent}": unsupported workflow stage classification "${classification.kind}".`);
   };
 
-  const gateSwitchMode = async (ctx: any, input: any): Promise<GateDecision> => {
-    if (!input?.mode) return allow();
+  const gateSwitchMode = async (ctx: GateUiContext, input: SwitchModeGateInput): Promise<GateDecision> => {
+    const mode = stringValue(input?.mode);
+    if (!mode) return allow();
 
     const approval = await requestApproval(
       ctx,
       SWITCH_MODE_APPROVAL_MESSAGE.title,
-      `${SWITCH_MODE_APPROVAL_MESSAGE.action}\n目标：${input.mode}`,
+      `${SWITCH_MODE_APPROVAL_MESSAGE.action}\n目标：${mode}`,
     );
     if (!approval) {
       return deny("模式切换被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
     }
     if (!approval.approved) {
-      return deny(`用户拒绝了切换到「${input.mode}」。原因：${approval.reason}`);
+      return deny(`用户拒绝了切换到「${mode}」。原因：${approval.reason}`);
     }
 
     return allow();

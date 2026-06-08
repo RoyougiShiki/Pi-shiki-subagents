@@ -131,7 +131,10 @@ describe('Pi adapter agent prompt sync', () => {
     expect(prompt).not.toContain('<CONSTITUTION>');
     expect(prompt).not.toContain('未找到 constitution.md');
     const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
-    expect(coordinatorLine).toContain('静态可委托: search, oracle');
+    expect(coordinatorLine).toContain('非阶段可委托: search, oracle');
+    expect(prompt).toContain('<ModeWorkflows>');
+    expect(prompt).toContain('@coordinator -> standard-dev');
+    expect(prompt).toContain('3.implement:fixer (+oracle)');
 
     const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
     fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
@@ -163,11 +166,148 @@ describe('Pi adapter agent prompt sync', () => {
 
     expect(prompt).toContain('<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>');
     const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
-    expect(coordinatorLine).toContain('静态可委托: oracle');
+    expect(coordinatorLine).toContain('非阶段可委托: oracle');
     expect(coordinatorLine).not.toContain('search');
     const availableAgents = prompt.match(/<AvailableAgents>[\s\S]*?<\/AvailableAgents>/)?.[0] ?? '';
     expect(availableAgents).not.toContain('@search');
+    const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
+    expect(modeWorkflows).not.toContain('+search');
     expect(prompt).toContain('以下 agents 已被禁用: search');
+  });
+
+  test('builds mode workflow prompt from runtime agent config instead of built-in names', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const prompt = buildPiOrchestratorPrompt([], {
+      agents: {
+        customLead: {
+          type: 'mode',
+          label: 'Custom Lead',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+          delegates: ['customWorker'],
+        },
+        customWorker: {
+          type: 'subagent',
+          label: 'Custom Worker',
+        },
+        customReviewer: {
+          type: 'subagent',
+          label: 'Custom Reviewer',
+        },
+      },
+      workflows: {
+        list: [
+          {
+            name: 'custom-flow',
+            description: 'Custom flow',
+            stages: [
+              {
+                id: 'custom-step',
+                agent: 'customWorker',
+                allowedSubagents: ['customReviewer'],
+              },
+            ],
+          },
+        ],
+      },
+    } as any, {
+      hasPiAgents: false,
+      hasSubagent: true,
+      hasAgentMessage: false,
+    });
+
+    expect(prompt).toContain('@customLead (模式) — Custom Lead → 非阶段可委托: customWorker');
+    expect(prompt).toContain('@customLead -> custom-flow: 1.custom-step:customWorker (+customReviewer)');
+  });
+
+  test('orchestrator prompt can use the runtime agent snapshot shared with gates', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const snapshot = {
+      customLead: {
+        type: 'mode',
+        label: 'Snapshot Lead',
+        pipelineMode: true,
+        workflow: 'snapshot-flow',
+      },
+      customWorker: {
+        type: 'subagent',
+        label: 'Snapshot Worker',
+      },
+    };
+    const prompt = buildPiOrchestratorPrompt([], {
+      workflows: {
+        list: [
+          {
+            name: 'snapshot-flow',
+            description: 'Snapshot flow',
+            stages: [{ id: 'work', agent: 'customWorker' }],
+          },
+        ],
+      },
+    } as any, {
+      hasPiAgents: false,
+      hasSubagent: true,
+      hasAgentMessage: false,
+    }, snapshot as any);
+
+    expect(prompt).toContain('@customLead (模式) — Snapshot Lead');
+    expect(prompt).toContain('@customLead -> snapshot-flow: 1.work:customWorker');
+    expect(prompt).not.toContain('@coordinator');
+  });
+
+  test('mode workflow prompt hides hidden stage agents and helpers like gate known agents', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const prompt = buildPiOrchestratorPrompt([], {
+      agents: {
+        customLead: {
+          type: 'mode',
+          label: 'Custom Lead',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+        },
+        visibleWorker: {
+          type: 'subagent',
+          label: 'Visible Worker',
+        },
+        hiddenWorker: {
+          type: 'subagent',
+          label: 'Hidden Worker',
+          hidden: true,
+        },
+        hiddenHelper: {
+          type: 'subagent',
+          label: 'Hidden Helper',
+          hidden: true,
+        },
+      },
+      workflows: {
+        list: [
+          {
+            name: 'custom-flow',
+            description: 'Custom flow',
+            stages: [
+              { id: 'visible', agent: 'visibleWorker', allowedSubagents: ['hiddenHelper'] },
+              { id: 'hidden', agent: 'hiddenWorker' },
+            ],
+          },
+        ],
+      },
+    } as any, {
+      hasPiAgents: false,
+      hasSubagent: true,
+      hasAgentMessage: false,
+    });
+
+    const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
+    expect(modeWorkflows).toContain('1.visible:visibleWorker');
+    expect(modeWorkflows).not.toContain('hiddenWorker');
+    expect(modeWorkflows).not.toContain('hiddenHelper');
   });
 
   test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {

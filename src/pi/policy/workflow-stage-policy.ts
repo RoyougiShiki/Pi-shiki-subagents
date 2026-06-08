@@ -206,6 +206,14 @@ export function classifyWorkflowStageTarget(input: WorkflowStageGateInput): Work
     if (stage.agent.trim() === targetAgent) return classifyMatchedStage(i, stage);
   }
 
+  for (let i = 0; i < workflow.stages.length; i++) {
+    if (i === input.stageIndex) continue;
+    const stage = workflow.stages[i];
+    if ((stage.allowedSubagents ?? []).some((agentName) => agentName.trim() === targetAgent)) {
+      return classifyMatchedStage(i, stage);
+    }
+  }
+
   return {
     kind: "unrelated",
     workflowName: workflow.name,

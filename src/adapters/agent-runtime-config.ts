@@ -14,6 +14,7 @@ export interface RuntimeAgentDefinition {
   tools?: string[];
   roles?: string[];
   delegates?: string[];
+  pipelineMode?: boolean;
   workflow?: string;
   hidden?: boolean;
   instructions?: string;
@@ -154,7 +155,7 @@ export function getUserConfigPath(): string {
   return getPiNativeConfigPath();
 }
 
-function normalizeConfigAgents(config: Record<string, unknown>): Record<string, RuntimeAgentDefinition> {
+export function resolveRuntimeConfigAgents(config: Record<string, unknown>): Record<string, RuntimeAgentDefinition> {
   let agents = config.agents && typeof config.agents === "object"
     ? config.agents as Record<string, RuntimeAgentDefinition>
     : {};
@@ -181,12 +182,10 @@ function normalizeConfigAgents(config: Record<string, unknown>): Record<string, 
 }
 
 function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinition> {
-  const piNativeAgents = normalizeConfigAgents(readPiNativeConfigObject());
+  const piNativeAgents = resolveRuntimeConfigAgents(readPiNativeConfigObject());
 
   const sharedConfig = loadPluginConfig(cwd, { quiet: true });
-  const sharedAgents = sharedConfig.agents && typeof sharedConfig.agents === "object"
-    ? sharedConfig.agents as Record<string, RuntimeAgentDefinition>
-    : {};
+  const sharedAgents = resolveRuntimeConfigAgents(sharedConfig as Record<string, unknown>);
 
   return deepMerge(piNativeAgents, sharedAgents) ?? {};
 }

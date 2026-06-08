@@ -407,7 +407,10 @@ function getModeToolSummary(): { tools: string[]; line: string } {
 }
 
 function getWorkflowSummaryLine(mode: string): string {
-  return `\n[workflow] ${getModeWorkflow(mode) ?? "none"}`;
+  const workflow = getModeWorkflow(mode);
+  return workflow
+    ? `\n[workflow] ${workflow} (stage-gated; next stage requires approval)`
+    : "\n[workflow] none (non-pipeline/rescue)";
 }
 
 export function emitModeSwitched(

@@ -129,9 +129,26 @@ gates.
     "list": [
       {
         "name": "standard-dev",
-        "description": "标准开发流程：分析 → 计划 → 标准实施",
+        "description": "标准受控开发流程：分析 → 计划 → 实现与审查",
         "stages": [
-          { "id": "analyst", "agent": "analyst", "description": "分析需求边界、影响范围、方案和风险" }
+          {
+            "id": "analysis",
+            "agent": "analyst",
+            "description": "分析需求边界、影响范围、证据缺口和风险",
+            "allowedSubagents": ["search"]
+          },
+          {
+            "id": "plan",
+            "agent": "designer",
+            "description": "生成实施计划、TDD/验证路径和分步任务",
+            "allowedSubagents": ["search", "oracle"]
+          },
+          {
+            "id": "implement",
+            "agent": "fixer",
+            "description": "实现、验证，并用 oracle 审查；不通过则继续同一 fixer 会话返工",
+            "allowedSubagents": ["oracle"]
+          }
         ]
       }
     ]
@@ -141,6 +158,10 @@ gates.
 
 `workflows.default` is a deprecated compatibility field. It may still be accepted by the
 schema for older configs, but the Pi runtime ignores it.
+
+Pipeline notices and the injected `<ModeWorkflows>` prompt summarize the active
+mode's bound workflow. Treat that summary as runtime guidance; the gate itself
+still reads the structured config.
 
 ## Subagent Pool Sessions
 

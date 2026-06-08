@@ -219,6 +219,29 @@ describe('tool call workflow stage gates', () => {
     if (!decision.ok) expect(decision.reason).toContain('missing-flow');
   });
 
+  test('treats disabled or hidden stage agents as invalid workflow config', async () => {
+    const helpers = createWorkflowStageGateHelpers({
+      workflows,
+      knownAgents: ['helper', 'beta', 'helper2', 'gamma'],
+      getActiveWorkflowName: () => 'flow',
+    });
+    const gates = createToolCallGates({
+      getWorkflowStageGateContext: helpers.getWorkflowStageGateContext,
+      getWorkflowStageGateConfigError: helpers.getWorkflowStageGateConfigError,
+      getWorkflowStageRuntimeSnapshot: helpers.getWorkflowStageRuntimeSnapshot,
+      advanceWorkflowStage: helpers.advanceWorkflowStage,
+      confirmWorkflowStageRecovery: helpers.confirmWorkflowStageRecovery,
+      recordWorkflowStageAttempt: helpers.recordWorkflowStageAttempt,
+      notifyWorkflowStageGateSkipped: () => {},
+      isCurrentModePipeline: () => true,
+      resolveDelegationCaller: () => 'caller',
+    });
+
+    const decision = await gates.gatePipelineSubagent({ ui: { confirm: async () => true } }, spawn('alpha'));
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('references unknown agent "alpha"');
+  });
+
   test('allows current stage without approval', async () => {
     const { gates, ctx } = makeGates({ pipeline: true, approvals: [false], caller: 'caller' });
     const decision = await gates.gatePipelineSubagent(ctx, spawn('alpha'));
@@ -269,6 +292,17 @@ describe('tool call workflow stage gates', () => {
     const decision = await gates.gatePipelineSubagent(ctx, spawn('gamma'));
     expect(decision.ok).toBe(false);
     if (!decision.ok) expect(decision.reason).toContain('future workflow stage');
+  });
+
+  test('blocks later-stage helper agents before their workflow stage is active', async () => {
+    const { gates, ctx } = makeGates({ pipeline: true });
+    const decision = await gates.gatePipelineSubagent(ctx, spawn('helper2'));
+
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) {
+      expect(decision.reason).toContain('next workflow stage');
+      expect(decision.reason).toContain('not the stage primary agent');
+    }
   });
 
   test('resumed matching next stage uses recovery before normal transition', async () => {
