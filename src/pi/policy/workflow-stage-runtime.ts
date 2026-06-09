@@ -18,6 +18,16 @@ export type StageHistoryEntry =
       timestamp: number;
     }
   | {
+      type: "work_package_approved";
+      workflowName: string;
+      stageIndex: number;
+      stageId?: string;
+      targetAgent: string;
+      poolId: string;
+      task: string;
+      timestamp: number;
+    }
+  | {
       type: "attempt_started";
       workflowName: string;
       stageIndex: number;
@@ -42,6 +52,14 @@ export interface WorkflowStageRuntimeSnapshot {
   sessionWasResumed: boolean;
   recoveryCandidate?: WorkflowStageRecoveryCandidate;
   recoveryConsumed: boolean;
+  approvedWorkPackage?: {
+    workflowName: string;
+    stageIndex: number;
+    stageId?: string;
+    targetAgent: string;
+    poolId: string;
+    task: string;
+  };
   history: readonly StageHistoryEntry[];
 }
 
@@ -66,6 +84,15 @@ export interface WorkflowStageRuntime {
     stageIndex: number;
     stageId?: string;
     targetAgent: string;
+    timestamp?: number;
+  }): RuntimeDecision;
+  approveWorkPackage(args: {
+    workflowName: string;
+    stageIndex: number;
+    stageId?: string;
+    targetAgent: string;
+    poolId: string;
+    task: string;
     timestamp?: number;
   }): RuntimeDecision;
   recordAttemptStarted(args: {
@@ -101,6 +128,7 @@ export function createWorkflowStageRuntime(args: {
   let sessionWasResumed = args.sessionWasResumed === true;
   let recoveryCandidate = cloneCandidate(args.recoveryCandidate);
   let recoveryConsumed = false;
+  let approvedWorkPackage: WorkflowStageRuntimeSnapshot["approvedWorkPackage"];
   const history: StageHistoryEntry[] = [];
 
   const snapshot = (): WorkflowStageRuntimeSnapshot => ({
@@ -109,6 +137,7 @@ export function createWorkflowStageRuntime(args: {
     sessionWasResumed,
     recoveryCandidate,
     recoveryConsumed,
+    approvedWorkPackage: approvedWorkPackage ? { ...approvedWorkPackage } : undefined,
     history: [...history],
   });
 
@@ -126,6 +155,7 @@ export function createWorkflowStageRuntime(args: {
     reset(next = {}) {
       workflowName = next.workflowName?.trim() || undefined;
       currentStageIndex = normalizeStageIndex(next.initialStageIndex ?? 0);
+      approvedWorkPackage = undefined;
       if (!next.preserveRecoveryContext) {
         sessionWasResumed = false;
         recoveryCandidate = undefined;
@@ -146,6 +176,7 @@ export function createWorkflowStageRuntime(args: {
       if (!wf) return { ok: false, reason: "missing workflow name" };
       workflowName = wf;
       currentStageIndex = requestedTo;
+      approvedWorkPackage = undefined;
       history.push({
         type: "transition_approved",
         workflowName: wf,
@@ -174,12 +205,45 @@ export function createWorkflowStageRuntime(args: {
       workflowName = wf;
       currentStageIndex = requestedStage;
       recoveryConsumed = true;
+      approvedWorkPackage = undefined;
       history.push({
         type: "recovery_confirmed",
         workflowName: wf,
         stageIndex: requestedStage,
         stageId: next.stageId,
         targetAgent: next.targetAgent,
+        timestamp: next.timestamp ?? Date.now(),
+      });
+      return { ok: true };
+    },
+    approveWorkPackage(next) {
+      const requestedStage = normalizeStageIndex(next.stageIndex);
+      if (requestedStage !== currentStageIndex) {
+        return { ok: false, reason: `work package approval stage mismatch: current=${currentStageIndex}, target=${requestedStage}` };
+      }
+      const wf = next.workflowName.trim();
+      if (!wf) return { ok: false, reason: "missing workflow name" };
+      const poolId = next.poolId.trim();
+      if (!poolId) return { ok: false, reason: "missing work package pool id" };
+      const task = next.task.trim();
+      if (!task) return { ok: false, reason: "missing work package task" };
+      workflowName = wf;
+      approvedWorkPackage = {
+        workflowName: wf,
+        stageIndex: requestedStage,
+        stageId: next.stageId,
+        targetAgent: next.targetAgent,
+        poolId,
+        task,
+      };
+      history.push({
+        type: "work_package_approved",
+        workflowName: wf,
+        stageIndex: requestedStage,
+        stageId: next.stageId,
+        targetAgent: next.targetAgent,
+        poolId,
+        task,
         timestamp: next.timestamp ?? Date.now(),
       });
       return { ok: true };

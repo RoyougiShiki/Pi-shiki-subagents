@@ -2,6 +2,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { getDefaultAgentPromptsDir } from "../../adapters/default-agent-assets";
 import { AGENT_PROMPTS, reloadAgentPrompts } from "../meeting/pi-agents";
 
 interface AgentModelConfig {
@@ -239,7 +240,7 @@ function removeStaleManagedAgentFiles(agentsDir: string, sourceFiles: Set<string
 
 export function ensureAgentFiles(): void {
   const agentsDir = getPiAgentsDirForSync();
-  const defaultAgentsDir = path.join(__dirname, "..", "..", "adapters", "agents");
+  const defaultAgentsDir = getDefaultAgentPromptsDir();
   fs.mkdirSync(agentsDir, { recursive: true });
   try {
     if (!fs.existsSync(defaultAgentsDir)) return;

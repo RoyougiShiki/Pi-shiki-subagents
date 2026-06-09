@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MODE_MESSAGE_TYPES, emitModeSessionNotice, emitModeSwitched, runWithModeSwitchOrigin, validateActiveModeWorkflow, validateModeAllowlist, validateModeWorkflowBinding } from './pi-modes';
+import { DEFAULT_WORKFLOWS } from '../../config/workflow-defaults';
+import { MODE_MESSAGE_TYPES, emitModeSessionNotice, emitModeSwitched, normalizeManagedRuntimeConfig, runWithModeSwitchOrigin, validateActiveModeWorkflow, validateModeAllowlist, validateModeWorkflowBinding } from './pi-modes';
 import { setToolScope, resetToolScope } from '../policy/tool-scope-manager';
 
 describe('mode switch notices', () => {
@@ -45,7 +46,7 @@ describe('mode switch notices', () => {
 
   test('emitModeSessionNotice shows the workflow bound to a pipeline mode', () => {
     resetToolScope();
-    setToolScope(['omo_subagent'], 'mode', 'coordinator');
+    setToolScope(['omo_subagent'], 'mode', 'standard-dev');
 
     const sent: Array<{ message: any; options: any }> = [];
     const pi = {
@@ -54,12 +55,32 @@ describe('mode switch notices', () => {
       },
     } as any;
 
-    emitModeSessionNotice(pi, 'started', 'coordinator');
+    emitModeSessionNotice(pi, 'started', 'standard-dev');
 
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.sessionStarted);
     expect(sent[0].message.content).toContain('[workflow] standard-dev (stage-gated; next stage requires approval)');
     expect(sent[0].message.details.workflow).toBe('standard-dev');
+  });
+
+  test('mode switch notices include the target mode prompt for the next turn', () => {
+    resetToolScope();
+    setToolScope(['omo_subagent'], 'mode', 'quick-fix');
+
+    const sent: Array<{ message: any; options: any }> = [];
+    const pi = {
+      sendMessage(message: any, options: any) {
+        sent.push({ message, options });
+      },
+    } as any;
+
+    emitModeSwitched(pi, 'standard-dev', 'quick-fix', true);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].message.content).toContain('<MODE name="quick-fix">');
+    expect(sent[0].message.content).toContain('等待系统工作包审批');
+    expect(sent[0].message.content).toContain('委托当前实现阶段主子代理做最小修复');
+    expect(sent[0].message.content).not.toContain('不委托 analyst 或 worker');
   });
 
   test('runWithModeSwitchOrigin restores previous origin after scoped mode switch work', () => {
@@ -78,6 +99,62 @@ describe('mode switch notices', () => {
 });
 
 describe('mode tool config parsing', () => {
+  test('normalizes stale managed Pi-native modes and workflows', () => {
+    const { config, changed } = normalizeManagedRuntimeConfig({
+      workflows: {
+        default: 'standard-dev',
+        list: [
+          {
+            name: 'quick-fix',
+            description: 'stale',
+            stages: [
+              { id: 'analyst', agent: 'analyst' },
+              { id: 'worker', agent: 'worker' },
+            ],
+          },
+          {
+            name: 'custom-flow',
+            description: 'Custom',
+            stages: [{ id: 'custom', agent: 'custom-agent' }],
+          },
+        ],
+      },
+      agents: {
+        coordinator: {
+          type: 'mode',
+          pipelineMode: true,
+          label: 'old coordinator',
+        },
+        fallback: {
+          type: 'mode',
+          pipelineMode: false,
+          requiresUserCommand: true,
+        },
+      },
+    });
+
+    expect(changed).toBe(true);
+    expect(config.agents['standard-dev']).toMatchObject({
+      type: 'mode',
+      pipelineMode: true,
+      workflow: 'standard-dev',
+    });
+    expect(config.agents['quick-fix']).toMatchObject({
+      type: 'mode',
+      pipelineMode: true,
+      workflow: 'quick-fix',
+    });
+    expect(config.agents.coordinator).toBeUndefined();
+    expect(config.agents._tool_groups).toBeUndefined();
+    expect(config.agents.fallback.requiresUserCommand).toBe(true);
+    expect(config.workflows.default).toBeUndefined();
+
+    const quickFix = config.workflows.list.find((workflow: any) => workflow.name === 'quick-fix');
+    expect(quickFix.stages.map((stage: any) => stage.agent)).toEqual(['fixer']);
+    expect(quickFix.stages[0].requiresApproval).toBe(true);
+    expect(config.workflows.list.some((workflow: any) => workflow.name === 'custom-flow')).toBe(true);
+  });
+
   test('loads Pi-native jsonc tool groups for mode validation', async () => {
     const previousHome = process.env.HOME;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-modes-jsonc-'));
@@ -107,7 +184,7 @@ describe('mode tool config parsing', () => {
   });
 
   test('validates pipeline mode workflow binding without using workflows.default', () => {
-    expect(validateActiveModeWorkflow({ list: [{ name: 'standard-dev' }] })).toBeNull();
+    expect(validateActiveModeWorkflow({ list: DEFAULT_WORKFLOWS })).toBeNull();
   });
 
   test('reports pipeline mode missing workflow binding', () => {

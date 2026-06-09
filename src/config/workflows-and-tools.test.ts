@@ -40,6 +40,7 @@ describe('default workflows and agent tool matrix', () => {
       'fixer',
     ]);
     expect(quickFix?.stages.map((stage) => stage.id)).toEqual(['fix']);
+    expect(quickFix?.stages.at(-1)?.requiresApproval).toBe(true);
     expect(quickFix?.stages.at(-1)?.allowedSubagents).toEqual([
       'search',
       'oracle',
@@ -63,9 +64,31 @@ describe('default workflows and agent tool matrix', () => {
       },
     ];
 
-    expect(resolveWorkflowList(undefined)).toBe(DEFAULT_WORKFLOWS);
-    expect(resolveWorkflowList({ list: [] })).toBe(DEFAULT_WORKFLOWS);
-    expect(resolveWorkflowList({ list: custom })).toBe(custom);
+    expect(resolveWorkflowList(undefined)).toEqual(DEFAULT_WORKFLOWS);
+    expect(resolveWorkflowList({ list: [] })).toEqual(DEFAULT_WORKFLOWS);
+    expect(resolveWorkflowList({ list: custom })).toEqual([
+      ...DEFAULT_WORKFLOWS,
+      ...custom,
+    ]);
+  });
+
+  test('resolveWorkflowList keeps managed default workflow names canonical', () => {
+    const staleQuickFix = {
+      name: 'quick-fix',
+      description: 'stale quick fix',
+      stages: [{ id: 'worker', agent: 'worker' }],
+    };
+    const customFlow = {
+      name: 'custom-flow',
+      description: 'Custom',
+      stages: [{ agent: 'custom-agent' }],
+    };
+
+    const resolved = resolveWorkflowList({ list: [staleQuickFix, customFlow] });
+    const quickFix = resolved.find((workflow) => workflow.name === 'quick-fix');
+
+    expect(quickFix?.stages.map((stage) => stage.agent)).toEqual(['fixer']);
+    expect(resolved.find((workflow) => workflow.name === 'custom-flow')).toBe(customFlow);
   });
 
   test('agent config schema accepts pipeline mode workflow bindings and user-command modes', () => {
@@ -115,7 +138,7 @@ describe('default workflows and agent tool matrix', () => {
     expect(defs['research-only']?.tools).not.toContain('@子代理');
     expect(defs['research-only']?.tools).not.toContain('omo_council');
     expect(defs['research-only']?.delegates).toEqual(['search', 'oracle']);
-    expect(defs.coordinator?.hidden).toBe(true);
+    expect(defs.coordinator).toBeUndefined();
     const visibleModes = Object.entries(defs)
       .filter(([, def]) => !def.hidden && (def.type === 'mode' || def.type === 'both'))
       .map(([name]) => name);

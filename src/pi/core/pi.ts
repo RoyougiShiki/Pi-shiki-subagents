@@ -5,7 +5,7 @@
  *
  * Architecture:
  *   - Agent markdown files are generated in ~/.pi/agents/ on first load
- *   - Constitution/coordinator prompt is injected via before_agent_start
+ *   - Constitution and active mode prompt are injected via before_agent_start
  *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
  *   - OMO's custom tools (delegate, council) are registered
  *     as pi tools (webfetch omitted - pi-web-access provides better ones)
@@ -337,7 +337,7 @@ export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
   return config && Object.keys(config).length > 0 ? config : null;
 }
 
-// ─── Coordinator System Prompt Builder ─────────────────────────────────────
+// ─── Orchestrator System Prompt Builder ────────────────────────────────────
 
 function buildPromptAgentDefinitions(
   config: OmniMoConfig | null,
@@ -1038,7 +1038,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     toolExecutedThisTurn = false;
   });
 
-  // ── Inject coordinator system prompt ───────────────────────────────
+  // ── Inject orchestrator system prompt ──────────────────────────────
   pi.on('before_agent_start', async (event, _ctx) => {
     // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
     // Sub-agents (council participants) have appendSystemPrompt set as a marker
@@ -1218,6 +1218,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     advanceWorkflowStage: workflowGateHelpers.advanceWorkflowStage,
     confirmWorkflowStageRecovery:
       workflowGateHelpers.confirmWorkflowStageRecovery,
+    approveWorkPackage: workflowGateHelpers.approveWorkPackage,
     recordWorkflowStageAttempt: workflowGateHelpers.recordWorkflowStageAttempt,
     notifyWorkflowStageGateSkipped,
     isCurrentModePipeline,
@@ -1409,7 +1410,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       getModeWorkflowContinuationAgents(parentAgent, runtimeAgentDefinitions, config),
   });
 
-  // ── Pipeline completion is driven by pool_completed + coordinator decision.
+  // ── Pipeline completion is driven by pool_completed + active mode decision.
   // step_report / step_ask_user tools removed to keep runtime protocol minimal.
   // Agent review followUp disabled: avoid chat pollution and context drift.
   let _debugProviderLogged = false;

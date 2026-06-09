@@ -19,6 +19,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
 import { loadRuntimeAgentDefinitions, loadRuntimeToolGroups, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
+import { getDefaultAgentPromptPath, getDefaultAgentsPath } from "../../adapters/default-agent-assets";
+import { TOOL_GROUPS_CONFIG_KEY } from "../../config/config-keys";
 import { parseJsonc } from "../../config/jsonc";
 import {
   getPiNativeConfigPath,
@@ -50,9 +52,10 @@ interface AgentDefinition {
 // ── 常量 ──────────────────────────────────────────────────────────────────
 
 const AGENTS_DIR = path.join(homedir(), ".pi", "agents");
-const DEFAULTS_PATH = path.join(__dirname, "..", "..", "adapters", "agents-default.json");
+const DEFAULTS_PATH = getDefaultAgentsPath();
 const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-modes.json");
 let _currentSessionFile: string | undefined;
+const RETIRED_MANAGED_AGENT_NAMES = new Set(["coordinator"]);
 
 function getConfigPath(): string {
   return getPiNativeConfigPath();
@@ -82,9 +85,15 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, any>; 
 
 function loadAgentFile(name: string): { instructions: string; tools?: string[]; hidden?: boolean } | null {
   const filePath = path.join(AGENTS_DIR, `${name}.md`);
+  const builtInPath = getDefaultAgentPromptPath(name);
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, "utf-8").trim();
+      const { frontmatter, body } = parseFrontmatter(content);
+      return { instructions: body, tools: frontmatter.tools, hidden: frontmatter.hidden };
+    }
+    if (fs.existsSync(builtInPath)) {
+      const content = fs.readFileSync(builtInPath, "utf-8").trim();
       const { frontmatter, body } = parseFrontmatter(content);
       return { instructions: body, tools: frontmatter.tools, hidden: frontmatter.hidden };
     }
@@ -120,6 +129,71 @@ function loadAgentDefinitions(): Record<string, AgentDefinition> {
 
 export function getAgent(name: string): AgentDefinition | undefined {
   return loadAgentDefinitions()[name];
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeManagedAgentDefinitions(
+  existing: Record<string, any> | undefined,
+  defaults: Record<string, any>,
+): Record<string, any> {
+  const merged: Record<string, any> = { ...(existing ?? {}) };
+  for (const name of RETIRED_MANAGED_AGENT_NAMES) {
+    const definition = merged[name];
+    if (
+      isPlainObject(definition) &&
+      definition.type === "mode" &&
+      (definition.pipelineMode === true || definition.workflow !== undefined || definition.hidden === true)
+    ) {
+      delete merged[name];
+    }
+  }
+  for (const [name, definition] of Object.entries(defaults)) {
+    if (name === TOOL_GROUPS_CONFIG_KEY) continue;
+    merged[name] = {
+      ...(isPlainObject(existing?.[name]) ? existing![name] : {}),
+      ...(isPlainObject(definition) ? definition : {}),
+    };
+  }
+  return merged;
+}
+
+function mergeManagedWorkflows(
+  existing: unknown,
+): { list: typeof DEFAULT_WORKFLOWS } {
+  const defaultsByName = new Set(DEFAULT_WORKFLOWS.map((workflow) => workflow.name));
+  const customWorkflows = isPlainObject(existing) && Array.isArray(existing.list)
+    ? existing.list.filter((workflow: unknown) =>
+        isPlainObject(workflow) &&
+        typeof workflow.name === "string" &&
+        !defaultsByName.has(workflow.name)
+      )
+    : [];
+  return {
+    list: [...DEFAULT_WORKFLOWS, ...customWorkflows],
+  };
+}
+
+export function normalizeManagedRuntimeConfig(raw: Record<string, any>): { config: Record<string, any>; changed: boolean } {
+  const defaults = fs.existsSync(DEFAULTS_PATH)
+    ? parseJsonc<Record<string, any>>(fs.readFileSync(DEFAULTS_PATH, "utf-8"))
+    : {};
+  const next: Record<string, any> = { ...raw };
+
+  if (Object.keys(defaults).length > 0) {
+    next.agents = mergeManagedAgentDefinitions(
+      isPlainObject(raw.agents) ? raw.agents : undefined,
+      defaults,
+    );
+  }
+  next.workflows = mergeManagedWorkflows(raw.workflows);
+
+  return {
+    config: next,
+    changed: JSON.stringify(raw) !== JSON.stringify(next),
+  };
 }
 
 /**
@@ -413,6 +487,11 @@ function getWorkflowSummaryLine(mode: string): string {
     : "\n[workflow] none (non-pipeline/rescue)";
 }
 
+function formatModePromptBlock(mode: string): string {
+  const instructions = getModeInstructions(mode)?.trim();
+  return instructions ? `\n\n<MODE name="${mode}">\n${instructions}\n</MODE>` : "";
+}
+
 export function emitModeSwitched(
   pi: ExtensionAPI,
   fromMode: string,
@@ -424,7 +503,7 @@ export function emitModeSwitched(
 
   pi.sendMessage({
     customType: MODE_MESSAGE_TYPES.switched,
-    content: `[mode] ${fromMode} -> ${toMode}${workflowLine}${toolLine}`,
+    content: `[mode] ${fromMode} -> ${toMode}${workflowLine}${toolLine}${formatModePromptBlock(toMode)}`,
     display: true,
     details: {
       kind: "switched",
@@ -528,7 +607,7 @@ export function validateActiveModeWorkflow(
 
 function switchToModeByName(pi: ExtensionAPI, ctx: ExtensionContext, name: string): boolean {
   const agent = getAgent(name);
-  if (!agent || (agent.type !== "mode" && agent.type !== "both")) return false;
+  if (!agent || agent.hidden || (agent.type !== "mode" && agent.type !== "both")) return false;
   runWithModeSwitchOrigin("user_command", () => applyMode(pi, name));
   saveAgent(name);
   try { ctx.ui.setStatus("mode", `Mode: ${name}`); } catch {}
@@ -554,26 +633,15 @@ function cyclePublicMode(pi: ExtensionAPI, ctx: ExtensionContext, direction: 1 |
 // ── 注册 pi 命令和事件 ──────────────────────────────────────────────────
 
 export function registerModeCommands(pi: ExtensionAPI): void {
-  // Auto-populate oh-my-opencode-slim.json with defaults when missing
+  // Keep managed mode/workflow defaults canonical while preserving user models
+  // and custom agents/workflows.
   try {
     const configPath = getConfigPath();
     const raw = parseJsonc<Record<string, any>>(fs.readFileSync(configPath, "utf-8"));
-    let changed = false;
-
-    if (!raw.agents && fs.existsSync(DEFAULTS_PATH)) {
-      raw.agents = parseJsonc<Record<string, any>>(fs.readFileSync(DEFAULTS_PATH, "utf-8"));
-      changed = true;
-    }
-
-    if (!raw.workflows || !Array.isArray(raw.workflows?.list) || raw.workflows.list.length === 0) {
-      raw.workflows = {
-        list: DEFAULT_WORKFLOWS,
-      };
-      changed = true;
-    }
+    const { config: normalized, changed } = normalizeManagedRuntimeConfig(raw);
 
     if (changed) {
-      fs.writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n", "utf-8");
+      fs.writeFileSync(configPath, JSON.stringify(normalized, null, 2) + "\n", "utf-8");
     }
   } catch {}
 

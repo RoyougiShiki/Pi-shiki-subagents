@@ -1,23 +1,15 @@
+import { getDefaultAgentDefinitionNames } from '../adapters/default-agent-assets';
+
 // Agent names
 export const AGENT_ALIASES: Record<string, string> = {
   'frontend-ui-ux-engineer': 'designer',
 };
 
+const CONFIG_ONLY_AGENT_NAMES = ['council'] as const;
+
 export const ALL_AGENT_NAMES = [
-  'standard-dev',
-  'quick-fix',
-  'research-only',
-  'coordinator',
-  'analyst',
-  'designer',
-  'worker',
-  'oracle',
-  'fixer',
-  'observer',
-  'fallback',
-  'dispatcher',
-  'search',
-  'council',
+  ...getDefaultAgentDefinitionNames(),
+  ...CONFIG_ONLY_AGENT_NAMES,
 ] as const;
 
 export const PRIMARY_MODE_AGENT_NAME = 'standard-dev' as const;
@@ -28,7 +20,7 @@ export const PRESET_CONFIGURABLE_AGENT_NAMES = ALL_AGENT_NAMES.filter(
   (name) => name !== 'fallback',
 );
 
-export type AgentName = (typeof ALL_AGENT_NAMES)[number];
+export type AgentName = string;
 
 // Subagent delegation rules: which agents can spawn which subagents.
 // These are only fallback rules. Runtime prefers agents-default.json / user config.
@@ -49,7 +41,6 @@ export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly strin
   'standard-dev': ['search', 'oracle'],
   'quick-fix': ['search', 'fixer', 'oracle'],
   'research-only': ['search', 'oracle'],
-  coordinator: ORCHESTRATABLE_AGENTS,
   designer: [],
   worker: [],
   oracle: [],

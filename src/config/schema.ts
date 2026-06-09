@@ -275,6 +275,7 @@ export const StageNodeSchema = z.object({
   task: z.string().optional(),
   outputSchema: z.string().optional(),
   allowedSubagents: z.array(z.string()).optional(),
+  requiresApproval: z.boolean().optional(),
   review: ReviewConfigSchema.optional(),
 });
 

@@ -51,6 +51,7 @@ function makeGates(args: {
     getWorkflowStageRuntimeSnapshot: helpers.getWorkflowStageRuntimeSnapshot,
     advanceWorkflowStage: helpers.advanceWorkflowStage,
     confirmWorkflowStageRecovery: helpers.confirmWorkflowStageRecovery,
+    approveWorkPackage: helpers.approveWorkPackage,
     recordWorkflowStageAttempt: helpers.recordWorkflowStageAttempt,
     notifyWorkflowStageGateSkipped: () => {},
     isCurrentModePipeline: () => args.pipeline === true,
@@ -116,6 +117,7 @@ describe('tool call workflow stage gates', () => {
       getWorkflowStageRuntimeSnapshot: () => ({ currentStageIndex: 0, sessionWasResumed: false, recoveryConsumed: false, history: [] }),
       advanceWorkflowStage: () => ({ ok: false, reason: 'unused' }),
       confirmWorkflowStageRecovery: () => ({ ok: false, reason: 'unused' }),
+      approveWorkPackage: () => ({ ok: false, reason: 'unused' }),
       recordWorkflowStageAttempt: () => {},
       notifyWorkflowStageGateSkipped: () => {},
       isCurrentModePipeline: () => true,
@@ -172,6 +174,7 @@ describe('tool call workflow stage gates', () => {
       getWorkflowStageRuntimeSnapshot: helpers.getWorkflowStageRuntimeSnapshot,
       advanceWorkflowStage: helpers.advanceWorkflowStage,
       confirmWorkflowStageRecovery: helpers.confirmWorkflowStageRecovery,
+      approveWorkPackage: helpers.approveWorkPackage,
       recordWorkflowStageAttempt: helpers.recordWorkflowStageAttempt,
       notifyWorkflowStageGateSkipped: () => {},
       isCurrentModePipeline: () => true,
@@ -233,6 +236,7 @@ describe('tool call workflow stage gates', () => {
       getWorkflowStageRuntimeSnapshot: helpers.getWorkflowStageRuntimeSnapshot,
       advanceWorkflowStage: helpers.advanceWorkflowStage,
       confirmWorkflowStageRecovery: helpers.confirmWorkflowStageRecovery,
+      approveWorkPackage: helpers.approveWorkPackage,
       recordWorkflowStageAttempt: helpers.recordWorkflowStageAttempt,
       notifyWorkflowStageGateSkipped: () => {},
       isCurrentModePipeline: () => true,
@@ -244,10 +248,164 @@ describe('tool call workflow stage gates', () => {
     if (!decision.ok) expect(decision.reason).toContain('references unknown agent "alpha"');
   });
 
-  test('allows current stage without approval', async () => {
+  test('allows current stage without approval by default', async () => {
     const { gates, ctx } = makeGates({ pipeline: true, approvals: [false], caller: 'caller' });
     const decision = await gates.gatePipelineSubagent(ctx, spawn('alpha'));
     expect(decision.ok).toBe(true);
+  });
+
+  test('requires work package approval for current primary stage when configured', async () => {
+    const confirmations: Array<{ title: string; message: string }> = [];
+    const notices: string[] = [];
+    const quickFixWorkflow: WorkflowsConfig = {
+      list: [
+        {
+          name: 'quick-fix',
+          description: 'quick fix',
+          stages: [
+            {
+              id: 'fix',
+              agent: 'beta',
+              allowedSubagents: ['helper2'],
+              requiresApproval: true,
+            },
+          ],
+        },
+      ],
+    };
+    const { gates, helpers } = makeGates({
+      pipeline: true,
+      workflowName: 'quick-fix',
+      workflowsConfig: quickFixWorkflow,
+      notices,
+    });
+
+    const decision = await gates.gatePipelineSubagent({
+      ui: {
+        confirm: async (title: string, message: string) => {
+          confirmations.push({ title, message });
+          return true;
+        },
+      },
+    }, spawn('beta'));
+
+    expect(decision.ok).toBe(true);
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0].title).toBe('批准实现工作包');
+    expect(confirmations[0].message).toContain('工作包任务');
+    expect(helpers.getWorkflowStageRuntimeSnapshot().history).toEqual([
+      expect.objectContaining({ type: 'work_package_approved', targetAgent: 'beta' }),
+      expect.objectContaining({ type: 'attempt_started', targetAgent: 'beta' }),
+    ]);
+    expect(notices.join('\n')).toContain('event: work_package_approved');
+  });
+
+  test('blocks configured work package when user rejects approval', async () => {
+    const quickFixWorkflow: WorkflowsConfig = {
+      list: [
+        {
+          name: 'quick-fix',
+          description: 'quick fix',
+          stages: [{ id: 'fix', agent: 'beta', requiresApproval: true }],
+        },
+      ],
+    };
+    const { gates } = makeGates({
+      pipeline: true,
+      workflowName: 'quick-fix',
+      workflowsConfig: quickFixWorkflow,
+    });
+
+    const decision = await gates.gatePipelineSubagent({
+      ui: { confirm: async () => false },
+    }, spawn('beta'));
+
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('用户拒绝实现工作包');
+  });
+
+  test('continues approved work package with send and resume without repeated approval', async () => {
+    let confirmCount = 0;
+    const quickFixWorkflow: WorkflowsConfig = {
+      list: [
+        {
+          name: 'quick-fix',
+          description: 'quick fix',
+          stages: [{ id: 'fix', agent: 'beta', requiresApproval: true }],
+        },
+      ],
+    };
+    const { gates, helpers } = makeGates({
+      pipeline: true,
+      workflowName: 'quick-fix',
+      workflowsConfig: quickFixWorkflow,
+    });
+    const ctx = { ui: { confirm: async () => { confirmCount += 1; return true; } } };
+
+    expect((await gates.gatePipelineSubagent(ctx, spawn('beta'))).ok).toBe(true);
+    expect((await gates.gatePipelineSubagent(ctx, send('id-beta'))).ok).toBe(true);
+    expect((await gates.gatePipelineSubagent(ctx, resume('id-beta'))).ok).toBe(true);
+
+    expect(confirmCount).toBe(1);
+    expect(helpers.getWorkflowStageRuntimeSnapshot().history.filter((entry) => entry.type === 'work_package_approved')).toHaveLength(1);
+  });
+
+  test('does not repeat work package approval for the same pool id and task', async () => {
+    let confirmCount = 0;
+    const quickFixWorkflow: WorkflowsConfig = {
+      list: [
+        {
+          name: 'quick-fix',
+          description: 'quick fix',
+          stages: [{ id: 'fix', agent: 'beta', requiresApproval: true }],
+        },
+      ],
+    };
+    const { gates, helpers } = makeGates({
+      pipeline: true,
+      workflowName: 'quick-fix',
+      workflowsConfig: quickFixWorkflow,
+    });
+    const ctx = { ui: { confirm: async () => { confirmCount += 1; return true; } } };
+
+    expect((await gates.gatePipelineSubagent(ctx, spawn('beta'))).ok).toBe(true);
+    expect((await gates.gatePipelineSubagent(ctx, spawn('beta'))).ok).toBe(true);
+
+    expect(confirmCount).toBe(1);
+    expect(helpers.getWorkflowStageRuntimeSnapshot().history.map((entry) => entry.type)).toEqual([
+      'work_package_approved',
+      'attempt_started',
+      'attempt_started',
+    ]);
+  });
+
+  test('requires a new work package approval for a new pool id or task', async () => {
+    let confirmCount = 0;
+    const quickFixWorkflow: WorkflowsConfig = {
+      list: [
+        {
+          name: 'quick-fix',
+          description: 'quick fix',
+          stages: [{ id: 'fix', agent: 'beta', requiresApproval: true }],
+        },
+      ],
+    };
+    const { gates, helpers } = makeGates({
+      pipeline: true,
+      workflowName: 'quick-fix',
+      workflowsConfig: quickFixWorkflow,
+    });
+    const ctx = { ui: { confirm: async () => { confirmCount += 1; return true; } } };
+    const original = spawn('beta');
+    const newPoolId = { ...original, id: 'id-beta-new' };
+    const newTask = { ...original, task: 'Do a different task with explicit context.' };
+
+    expect((await gates.gatePipelineSubagent(ctx, original)).ok).toBe(true);
+    expect((await gates.gatePipelineSubagent(ctx, newPoolId)).ok).toBe(true);
+    expect((await gates.gatePipelineSubagent(ctx, newTask)).ok).toBe(true);
+
+    expect(confirmCount).toBe(3);
+    expect(helpers.getWorkflowStageRuntimeSnapshot().history.filter((entry) => entry.type === 'work_package_approved')).toHaveLength(3);
   });
 
   test('does not issue pipeline grant when delegation caller is missing', async () => {

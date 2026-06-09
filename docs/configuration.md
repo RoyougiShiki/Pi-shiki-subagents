@@ -57,18 +57,19 @@ JSONC supports comments and trailing commas.
 Current built-in agents include:
 
 ```text
-standard-dev, quick-fix, research-only, coordinator, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
+standard-dev, quick-fix, research-only, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
 ```
 
 The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
-`research-only`. `coordinator` is retained as a hidden compatibility/template
-entry for older configs and sessions; new configs should bind models to
-`standard-dev` as the primary mode.
+`research-only`. `fallback` is the explicit rescue mode. Older managed
+`coordinator` mode entries are retired during Pi-native startup normalization;
+new configs should bind models to the workflow-bound modes directly.
 
 `quick-fix` is the shortest write-capable path: the main agent scopes the
-small fix itself, may delegate `search` for evidence, delegates `fixer` for the
-minimal implementation, and delegates `oracle` for review. It intentionally
-does not route through `analyst` or `worker`.
+small fix itself, asks for work-package approval, then delegates through the
+configured short workflow. The built-in workflow does not use the fuller
+analysis/planning implementation path; runtime behavior still comes from the
+structured workflow and agent definitions, not duplicated markdown prose.
 
 ## Agent Definitions and Prompts
 
@@ -119,10 +120,11 @@ Mode is the user-facing entry point. A pipeline mode binds one workflow internal
 `agents.<mode>.workflow`; runtime does not read `workflows.default` and there is no runtime
 workflow switch command.
 
-`pipelineMode: true` modes must set `workflow` to a known workflow definition. Custom
-definitions live in `workflows.list`; if the list is missing or empty, Pi seeds the built-in
-workflow definitions. Non-pipeline modes do not need a workflow and bypass workflow stage
-gates.
+`pipelineMode: true` modes must set `workflow` to a known workflow definition. Built-in
+workflow names are managed by the package and remain canonical even if an old local
+config still contains stale definitions with the same names. Custom definitions live in
+`workflows.list`; use a custom workflow name for intentional overrides. Non-pipeline modes
+do not need a workflow and bypass workflow stage gates.
 
 Modes with `requiresUserCommand: true` can only be activated by user-driven mode changes
 such as `/mode` or restored session state. Model-initiated `switch_mode` requests to those
@@ -174,7 +176,7 @@ Use this for explicit rescue modes that should not be entered by model initiativ
           {
             "id": "implement",
             "agent": "dispatcher",
-            "description": "调度 fixer 实现和 oracle 审查；不通过则继续同一 fixer 会话返工",
+            "description": "按已确认计划调度实现和审查；不通过则继续同一实现会话返工",
             "allowedSubagents": ["fixer", "oracle"]
           }
         ]
@@ -185,7 +187,8 @@ Use this for explicit rescue modes that should not be entered by model initiativ
 ```
 
 `workflows.default` is a deprecated compatibility field. It may still be accepted by the
-schema for older configs, but the Pi runtime ignores it.
+schema for older configs, but the Pi runtime ignores it and startup normalization removes
+it from managed Pi-native config.
 
 Pipeline notices and the injected `<ModeWorkflows>` prompt summarize the active
 mode's bound workflow. Treat that summary as runtime guidance; the gate itself

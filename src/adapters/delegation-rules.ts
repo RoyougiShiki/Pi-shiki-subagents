@@ -3,7 +3,9 @@ import { getDelegationRulesFromConfig } from "./agent-runtime-config";
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 2;
 
 export const FALLBACK_PI_DELEGATION_RULES: Record<string, readonly string[]> = {
-  coordinator: ["search", "oracle"],
+  "standard-dev": ["search", "oracle"],
+  "quick-fix": ["search", "fixer", "oracle"],
+  "research-only": ["search", "oracle"],
   "analyst": ["search"],
   designer: ["search", "observer", "oracle"],
   worker: ["fixer", "oracle"],

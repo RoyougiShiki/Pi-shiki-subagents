@@ -1,6 +1,6 @@
 import type { WorkflowStageRecoveryCandidate } from "./workflow-stage-runtime";
 
-export type WorkflowStageMarkerEvent = "transition_approved" | "recovery_confirmed";
+export type WorkflowStageMarkerEvent = "transition_approved" | "recovery_confirmed" | "work_package_approved";
 
 export interface WorkflowStageMarkerInput {
   event: WorkflowStageMarkerEvent;
@@ -10,6 +10,8 @@ export interface WorkflowStageMarkerInput {
   stageAgent?: string;
   targetAgent: string;
   timestamp?: number;
+  poolId?: string;
+  task?: string;
 }
 
 const MARKER_START = "[workflow-stage-marker]";
@@ -30,6 +32,8 @@ export function formatWorkflowStageMarker(args: WorkflowStageMarkerInput): strin
     `stageId: ${lineValue(args.stageId)}`,
     `stageAgent: ${lineValue(args.stageAgent)}`,
     `targetAgent: ${lineValue(args.targetAgent)}`,
+    `poolId: ${lineValue(args.poolId)}`,
+    `task: ${lineValue(args.task)}`,
     `timestamp: ${timestamp}`,
     MARKER_END,
   ].join("\n");

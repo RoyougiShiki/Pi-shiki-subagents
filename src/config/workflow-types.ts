@@ -38,6 +38,8 @@ export interface StageNode {
   task?: string;
   outputSchema?: string;
   allowedSubagents?: string[];
+  /** Require user approval before spawning this stage's primary agent. */
+  requiresApproval?: boolean;
   /** Auto-review: stage output is reviewed by this agent before transition. */
   review?: {
     agent: string;

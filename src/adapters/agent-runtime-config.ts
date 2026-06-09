@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
 import { deepMerge, loadPluginConfig } from "../config/loader";
 import { TOOL_GROUPS_CONFIG_KEY } from "../config/config-keys";
 import { parseJsonc } from "../config/jsonc";
@@ -7,6 +6,7 @@ import {
   getPiNativeConfigPath,
   readPiNativeConfigObject,
 } from "../config/pi-native";
+import { getDefaultAgentsPath } from "./default-agent-assets";
 
 export interface RuntimeAgentDefinition {
   type?: "mode" | "subagent" | "both";
@@ -30,6 +30,8 @@ export interface ToolExpressionResolveOptions {
 }
 
 export type RuntimeToolGroups = Record<string, string[]>;
+
+const RETIRED_MANAGED_AGENT_NAMES = new Set(["coordinator"]);
 
 function escapeRegexLiteral(value: string): string {
   return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
@@ -56,6 +58,17 @@ function filterRuntimeAgentDefinitions(
     if (!isInternalConfigKey(name)) result[name] = definition;
   }
   return result;
+}
+
+function isRetiredManagedAgentDefinition(
+  name: string,
+  definition: RuntimeAgentDefinition | undefined,
+): boolean {
+  if (!RETIRED_MANAGED_AGENT_NAMES.has(name)) return false;
+  return definition?.type === "mode" &&
+    (definition.pipelineMode === true ||
+      definition.workflow !== undefined ||
+      definition.hidden === true);
 }
 
 export function resolveToolExpressions(
@@ -146,10 +159,6 @@ function readJsonFile(filePath: string): Record<string, unknown> {
   } catch {
     return {};
   }
-}
-
-export function getDefaultAgentsPath(): string {
-  return path.join(__dirname, "agents-default.json");
 }
 
 export function getUserConfigPath(): string {
@@ -249,6 +258,10 @@ export function loadRuntimeAgentDefinitions(cwd = process.cwd()): Record<string,
 
   const merged: Record<string, RuntimeAgentDefinition> = { ...defaults };
   for (const [name, override] of Object.entries(runtimeAgents)) {
+    if (isRetiredManagedAgentDefinition(name, override)) {
+      delete merged[name];
+      continue;
+    }
     const base = (merged[name] ?? {}) as Record<string, unknown>;
     const overrideRecord = override as Record<string, unknown>;
     merged[name] = (deepMerge(base, overrideRecord) ?? overrideRecord) as RuntimeAgentDefinition;

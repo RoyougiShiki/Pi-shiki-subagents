@@ -42,21 +42,6 @@
     "workflow": "research-only",
     "label": "只读研究模式（阶段门禁）"
   },
-  "coordinator": {
-    "type": "mode",
-    "tools": [
-      "@交互",
-      "@子代理"
-    ],
-    "delegates": [
-      "search",
-      "oracle"
-    ],
-    "pipelineMode": true,
-    "workflow": "standard-dev",
-    "hidden": true,
-    "label": "主控模板（兼容）"
-  },
   "analyst": {
     "type": "subagent",
     "delegates": [

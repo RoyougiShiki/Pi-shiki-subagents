@@ -77,4 +77,41 @@ describe('workflow stage runtime', () => {
     runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', timestamp: 2 });
     expect(runtime.getSnapshot().history).toHaveLength(2);
   });
+
+  test('records approved work package boundary by pool id and task', () => {
+    const runtime = createWorkflowStageRuntime();
+
+    expect(runtime.approveWorkPackage({
+      workflowName: 'flow',
+      stageIndex: 0,
+      targetAgent: 'worker',
+      poolId: '',
+      task: 'Do the task',
+    }).ok).toBe(false);
+
+    const result = runtime.approveWorkPackage({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'fix',
+      targetAgent: 'worker',
+      poolId: 'fix-1',
+      task: 'Do the task',
+      timestamp: 3,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(runtime.getSnapshot().approvedWorkPackage).toEqual({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'fix',
+      targetAgent: 'worker',
+      poolId: 'fix-1',
+      task: 'Do the task',
+    });
+    expect(runtime.getSnapshot().history[0]).toMatchObject({
+      type: 'work_package_approved',
+      poolId: 'fix-1',
+      task: 'Do the task',
+    });
+  });
 });

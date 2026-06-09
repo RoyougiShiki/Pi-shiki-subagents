@@ -136,6 +136,23 @@ describe('runtime agent config', () => {
     expect(defs.oracle?.model).toBe('pi-native/oracle-model');
   });
 
+  test('does not re-expose retired managed mode entries from stale Pi native config', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      agents: {
+        coordinator: {
+          type: 'mode',
+          pipelineMode: true,
+          workflow: 'standard-dev',
+          model: 'pi-native/old-coordinator',
+        },
+      },
+    });
+
+    const defs = loadRuntimeAgentDefinitions(projectDir);
+
+    expect(defs.coordinator).toBeUndefined();
+  });
+
   test('merges active preset from Pi native config fallback', () => {
     writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
       preset: 'native-review',

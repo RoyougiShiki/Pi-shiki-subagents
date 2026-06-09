@@ -46,6 +46,14 @@ export interface WorkflowStageGateHelpers {
     stageId?: string;
     targetAgent: string;
   }) => RuntimeDecision;
+  approveWorkPackage: (args: {
+    workflowName: string;
+    stageIndex: number;
+    stageId?: string;
+    targetAgent: string;
+    poolId: string;
+    task: string;
+  }) => RuntimeDecision;
   recordWorkflowStageAttempt: (args: {
     workflowName: string;
     stageIndex: number;
@@ -136,6 +144,7 @@ export function createWorkflowStageGateHelpers(args: {
     },
     advanceWorkflowStage: (next) => runtime.advanceToNextStage(next),
     confirmWorkflowStageRecovery: (next) => runtime.confirmRecovery(next),
+    approveWorkPackage: (next) => runtime.approveWorkPackage(next),
     recordWorkflowStageAttempt: (next) => runtime.recordAttemptStarted(next),
   };
 }
@@ -257,12 +266,30 @@ function issueGrant(args: {
   });
 }
 
+function formatWorkPackageApprovalMessage(args: {
+  workflowName: string;
+  stageId?: string;
+  targetAgent: string;
+  task: string;
+}): string {
+  return [
+    `模型请求进入 workflow「${args.workflowName}」的实现工作包「${args.stageId ?? "current"}」，并委托「${args.targetAgent}」执行。`,
+    "",
+    "请确认当前需求、修改范围、停止条件和验证方式已经明确；同意后该工作包内可继续同一子代理会话返工和复审。",
+    "如果需求变更、范围扩大、意图不确定或要改新的关键模块，后续必须重新回到用户确认。",
+    "",
+    "工作包任务:",
+    args.task,
+  ].join("\n");
+}
+
 export function createToolCallGates(args: {
   getWorkflowStageGateContext: () => WorkflowStageGateContext | null;
   getWorkflowStageGateConfigError?: () => string | undefined;
   getWorkflowStageRuntimeSnapshot: () => WorkflowStageRuntimeSnapshot;
   advanceWorkflowStage: WorkflowStageGateHelpers["advanceWorkflowStage"];
   confirmWorkflowStageRecovery: WorkflowStageGateHelpers["confirmWorkflowStageRecovery"];
+  approveWorkPackage: WorkflowStageGateHelpers["approveWorkPackage"];
   recordWorkflowStageAttempt: WorkflowStageGateHelpers["recordWorkflowStageAttempt"];
   notifyWorkflowStageGateSkipped: (ctx?: GateUiContext) => void;
   isCurrentModePipeline: () => boolean;
@@ -325,6 +352,56 @@ ${contractDecision.hint}` : ""}`);
     }
 
     if (classification.kind === "current") {
+      if (stageContext.stage.requiresApproval === true && classification.requiresApproval) {
+        const snapshot = args.getWorkflowStageRuntimeSnapshot();
+        const approvedPackage = snapshot.approvedWorkPackage;
+        const alreadyApproved = approvedPackage?.workflowName === stageContext.workflowName
+          && approvedPackage.stageIndex === stageContext.stageIndex
+          && approvedPackage.stageId === classification.currentStageId
+          && approvedPackage.targetAgent === agent
+          && approvedPackage.poolId === id
+          && approvedPackage.task === task;
+
+        if (!alreadyApproved) {
+          const approval = await requestApproval(
+            ctx,
+            "批准实现工作包",
+            formatWorkPackageApprovalMessage({
+              workflowName: stageContext.workflowName,
+              stageId: classification.currentStageId,
+              targetAgent: agent,
+              task,
+            }),
+          );
+          if (!approval) return deny("工作包审批被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
+          if (!approval.approved) return deny(`用户拒绝实现工作包。原因：${approval.reason}`);
+
+          const approved = args.approveWorkPackage({
+            workflowName: stageContext.workflowName,
+            stageIndex: stageContext.stageIndex,
+            stageId: classification.currentStageId,
+            targetAgent: agent,
+            poolId: id,
+            task,
+          });
+          if (!approved.ok) return deny(`工作包审批记录失败：${approved.reason}`);
+
+          emitNotice({
+            emit: args.emitWorkflowStageNotice,
+            text: formatWorkflowStageMarker({
+              event: "work_package_approved",
+              workflowName: stageContext.workflowName,
+              stageIndex: stageContext.stageIndex,
+              stageId: classification.currentStageId,
+              stageAgent: stageContext.stage.agent,
+              targetAgent: agent,
+              poolId: id,
+              task,
+            }),
+          });
+        }
+      }
+
       args.recordWorkflowStageAttempt({
         workflowName: stageContext.workflowName,
         stageIndex: stageContext.stageIndex,
