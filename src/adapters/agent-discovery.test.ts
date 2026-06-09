@@ -24,11 +24,11 @@ describe('agent discovery', () => {
 
   test('reads name/description from markdown frontmatter and body as prompt', async () => {
     const root = makeProject();
-    const agentPath = path.join(root, '.pi', 'agents', 'custom-worker.md');
+    const agentPath = path.join(root, '.pi', 'agents', 'custom-agent.md');
     fs.writeFileSync(agentPath, [
       '---',
-      'name: custom-worker',
-      'description: Worker Agent',
+      'name: custom-agent',
+      'description: Custom Agent',
       '---',
       '',
       '# Body prompt',
@@ -36,10 +36,10 @@ describe('agent discovery', () => {
 
     const { discoverAgents } = await import('./agent-discovery');
     const agents = discoverAgents(root);
-    const worker = agents.find((a) => a.name === 'custom-worker');
+    const agent = agents.find((a) => a.name === 'custom-agent');
 
-    expect(worker?.description).toBe('Worker Agent');
-    expect(worker?.systemPrompt).toContain('# Body prompt');
+    expect(agent?.description).toBe('Custom Agent');
+    expect(agent?.systemPrompt).toContain('# Body prompt');
   });
 
   test('uses JSON/default tools instead of markdown frontmatter tools', async () => {
@@ -84,5 +84,81 @@ describe('agent discovery', () => {
     const oracle = resolveAgent(root, 'oracle');
 
     expect(oracle?.model).toBe('runtime/oracle-model');
+  });
+
+  test('discovers custom runtime agents with inline prompt content', async () => {
+    const root = makeProject();
+    const opencodeDir = path.join(root, '.opencode');
+    fs.mkdirSync(opencodeDir, { recursive: true });
+    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
+      agents: {
+        janitor: {
+          type: 'subagent',
+          label: 'Janitor',
+          model: 'runtime/janitor-model',
+          prompt: 'Audit dead code and docs drift.',
+        },
+      },
+    }));
+
+    const { resolveAgent } = await import('./agent-discovery');
+    const janitor = resolveAgent(root, 'janitor');
+
+    expect(janitor?.description).toBe('Janitor');
+    expect(janitor?.model).toBe('runtime/janitor-model');
+    expect(janitor?.systemPrompt).toBe('Audit dead code and docs drift.');
+  });
+
+  test('does not discover stale managed runtime agents without prompt content', async () => {
+    const root = makeProject();
+    const opencodeDir = path.join(root, '.opencode');
+    fs.mkdirSync(opencodeDir, { recursive: true });
+    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
+      agents: {
+        worker: {
+          type: 'subagent',
+          delegates: ['fixer', 'oracle'],
+          model: 'runtime/old-worker-model',
+        },
+      },
+    }));
+
+    const { resolveAgent } = await import('./agent-discovery');
+
+    expect(resolveAgent(root, 'worker')).toBeUndefined();
+  });
+
+  test('does not discover hidden agents from markdown or inline runtime prompts', async () => {
+    const root = makeProject();
+    const agentPath = path.join(root, '.pi', 'agents', 'hidden-worker.md');
+    fs.writeFileSync(agentPath, [
+      '---',
+      'name: hidden-worker',
+      'description: Hidden Worker',
+      '---',
+      '',
+      'Hidden markdown prompt.',
+    ].join('\n'));
+    const opencodeDir = path.join(root, '.opencode');
+    fs.mkdirSync(opencodeDir, { recursive: true });
+    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
+      agents: {
+        'hidden-worker': {
+          type: 'subagent',
+          hidden: true,
+        },
+        'hidden-inline': {
+          type: 'subagent',
+          model: 'runtime/hidden-inline-model',
+          prompt: 'Hidden inline prompt.',
+          hidden: true,
+        },
+      },
+    }));
+
+    const { resolveAgent } = await import('./agent-discovery');
+
+    expect(resolveAgent(root, 'hidden-worker')).toBeUndefined();
+    expect(resolveAgent(root, 'hidden-inline')).toBeUndefined();
   });
 });

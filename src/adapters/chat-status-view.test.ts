@@ -30,11 +30,11 @@ describe('chat status view', () => {
 
   test('adds fallback hint for failed or dead agents only in bottom line', () => {
     const failed = createChatStatusView({ name: 'analyst', state: 'failed', scope: 'workflow' });
-    const dead = createChatStatusView({ name: 'worker', state: 'dead', scope: 'workflow' });
+    const dead = createChatStatusView({ name: 'dispatcher', state: 'dead', scope: 'workflow' });
 
     expect(failed.listRow).toBe('analyst · failed');
     expect(failed.bottomLine).toBe('analyst · failed · workflow · fallback?');
-    expect(dead.bottomLine).toBe('worker · dead · workflow · fallback?');
+    expect(dead.bottomLine).toBe('dispatcher · dead · workflow · fallback?');
   });
 
   test('groups status rows by scope order', () => {

@@ -118,7 +118,7 @@ describe('loadPluginConfig', () => {
       path.join(projectConfigDir, 'oh-my-opencode-slim.json'),
       JSON.stringify({
         manualPlan: {
-          coordinator: {
+          'standard-dev': {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
@@ -142,7 +142,7 @@ describe('loadPluginConfig', () => {
             fallback2: 'chutes/kimi-k2.5',
             fallback3: 'opencode/gpt-5-nano',
           },
-          worker: {
+          dispatcher: {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
@@ -1062,7 +1062,7 @@ describe('JSONC config support', () => {
       path.join(userOpencodeDir, 'oh-my-opencode-slim.jsonc'),
       `{
         // User config with comments
-        "agents": { "worker": { "model": "user-worker" } }
+        "agents": { "dispatcher": { "model": "user-dispatcher" } }
       }`,
     );
 
@@ -1070,7 +1070,7 @@ describe('JSONC config support', () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const config = loadPluginConfig(projectDir);
-    expect(config.agents?.worker?.model).toBe('user-worker');
+    expect(config.agents?.dispatcher?.model).toBe('user-dispatcher');
   });
 
   test('merges user .jsonc with project .jsonc', () => {

@@ -4,7 +4,7 @@ import { type AgentContext } from "./agent-context";
 
 const emptyEvidence: CompletionEvidenceSummary = { kinds: [] };
 const mainAgentContext: AgentContext = { role: "main" };
-const subagentContext: AgentContext = { role: "subagent", agentName: "worker-1" };
+const subagentContext: AgentContext = { role: "subagent", agentName: "dispatcher-1" };
 
 describe("completion auditor", () => {
   test("allows neutral text without claims", () => {

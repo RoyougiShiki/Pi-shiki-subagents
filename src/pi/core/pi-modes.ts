@@ -18,7 +18,7 @@ import { Type } from "typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { homedir } from "node:os";
-import { loadRuntimeAgentDefinitions, loadRuntimeToolGroups, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
+import { loadRuntimeAgentDefinitions, loadRuntimeToolGroups, mergeManagedRuntimeAgentDefinitions, resolveAgentToolNames } from "../../adapters/agent-runtime-config";
 import { getDefaultAgentPromptPath, getDefaultAgentsPath } from "../../adapters/default-agent-assets";
 import { TOOL_GROUPS_CONFIG_KEY } from "../../config/config-keys";
 import { parseJsonc } from "../../config/jsonc";
@@ -57,7 +57,6 @@ const AGENTS_DIR = path.join(homedir(), ".pi", "agents");
 const DEFAULTS_PATH = getDefaultAgentsPath();
 const SESSION_MODE_MAP_PATH = path.join(homedir(), ".pi", "agent", ".session-modes.json");
 let _currentSessionFile: string | undefined;
-const RETIRED_MANAGED_AGENT_NAMES = new Set(["coordinator"]);
 
 function getConfigPath(): string {
   return getPiNativeConfigPath();
@@ -141,25 +140,17 @@ function mergeManagedAgentDefinitions(
   existing: Record<string, any> | undefined,
   defaults: Record<string, any>,
 ): Record<string, any> {
-  const merged: Record<string, any> = { ...(existing ?? {}) };
-  for (const name of RETIRED_MANAGED_AGENT_NAMES) {
-    const definition = merged[name];
-    if (
-      isPlainObject(definition) &&
-      definition.type === "mode" &&
-      (definition.pipelineMode === true || definition.workflow !== undefined || definition.hidden === true)
-    ) {
-      delete merged[name];
-    }
+  const runtimeExisting: Record<string, any> = {};
+  for (const [name, definition] of Object.entries(existing ?? {})) {
+    if (name === TOOL_GROUPS_CONFIG_KEY) continue;
+    if (isPlainObject(definition)) runtimeExisting[name] = definition;
   }
+  const runtimeDefaults: Record<string, any> = {};
   for (const [name, definition] of Object.entries(defaults)) {
     if (name === TOOL_GROUPS_CONFIG_KEY) continue;
-    merged[name] = {
-      ...(isPlainObject(existing?.[name]) ? existing![name] : {}),
-      ...(isPlainObject(definition) ? definition : {}),
-    };
+    if (isPlainObject(definition)) runtimeDefaults[name] = definition;
   }
-  return merged;
+  return mergeManagedRuntimeAgentDefinitions(runtimeDefaults, runtimeExisting);
 }
 
 function mergeManagedWorkflows(

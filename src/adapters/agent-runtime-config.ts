@@ -20,6 +20,8 @@ export interface RuntimeAgentDefinition {
   requiresUserCommand?: boolean;
   hidden?: boolean;
   instructions?: string;
+  prompt?: string;
+  displayName?: string;
   model?: string | Array<string | { id: string; variant?: string }>;
   variant?: string;
   thinking?: string;
@@ -32,7 +34,21 @@ export interface ToolExpressionResolveOptions {
 
 export type RuntimeToolGroups = Record<string, string[]>;
 
-const RETIRED_MANAGED_AGENT_NAMES = new Set(["coordinator"]);
+const CUSTOM_RUNTIME_AGENT_FIELDS = [
+  "prompt",
+  "instructions",
+] as const;
+
+const MANAGED_RUNTIME_AGENT_OVERRIDE_FIELDS = [
+  "model",
+  "variant",
+  "thinking",
+  "options",
+  "displayName",
+  "temperature",
+  "skills",
+  "mcps",
+] as const;
 
 function escapeRegexLiteral(value: string): string {
   return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
@@ -61,15 +77,73 @@ function filterRuntimeAgentDefinitions(
   return result;
 }
 
-function isRetiredManagedAgentDefinition(
+export function isCustomRuntimeAgentDefinition(
   name: string,
   definition: RuntimeAgentDefinition | undefined,
+  defaults: Record<string, RuntimeAgentDefinition>,
 ): boolean {
-  if (!RETIRED_MANAGED_AGENT_NAMES.has(name)) return false;
-  return definition?.type === "mode" &&
-    (definition.pipelineMode === true ||
-      definition.workflow !== undefined ||
-      definition.hidden === true);
+  if (!definition || defaults[name] !== undefined) return false;
+  if (!normalizeRuntimeModel(definition.model)?.trim()) return false;
+
+  for (const field of CUSTOM_RUNTIME_AGENT_FIELDS) {
+    const value = (definition as Record<string, unknown>)[field];
+    if (typeof value === "string" && value.trim()) return true;
+  }
+
+  return false;
+}
+
+function pickManagedRuntimeAgentOverrides(
+  definition: RuntimeAgentDefinition | undefined,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (!definition) return result;
+
+  const record = definition as Record<string, unknown>;
+  for (const field of MANAGED_RUNTIME_AGENT_OVERRIDE_FIELDS) {
+    if (record[field] !== undefined) result[field] = record[field];
+  }
+  return result;
+}
+
+export function mergeRuntimeAgentDefinitions(
+  defaults: Record<string, RuntimeAgentDefinition>,
+  runtimeAgents: Record<string, RuntimeAgentDefinition>,
+): Record<string, RuntimeAgentDefinition> {
+  const merged: Record<string, RuntimeAgentDefinition> = { ...defaults };
+  for (const [name, override] of Object.entries(runtimeAgents)) {
+    if (!defaults[name] && !isCustomRuntimeAgentDefinition(name, override, defaults)) {
+      continue;
+    }
+    const base = (merged[name] ?? {}) as Record<string, unknown>;
+    const overrideRecord = override as Record<string, unknown>;
+    merged[name] = (deepMerge(base, overrideRecord) ?? overrideRecord) as RuntimeAgentDefinition;
+  }
+  return merged;
+}
+
+export function mergeManagedRuntimeAgentDefinitions(
+  defaults: Record<string, RuntimeAgentDefinition>,
+  runtimeAgents: Record<string, RuntimeAgentDefinition>,
+): Record<string, RuntimeAgentDefinition> {
+  const merged: Record<string, RuntimeAgentDefinition> = {};
+
+  for (const [name, definition] of Object.entries(defaults)) {
+    const preserved = pickManagedRuntimeAgentOverrides(runtimeAgents[name]);
+    merged[name] = (deepMerge(
+      preserved,
+      definition as Record<string, unknown>,
+    ) ?? definition) as RuntimeAgentDefinition;
+  }
+
+  for (const [name, definition] of Object.entries(runtimeAgents)) {
+    if (defaults[name]) continue;
+    if (isCustomRuntimeAgentDefinition(name, definition, defaults)) {
+      merged[name] = definition;
+    }
+  }
+
+  return merged;
 }
 
 export function resolveToolExpressions(
@@ -201,6 +275,14 @@ function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinit
   return deepMerge(piNativeAgents, sharedAgents) ?? {};
 }
 
+export function getHiddenRuntimeAgentNames(cwd = process.cwd()): Set<string> {
+  return new Set(
+    Object.entries(getRuntimeConfigAgents(cwd))
+      .filter(([, definition]) => definition?.hidden === true)
+      .map(([name]) => name),
+  );
+}
+
 function normalizeToolGroups(groups: unknown): RuntimeToolGroups {
   const normalized: RuntimeToolGroups = {};
   if (!groups || typeof groups !== "object") return normalized;
@@ -257,17 +339,7 @@ export function loadRuntimeAgentDefinitions(cwd = process.cwd()): Record<string,
   );
   const runtimeAgents = getRuntimeConfigAgents(cwd);
 
-  const merged: Record<string, RuntimeAgentDefinition> = { ...defaults };
-  for (const [name, override] of Object.entries(runtimeAgents)) {
-    if (isRetiredManagedAgentDefinition(name, override)) {
-      delete merged[name];
-      continue;
-    }
-    const base = (merged[name] ?? {}) as Record<string, unknown>;
-    const overrideRecord = override as Record<string, unknown>;
-    merged[name] = (deepMerge(base, overrideRecord) ?? overrideRecord) as RuntimeAgentDefinition;
-  }
-  return merged;
+  return mergeRuntimeAgentDefinitions(defaults, runtimeAgents);
 }
 
 export function getRuntimeAgentDefinition(name: string, cwd = process.cwd()): RuntimeAgentDefinition | undefined {
@@ -278,7 +350,11 @@ export function getDelegationRulesFromConfig(cwd = process.cwd()): Record<string
   const defs = loadRuntimeAgentDefinitions(cwd);
   const rules: Record<string, readonly string[]> = {};
   for (const [name, def] of Object.entries(defs)) {
-    if (Array.isArray(def.delegates)) rules[name] = def.delegates;
+    if (Array.isArray(def.delegates)) {
+      rules[name] = def.delegates.filter((delegate) =>
+        defs[delegate] !== undefined && defs[delegate]?.hidden !== true
+      );
+    }
   }
   return rules;
 }

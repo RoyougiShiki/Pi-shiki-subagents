@@ -69,7 +69,7 @@ describe('subagent run widget lines', () => {
   test('renders nested runs as indented tree lines', () => {
     const parent = node({
       runId: 'parent',
-      title: 'parent (coordinator)',
+      title: 'parent (standard-dev)',
       children: [
         node({ runId: 'child', title: 'child (oracle)', recentLines: [] }),
       ],
@@ -79,7 +79,7 @@ describe('subagent run widget lines', () => {
       width: 80,
       maxLines: 8,
     });
-    expect(lines.some((line) => line.includes('* parent (coordinator)'))).toBe(
+    expect(lines.some((line) => line.includes('* parent (standard-dev)'))).toBe(
       true,
     );
     expect(lines.some((line) => line.includes('  * child (oracle)'))).toBe(

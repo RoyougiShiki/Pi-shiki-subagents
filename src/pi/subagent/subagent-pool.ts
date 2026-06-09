@@ -80,7 +80,7 @@ export function resolveDelegationCaller(): string | undefined {
 
   // Do not fall back to loadActiveMode(): during extension reload its module-local
   // session file can be unset, which falls back to the first configured mode and
-  // misclassifies rescue/fallback calls as coordinator delegation.
+  // misclassifies rescue/fallback calls as ordinary mode delegation.
   return undefined;
 }
 

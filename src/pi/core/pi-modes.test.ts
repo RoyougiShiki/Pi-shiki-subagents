@@ -82,7 +82,7 @@ describe('mode switch notices', () => {
     expect(sent[0].message.content).toContain('<MODE name="quick-fix">');
     expect(sent[0].message.content).toContain('等待系统工作包审批');
     expect(sent[0].message.content).toContain('委托当前实现阶段主子代理做最小修复');
-    expect(sent[0].message.content).not.toContain('不委托 analyst 或 worker');
+    expect(sent[0].message.content).not.toContain('不委托 analyst');
   });
 
   test('runWithModeSwitchOrigin restores previous origin after scoped mode switch work', () => {
@@ -111,7 +111,7 @@ describe('mode tool config parsing', () => {
             description: 'stale',
             stages: [
               { id: 'analyst', agent: 'analyst' },
-              { id: 'worker', agent: 'worker' },
+              { id: 'old-stage', agent: 'dispatcher' },
             ],
           },
           {
@@ -125,12 +125,32 @@ describe('mode tool config parsing', () => {
         coordinator: {
           type: 'mode',
           pipelineMode: true,
-          label: 'old coordinator',
+          workflow: 'standard-dev',
+          hidden: true,
+        },
+        worker: {
+          type: 'subagent',
+          delegates: ['fixer', 'oracle'],
+        },
+        'quick-fix': {
+          type: 'mode',
+          tools: ['@交互', '@子代理'],
+          delegates: ['worker'],
+          pipelineMode: true,
+          workflow: 'quick-fix',
+          model: 'pi-native/quick-fix-model',
         },
         fallback: {
           type: 'mode',
           pipelineMode: false,
           requiresUserCommand: true,
+        },
+        customLead: {
+          type: 'mode',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+          model: 'custom/lead-model',
+          prompt: 'Custom lead prompt.',
         },
       },
     });
@@ -145,10 +165,16 @@ describe('mode tool config parsing', () => {
       type: 'mode',
       pipelineMode: true,
       workflow: 'quick-fix',
+      tools: ['@交互', 'omo_subagent'],
+      delegates: ['search', 'fixer', 'oracle'],
+      model: 'pi-native/quick-fix-model',
     });
     expect(config.agents.coordinator).toBeUndefined();
+    expect(config.agents.worker).toBeUndefined();
     expect(config.agents._tool_groups).toBeUndefined();
     expect(config.agents.fallback.requiresUserCommand).toBe(true);
+    expect(config.agents.customLead.model).toBe('custom/lead-model');
+    expect(config.agents.customLead.prompt).toBe('Custom lead prompt.');
     expect(config.workflows.default).toBeUndefined();
 
     const quickFix = config.workflows.list.find((workflow: any) => workflow.name === 'quick-fix');

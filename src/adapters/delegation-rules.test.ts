@@ -5,8 +5,7 @@ import * as path from 'node:path';
 import { checkDelegationAllowed, parseAllowedSubagentsEnv } from './delegation-rules';
 
 const rules = {
-  worker: ['fixer', 'oracle'],
-  implementer: ['fixer', 'oracle'],
+  dispatcher: ['fixer', 'oracle'],
   analyst: ['search'],
   oracle: [],
 };
@@ -23,8 +22,8 @@ describe('pi delegation rules', () => {
   });
 
   test('allows configured stage agents to call leaf agents', () => {
-    expect(checkDelegationAllowed({ caller: 'worker', target: 'fixer', depth: 1, rules }).allowed).toBe(true);
-    expect(checkDelegationAllowed({ caller: 'implementer', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
+    expect(checkDelegationAllowed({ caller: 'dispatcher', target: 'fixer', depth: 1, rules }).allowed).toBe(true);
+    expect(checkDelegationAllowed({ caller: 'dispatcher', target: 'oracle', depth: 1, rules }).allowed).toBe(true);
     expect(checkDelegationAllowed({ caller: 'analyst', target: 'search', depth: 1, rules }).allowed).toBe(true);
   });
 
@@ -41,20 +40,20 @@ describe('pi delegation rules', () => {
   });
 
   test('blocks delegation beyond max depth', () => {
-    const result = checkDelegationAllowed({ caller: 'worker', target: 'fixer', depth: 2, rules });
+    const result = checkDelegationAllowed({ caller: 'dispatcher', target: 'fixer', depth: 2, rules });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('max 2');
   });
 
   test('blocks unconfigured target for a configured caller', () => {
-    const result = checkDelegationAllowed({ caller: 'worker', target: 'search', depth: 1, rules });
+    const result = checkDelegationAllowed({ caller: 'dispatcher', target: 'search', depth: 1, rules });
     expect(result.allowed).toBe(false);
     expect(result.allowedAgents).toEqual(['fixer', 'oracle']);
   });
 
   test('stage allowedSubagents narrows configured delegates', () => {
     expect(checkDelegationAllowed({
-      caller: 'worker',
+      caller: 'dispatcher',
       target: 'oracle',
       depth: 1,
       rules,
@@ -62,7 +61,7 @@ describe('pi delegation rules', () => {
     }).allowed).toBe(true);
 
     const result = checkDelegationAllowed({
-      caller: 'worker',
+      caller: 'dispatcher',
       target: 'fixer',
       depth: 1,
       rules,
@@ -74,7 +73,7 @@ describe('pi delegation rules', () => {
 
   test('stage allowedSubagents cannot expand configured delegates', () => {
     const result = checkDelegationAllowed({
-      caller: 'worker',
+      caller: 'dispatcher',
       target: 'search',
       depth: 1,
       rules,
@@ -86,7 +85,7 @@ describe('pi delegation rules', () => {
 
   test('empty stage allowedSubagents blocks all delegates', () => {
     const result = checkDelegationAllowed({
-      caller: 'worker',
+      caller: 'dispatcher',
       target: 'oracle',
       depth: 1,
       rules,
@@ -130,12 +129,12 @@ describe('pi delegation rules', () => {
       delete process.env.OPENCODE_CONFIG_DIR;
       fs.writeFileSync(path.join(projectConfigDir, 'oh-my-opencode-slim.json'), JSON.stringify({
         agents: {
-          worker: { delegates: ['oracle'] },
+          dispatcher: { delegates: ['oracle'] },
         },
       }));
 
-      expect(checkDelegationAllowed({ caller: 'worker', target: 'oracle', depth: 1, cwd: projectDir }).allowed).toBe(true);
-      expect(checkDelegationAllowed({ caller: 'worker', target: 'fixer', depth: 1, cwd: projectDir }).allowed).toBe(false);
+      expect(checkDelegationAllowed({ caller: 'dispatcher', target: 'oracle', depth: 1, cwd: projectDir }).allowed).toBe(true);
+      expect(checkDelegationAllowed({ caller: 'dispatcher', target: 'fixer', depth: 1, cwd: projectDir }).allowed).toBe(false);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

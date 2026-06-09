@@ -128,6 +128,7 @@ import {
 } from '../../config/pi-native';
 import {
   loadRuntimeAgentDefinitions,
+  mergeRuntimeAgentDefinitions,
   resolveRuntimeConfigAgents,
   type RuntimeAgentDefinition,
 } from '../../adapters/agent-runtime-config';
@@ -346,7 +347,7 @@ function buildPromptAgentDefinitions(
 
   const defaults = loadRuntimeAgentDefinitions(process.cwd());
   const overrides = resolveRuntimeConfigAgents(config as Record<string, unknown>);
-  return deepMerge(defaults, overrides) ?? defaults;
+  return mergeRuntimeAgentDefinitions(defaults, overrides);
 }
 
 function getKnownAgentNames(
@@ -462,7 +463,11 @@ export function buildPiOrchestratorPrompt(
           : '';
     const label = def.label || AGENT_PROMPTS[name]?.description || name;
     const staticDelegates = def.delegates?.length
-      ? [...new Set(def.delegates)].filter((delegate) => !disabledSet.has(delegate))
+      ? [...new Set(def.delegates)].filter((delegate) =>
+          !disabledSet.has(delegate) &&
+          agentDefs[delegate] !== undefined &&
+          !agentDefs[delegate]?.hidden
+        )
       : [];
     const delegates = staticDelegates.length
       ? ` → 非阶段可委托: ${staticDelegates.join(', ')}`

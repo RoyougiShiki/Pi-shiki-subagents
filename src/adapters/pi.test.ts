@@ -190,14 +190,20 @@ describe('Pi adapter agent prompt sync', () => {
           pipelineMode: true,
           workflow: 'custom-flow',
           delegates: ['customWorker'],
+          model: 'custom/lead-model',
+          prompt: 'Custom lead prompt.',
         },
         customWorker: {
           type: 'subagent',
           label: 'Custom Worker',
+          model: 'custom/worker-model',
+          prompt: 'Custom worker prompt.',
         },
         customReviewer: {
           type: 'subagent',
           label: 'Custom Reviewer',
+          model: 'custom/reviewer-model',
+          prompt: 'Custom reviewer prompt.',
         },
       },
       workflows: {
@@ -223,6 +229,38 @@ describe('Pi adapter agent prompt sync', () => {
 
     expect(prompt).toContain('@customLead (模式) — Custom Lead → 非阶段可委托: customWorker');
     expect(prompt).toContain('@customLead -> custom-flow: 1.custom-step:customWorker (+customReviewer)');
+  });
+
+  test('orchestrator prompt does not revive stale managed agent config entries', async () => {
+    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
+
+    ensureAgentFiles();
+    const prompt = buildPiOrchestratorPrompt([], {
+      agents: {
+        coordinator: {
+          type: 'mode',
+          label: 'Old Coordinator',
+          pipelineMode: true,
+          workflow: 'standard-dev',
+        },
+        'quick-fix': {
+          delegates: ['worker', 'oracle'],
+        },
+        worker: {
+          type: 'subagent',
+          label: 'Old Worker',
+          delegates: ['fixer', 'oracle'],
+        },
+      },
+    } as any, {
+      hasPiAgents: false,
+      hasSubagent: true,
+      hasAgentMessage: false,
+    });
+
+    expect(prompt).not.toContain('@coordinator');
+    expect(prompt).not.toContain('@worker');
+    expect(prompt).not.toContain('非阶段可委托: worker');
   });
 
   test('orchestrator prompt can use the runtime agent snapshot shared with gates', async () => {
@@ -273,20 +311,28 @@ describe('Pi adapter agent prompt sync', () => {
           label: 'Custom Lead',
           pipelineMode: true,
           workflow: 'custom-flow',
+          model: 'custom/lead-model',
+          prompt: 'Custom lead prompt.',
         },
         visibleWorker: {
           type: 'subagent',
           label: 'Visible Worker',
+          model: 'custom/visible-worker-model',
+          prompt: 'Visible worker prompt.',
         },
         hiddenWorker: {
           type: 'subagent',
           label: 'Hidden Worker',
           hidden: true,
+          model: 'custom/hidden-worker-model',
+          prompt: 'Hidden worker prompt.',
         },
         hiddenHelper: {
           type: 'subagent',
           label: 'Hidden Helper',
           hidden: true,
+          model: 'custom/hidden-helper-model',
+          prompt: 'Hidden helper prompt.',
         },
       },
       workflows: {
@@ -524,7 +570,7 @@ describe('Pi adapter config helpers', () => {
   test('workflow gate context exposes current stage for downstream delegation grants', async () => {
     const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
     const helpers = createWorkflowStageGateHelpers({
-      knownAgents: ['coordinator', 'analyst', 'search', 'oracle', 'worker'],
+      knownAgents: ['standard-dev', 'analyst', 'search', 'oracle', 'dispatcher'],
       workflows: {
         default: 'custom-flow',
         list: [{

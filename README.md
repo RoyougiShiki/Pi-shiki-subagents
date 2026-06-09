@@ -41,7 +41,7 @@ Legacy OpenCode adapter code has been removed. The package keeps a lightweight `
 - `oracle` — evidence-driven adversarial reviewer; reviews human text, AI output, implementation plans, code, docs, config, and test expectations.
 - `search` — read/search fact gathering.
 - `designer` — technical design after requirements are clear.
-- `fixer` / `worker` / `dispatcher` — implementation paths with scoped responsibilities; active workflow config decides which implementation path is available.
+- `fixer` / `dispatcher` — implementation paths with scoped responsibilities; active workflow config decides which implementation path is available.
 - `fallback` — explicit user-driven rescue mode with broad tools.
 
 ## Control Model

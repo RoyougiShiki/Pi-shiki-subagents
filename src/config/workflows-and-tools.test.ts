@@ -76,7 +76,7 @@ describe('default workflows and agent tool matrix', () => {
     const staleQuickFix = {
       name: 'quick-fix',
       description: 'stale quick fix',
-      stages: [{ id: 'worker', agent: 'worker' }],
+      stages: [{ id: 'old-stage', agent: 'dispatcher' }],
     };
     const customFlow = {
       name: 'custom-flow',
@@ -138,7 +138,7 @@ describe('default workflows and agent tool matrix', () => {
     expect(defs['research-only']?.tools).not.toContain('@子代理');
     expect(defs['research-only']?.tools).not.toContain('omo_council');
     expect(defs['research-only']?.delegates).toEqual(['search', 'oracle']);
-    expect(defs.coordinator).toBeUndefined();
+    expect(defs.worker).toBeUndefined();
     const visibleModes = Object.entries(defs)
       .filter(([, def]) => !def.hidden && (def.type === 'mode' || def.type === 'both'))
       .map(([name]) => name);
@@ -147,9 +147,6 @@ describe('default workflows and agent tool matrix', () => {
       .filter(([, def]) => def.presetPrimary === true)
       .map(([name]) => name);
     expect(presetPrimaryModes).toEqual(['standard-dev']);
-    expect(defs.worker?.delegates).toEqual(['fixer', 'oracle']);
-    expect(defs.worker?.roles).toEqual(['流程', '管理']);
-
     // fallback 使用 "*" 表示全部工具
     expect(defs.fallback?.tools).toEqual(['*']);
     const subagents = Object.entries(defs)

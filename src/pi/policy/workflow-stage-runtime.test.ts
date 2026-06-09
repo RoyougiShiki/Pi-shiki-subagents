@@ -24,16 +24,16 @@ describe('workflow stage runtime', () => {
   test('confirms recovery only after resume and matching candidate', () => {
     const candidate = { workflowName: 'flow', stageIndex: 2, stageId: 'work', markerEvent: 'transition_approved' as const, source: 'session_marker' as const };
     const fresh = createWorkflowStageRuntime({ recoveryCandidate: candidate });
-    expect(fresh.confirmRecovery({ workflowName: 'flow', stageIndex: 2, targetAgent: 'worker' }).ok).toBe(false);
+    expect(fresh.confirmRecovery({ workflowName: 'flow', stageIndex: 2, targetAgent: 'dispatcher' }).ok).toBe(false);
 
     const runtime = createWorkflowStageRuntime({ sessionWasResumed: true, recoveryCandidate: candidate });
-    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 3, targetAgent: 'worker' }).ok).toBe(false);
-    expect(runtime.confirmRecovery({ workflowName: 'other', stageIndex: 2, targetAgent: 'worker' }).ok).toBe(false);
-    const result = runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 2, stageId: 'work', targetAgent: 'worker', timestamp: 2 });
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 3, targetAgent: 'dispatcher' }).ok).toBe(false);
+    expect(runtime.confirmRecovery({ workflowName: 'other', stageIndex: 2, targetAgent: 'dispatcher' }).ok).toBe(false);
+    const result = runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 2, stageId: 'work', targetAgent: 'dispatcher', timestamp: 2 });
     expect(result.ok).toBe(true);
     expect(runtime.getCurrentStageIndex()).toBe(2);
     expect(runtime.getSnapshot().history[0]).toMatchObject({ type: 'recovery_confirmed', stageIndex: 2 });
-    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 2, targetAgent: 'worker' }).ok).toBe(false);
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 2, targetAgent: 'dispatcher' }).ok).toBe(false);
   });
 
   test('setRecoveryContext clears candidate when not resumed', () => {
@@ -48,14 +48,14 @@ describe('workflow stage runtime', () => {
       sessionWasResumed: true,
       recoveryCandidate: { workflowName: 'flow', stageIndex: 1, markerEvent: 'transition_approved', source: 'session_marker' },
     });
-    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(true);
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'dispatcher' }).ok).toBe(true);
 
     runtime.reset({ workflowName: 'flow', initialStageIndex: 0 });
     const snapshot = runtime.getSnapshot();
     expect(snapshot.sessionWasResumed).toBe(false);
     expect(snapshot.recoveryCandidate).toBeUndefined();
     expect(snapshot.recoveryConsumed).toBe(false);
-    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(false);
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'dispatcher' }).ok).toBe(false);
   });
 
   test('reset can preserve recovery context for internal workflow alignment', () => {
@@ -68,7 +68,7 @@ describe('workflow stage runtime', () => {
     const snapshot = runtime.getSnapshot();
     expect(snapshot.sessionWasResumed).toBe(true);
     expect(snapshot.recoveryCandidate?.workflowName).toBe('flow');
-    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'worker' }).ok).toBe(true);
+    expect(runtime.confirmRecovery({ workflowName: 'flow', stageIndex: 1, targetAgent: 'dispatcher' }).ok).toBe(true);
   });
 
   test('records attempts append-only', () => {
@@ -84,7 +84,7 @@ describe('workflow stage runtime', () => {
     expect(runtime.approveWorkPackage({
       workflowName: 'flow',
       stageIndex: 0,
-      targetAgent: 'worker',
+      targetAgent: 'dispatcher',
       poolId: '',
       task: 'Do the task',
     }).ok).toBe(false);
@@ -93,7 +93,7 @@ describe('workflow stage runtime', () => {
       workflowName: 'flow',
       stageIndex: 0,
       stageId: 'fix',
-      targetAgent: 'worker',
+      targetAgent: 'dispatcher',
       poolId: 'fix-1',
       task: 'Do the task',
       timestamp: 3,
@@ -104,7 +104,7 @@ describe('workflow stage runtime', () => {
       workflowName: 'flow',
       stageIndex: 0,
       stageId: 'fix',
-      targetAgent: 'worker',
+      targetAgent: 'dispatcher',
       poolId: 'fix-1',
       task: 'Do the task',
     });

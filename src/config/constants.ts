@@ -76,7 +76,6 @@ export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly strin
   'quick-fix': ['search', 'fixer', 'oracle'],
   'research-only': ['search', 'oracle'],
   designer: [],
-  worker: [],
   oracle: [],
   fixer: [],
   observer: [],

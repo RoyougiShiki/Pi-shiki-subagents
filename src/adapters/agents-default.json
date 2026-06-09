@@ -68,18 +68,6 @@
       "检索"
     ]
   },
-  "worker": {
-    "type": "subagent",
-    "delegates": [
-      "fixer",
-      "oracle"
-    ],
-    "label": "快速实施调度",
-    "roles": [
-      "流程",
-      "管理"
-    ]
-  },
   "oracle": {
     "type": "subagent",
     "delegates": [],
@@ -120,7 +108,6 @@
     "delegates": [
       "analyst",
       "designer",
-      "worker",
       "oracle",
       "fixer",
       "observer",

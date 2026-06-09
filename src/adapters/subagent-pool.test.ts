@@ -15,7 +15,7 @@ import {
 } from '../pi/subagent/subagent-pool';
 import type { AgentConfig } from './agent-discovery';
 
-function makeAgent(name = 'worker'): AgentConfig {
+function makeAgent(name = 'dispatcher'): AgentConfig {
   return {
     name,
     description: `${name} agent`,
@@ -215,15 +215,15 @@ describe('resolveDelegationCaller', () => {
   });
 
   test('prefers OMO_AGENT_NAME from subagent env', () => {
-    process.env.OMO_AGENT_NAME = 'worker';
-    setToolScope(['omo_subagent'], 'mode', 'coordinator');
-    expect(resolveDelegationCaller()).toBe('worker');
+    process.env.OMO_AGENT_NAME = 'dispatcher';
+    setToolScope(['omo_subagent'], 'mode', 'standard-dev');
+    expect(resolveDelegationCaller()).toBe('dispatcher');
   });
 
   test('falls back to tool scope source name for top-level calls', () => {
     delete process.env.OMO_AGENT_NAME;
-    setToolScope(['omo_subagent'], 'mode', 'coordinator');
-    expect(resolveDelegationCaller()).toBe('coordinator');
+    setToolScope(['omo_subagent'], 'mode', 'standard-dev');
+    expect(resolveDelegationCaller()).toBe('standard-dev');
   });
 
   test('does not guess active mode when env and tool scope are absent', () => {
@@ -245,7 +245,7 @@ describe('resolveDelegationCaller', () => {
   });
 
   test('resolves subagent tools from explicit tools and default role groups', () => {
-    expect(resolveSubagentToolNamesForAgent('worker')).toEqual([
+    expect(resolveSubagentToolNamesForAgent('dispatcher')).toEqual([
       'omo_subagent',
       'omo_council',
     ]);
@@ -302,6 +302,8 @@ describe('resolveDelegationCaller', () => {
             custom: {
               type: 'subagent',
               tools: ['@管理'],
+              model: 'custom/model',
+              prompt: 'Custom prompt.',
             },
           },
         },
@@ -334,6 +336,8 @@ describe('resolveDelegationCaller', () => {
               custom: {
                 type: 'subagent',
                 tools: ['@customGroup'],
+                model: 'custom/model',
+                prompt: 'Custom prompt.',
               },
             },
           },
@@ -377,6 +381,8 @@ describe('resolveDelegationCaller', () => {
               type: 'subagent',
               roles: ['读'],
               tools: ['*'],
+              model: 'custom/constrained-model',
+              prompt: 'Constrained prompt.',
             },
           },
         },
@@ -406,10 +412,14 @@ describe('resolveDelegationCaller', () => {
             manager: {
               type: 'subagent',
               roles: ['@管理'],
+              model: 'custom/manager-model',
+              prompt: 'Manager prompt.',
             },
             codeSearch: {
               type: 'subagent',
               roles: ['codebase_*'],
+              model: 'custom/code-search-model',
+              prompt: 'Code search prompt.',
             },
           },
         },
@@ -736,7 +746,7 @@ describe('AgentPool basic operations', () => {
       pool['saveToRegistry']({
         id: 'open-failed-agent',
         name: 'open-failed-agent',
-        agentName: 'worker',
+        agentName: 'dispatcher',
         task: 'original task',
         spawnedAt: Date.now(),
         sessionFile,
@@ -779,7 +789,7 @@ describe('AgentPool basic operations', () => {
       pool['saveToRegistry']({
         id: 'preserve-agent',
         name: 'preserve-agent',
-        agentName: 'worker',
+        agentName: 'dispatcher',
         task: 'original task',
         spawnedAt: Date.now(),
         sessionFile,
@@ -951,7 +961,7 @@ describe('AgentPool basic operations', () => {
     pool1['saveToRegistry']({
       id: 'persist-agent',
       name: 'persist-agent',
-      agentName: 'worker',
+      agentName: 'dispatcher',
       task: 'persist task',
       spawnedAt: Date.now(),
     });
@@ -1025,7 +1035,7 @@ describe('AgentPool basic operations', () => {
       name: 'Child Run',
       agent: makeAgent('oracle'),
       task: 'review architecture',
-      parentAgent: 'coordinator',
+      parentAgent: 'standard-dev',
       depth: 2,
     });
 
@@ -1041,7 +1051,7 @@ describe('AgentPool basic operations', () => {
     await parentedPool.spawn({
       id: 'parent-run',
       name: 'Parent Run',
-      agent: makeAgent('coordinator'),
+      agent: makeAgent('standard-dev'),
       task: 'parent task',
     });
     await parentedPool.spawn({
@@ -1114,7 +1124,7 @@ describe('AgentPool basic operations', () => {
     await pool.spawn({
       id: 'persistent-run',
       name: 'Persistent Run',
-      agent: makeAgent('worker'),
+      agent: makeAgent('dispatcher'),
       task: 'initial',
     });
     const initEvent = onNextPoolEvent(pool);

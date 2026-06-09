@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadRuntimeAgentDefinitions, normalizeRuntimeModel, type RuntimeAgentDefinition } from "./agent-runtime-config";
+import { getHiddenRuntimeAgentNames, loadRuntimeAgentDefinitions, normalizeRuntimeModel, type RuntimeAgentDefinition } from "./agent-runtime-config";
 
 export interface AgentConfig {
   name: string;
@@ -55,6 +55,10 @@ function readAgentFile(filePath: string): AgentConfig | null {
   };
 }
 
+function descriptionForRuntimeAgent(name: string, runtime: RuntimeAgentDefinition): string {
+  return runtime.displayName ?? runtime.label ?? name;
+}
+
 export function discoverAgents(cwd: string): AgentConfig[] {
   const homeDir = os.homedir();
   const dirs: string[] = [];
@@ -67,6 +71,7 @@ export function discoverAgents(cwd: string): AgentConfig[] {
   dirs.push(path.join(homeDir, ".pi", "agents"));
 
   const runtimeAgents: Record<string, RuntimeAgentDefinition> = loadRuntimeAgentDefinitions(cwd);
+  const hiddenRuntimeAgents = getHiddenRuntimeAgentNames(cwd);
   const agents: AgentConfig[] = [];
   const seen = new Set<string>();
 
@@ -78,7 +83,7 @@ export function discoverAgents(cwd: string): AgentConfig[] {
         const agent = readAgentFile(path.join(dir, entry.name));
         if (!agent || seen.has(agent.name)) continue;
         const runtime = runtimeAgents[agent.name];
-        if (runtime?.type === "mode") continue;
+        if (hiddenRuntimeAgents.has(agent.name) || runtime?.hidden || runtime?.type === "mode") continue;
         seen.add(agent.name);
         agents.push({
           ...agent,
@@ -87,6 +92,21 @@ export function discoverAgents(cwd: string): AgentConfig[] {
         });
       }
     } catch {}
+  }
+
+  for (const [name, runtime] of Object.entries(runtimeAgents)) {
+    if (seen.has(name)) continue;
+    if (runtime.hidden || runtime.type === "mode") continue;
+    const prompt = runtime.prompt ?? runtime.instructions;
+    if (!prompt?.trim()) continue;
+    seen.add(name);
+    agents.push({
+      name,
+      description: descriptionForRuntimeAgent(name, runtime),
+      systemPrompt: prompt.trim(),
+      tools: runtime.tools,
+      model: normalizeRuntimeModel(runtime.model),
+    });
   }
 
   return agents;

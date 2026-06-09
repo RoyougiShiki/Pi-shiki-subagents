@@ -13,7 +13,7 @@ describe('ToolScopeManager', () => {
   });
 
   test('setToolScope writes snapshot', () => {
-    setToolScope(['read', 'write', 'edit'], 'mode', 'coordinator', { roles: ['读', '写'] });
+    setToolScope(['read', 'write', 'edit'], 'mode', 'standard-dev', { roles: ['读', '写'] });
 
     const snapshot = getToolScope();
     expect(snapshot).not.toBeNull();
@@ -21,11 +21,11 @@ describe('ToolScopeManager', () => {
     expect(snapshot!.tools.has('write')).toBe(true);
     expect(snapshot!.tools.has('edit')).toBe(true);
     expect(snapshot!.source).toBe('mode');
-    expect(snapshot!.sourceName).toBe('coordinator');
+    expect(snapshot!.sourceName).toBe('standard-dev');
   });
 
   test('isToolAllowed checks snapshot', () => {
-    setToolScope(['read', 'write'], 'mode', 'coordinator');
+    setToolScope(['read', 'write'], 'mode', 'standard-dev');
 
     expect(isToolAllowed('read')).toBe(true);
     expect(isToolAllowed('write')).toBe(true);
@@ -37,7 +37,7 @@ describe('ToolScopeManager', () => {
   });
 
   test('auditPayloadTools detects consistency', () => {
-    setToolScope(['read', 'write', 'edit'], 'mode', 'coordinator');
+    setToolScope(['read', 'write', 'edit'], 'mode', 'standard-dev');
 
     const result = auditPayloadTools(['read', 'write', 'edit']);
     expect(result.consistent).toBe(true);
@@ -46,7 +46,7 @@ describe('ToolScopeManager', () => {
   });
 
   test('auditPayloadTools detects missing in payload', () => {
-    setToolScope(['read', 'write', 'edit'], 'mode', 'coordinator');
+    setToolScope(['read', 'write', 'edit'], 'mode', 'standard-dev');
 
     const result = auditPayloadTools(['read', 'write']);
     expect(result.consistent).toBe(false);
@@ -54,7 +54,7 @@ describe('ToolScopeManager', () => {
   });
 
   test('auditPayloadTools detects extra in payload', () => {
-    setToolScope(['read', 'write'], 'mode', 'coordinator');
+    setToolScope(['read', 'write'], 'mode', 'standard-dev');
 
     const result = auditPayloadTools(['read', 'write', 'bash']);
     expect(result.consistent).toBe(false);
@@ -62,7 +62,7 @@ describe('ToolScopeManager', () => {
   });
 
   test('resetToolScope clears snapshot', () => {
-    setToolScope(['read'], 'mode', 'coordinator');
+    setToolScope(['read'], 'mode', 'standard-dev');
     expect(getToolScope()).not.toBeNull();
 
     resetToolScope();
@@ -72,8 +72,8 @@ describe('ToolScopeManager', () => {
   // ── 防回退测试 ──────────────────────────────────────────────────────
 
   test('Case A: tool_call decision depends only on snapshot, not mode config', () => {
-    // 设置 snapshot 为 coordinator 的工具集
-    setToolScope(['read', 'write', 'todo'], 'mode', 'coordinator');
+    // 设置 snapshot 为 standard-dev 的工具集
+    setToolScope(['read', 'write', 'todo'], 'mode', 'standard-dev');
 
     // 即使之后 mode 配置变了（比如切到 fallback），snapshot 不变
     // isToolAllowed 仍然基于原始 snapshot
@@ -92,7 +92,7 @@ describe('ToolScopeManager', () => {
 
   test('Case B: auditPayloadTools detects mismatch and returns audit info', () => {
     // 设置 snapshot
-    setToolScope(['read', 'write'], 'mode', 'coordinator');
+    setToolScope(['read', 'write'], 'mode', 'standard-dev');
 
     // payload 比 snapshot 多了 bash，少了 write
     const payloadTools = ['read', 'bash'];

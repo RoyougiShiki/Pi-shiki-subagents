@@ -107,23 +107,23 @@ describe('subagent session contract', () => {
 
   test('tracks latest activity timestamp, tool count, result summary, and usage', () => {
     let state = createSubagentRunState();
-    state = updateSubagentRunState(state, startRun('worker', 100));
+    state = updateSubagentRunState(state, startRun('dispatcher', 100));
     state = updateSubagentRunState(state, {
       type: 'tool_call',
-      runId: 'worker',
+      runId: 'dispatcher',
       timestamp: 120,
       toolName: 'read',
       summary: 'src/index.ts',
     });
     state = updateSubagentRunState(state, {
       type: 'usage',
-      runId: 'worker',
+      runId: 'dispatcher',
       timestamp: 130,
       usage: { input: 100, output: 20 },
     });
     state = updateSubagentRunState(state, {
       type: 'run_finished',
-      runId: 'worker',
+      runId: 'dispatcher',
       timestamp: 200,
       status: 'failed',
       errorMessage: 'boom',
@@ -152,16 +152,16 @@ describe('subagent session contract', () => {
 
   test('returns snapshots without aliasing mutable recent events or usage', () => {
     let state = createSubagentRunState();
-    state = updateSubagentRunState(state, startRun('worker', 100));
+    state = updateSubagentRunState(state, startRun('dispatcher', 100));
     state = updateSubagentRunState(state, {
       type: 'assistant_text',
-      runId: 'worker',
+      runId: 'dispatcher',
       timestamp: 120,
       text: 'safe summary',
     });
     state = updateSubagentRunState(state, {
       type: 'usage',
-      runId: 'worker',
+      runId: 'dispatcher',
       timestamp: 130,
       usage: { input: 100 },
     });

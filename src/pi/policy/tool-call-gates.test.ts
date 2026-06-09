@@ -566,7 +566,7 @@ describe('tool call workflow stage gates', () => {
           return true;
         },
       },
-    }, { mode: 'coordinator' });
+    }, { mode: 'fallback' });
 
     expect(decision.ok).toBe(false);
     expect(confirmCalled).toBe(false);

@@ -319,10 +319,10 @@ describe('config-io', () => {
         preset: 'openai',
         presets: {
           openai: {
-            coordinator: { model: 'openai/gpt-4' },
+            'standard-dev': { model: 'openai/gpt-4' },
             oracle: { model: 'anthropic/claude-opus-4-6' },
             observer: { model: 'github-copilot/grok-code-fast-1' },
-            worker: { model: 'zai-coding-plan/glm-4.7' },
+            dispatcher: { model: 'zai-coding-plan/glm-4.7' },
           },
         },
       }),

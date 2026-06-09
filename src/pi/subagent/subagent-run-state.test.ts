@@ -9,7 +9,7 @@ function startRun(runId: string, startedAt = 100, parentRunId?: string) {
     type: 'run_started' as const,
     runId,
     parentRunId,
-    agentName: runId === 'parent' ? 'coordinator' : 'oracle',
+    agentName: runId === 'parent' ? 'standard-dev' : 'oracle',
     displayName: runId,
     depth: parentRunId ? 1 : 0,
     startedAt,

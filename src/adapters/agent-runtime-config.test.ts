@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  getDelegationRulesFromConfig,
   loadRuntimeAgentDefinitions,
   loadRuntimeToolGroups,
 } from './agent-runtime-config';
@@ -61,6 +62,7 @@ describe('runtime agent config', () => {
         },
         _private_reviewer: {
           model: 'custom/private-reviewer',
+          prompt: 'Private reviewer prompt.',
           tools: ['read'],
         },
       },
@@ -71,6 +73,7 @@ describe('runtime agent config', () => {
     expect(defs._tool_groups).toBeUndefined();
     expect(Object.keys(defs)).not.toContain('_tool_groups');
     expect(defs._private_reviewer?.model).toBe('custom/private-reviewer');
+    expect(defs._private_reviewer?.prompt).toBe('Private reviewer prompt.');
     expect(defs._private_reviewer?.tools).toEqual(['read']);
   });
 
@@ -136,14 +139,19 @@ describe('runtime agent config', () => {
     expect(defs.oracle?.model).toBe('pi-native/oracle-model');
   });
 
-  test('does not re-expose retired managed mode entries from stale Pi native config', () => {
+  test('does not revive stale managed agents from Pi native config', () => {
     writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
       agents: {
         coordinator: {
           type: 'mode',
           pipelineMode: true,
           workflow: 'standard-dev',
-          model: 'pi-native/old-coordinator',
+          delegates: ['search', 'oracle'],
+        },
+        worker: {
+          type: 'subagent',
+          delegates: ['fixer', 'oracle'],
+          model: 'pi-native/old-worker-model',
         },
       },
     });
@@ -151,6 +159,84 @@ describe('runtime agent config', () => {
     const defs = loadRuntimeAgentDefinitions(projectDir);
 
     expect(defs.coordinator).toBeUndefined();
+    expect(defs.worker).toBeUndefined();
+  });
+
+  test('delegation rules omit stale delegate targets that are no longer runtime agents', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      agents: {
+        fallback: {
+          delegates: ['worker', 'oracle'],
+        },
+        worker: {
+          type: 'subagent',
+          delegates: ['fixer', 'oracle'],
+        },
+      },
+    });
+
+    const rules = getDelegationRulesFromConfig(projectDir);
+
+    expect(rules.fallback).toContain('oracle');
+    expect(rules.fallback).not.toContain('worker');
+    expect(rules.worker).toBeUndefined();
+  });
+
+  test('delegation rules omit hidden delegate targets', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      agents: {
+        fallback: {
+          delegates: ['worker', 'oracle'],
+        },
+        worker: {
+          type: 'subagent',
+          model: 'pi-native/worker-model',
+          prompt: 'Hidden worker prompt.',
+          hidden: true,
+        },
+      },
+    });
+
+    const rules = getDelegationRulesFromConfig(projectDir);
+
+    expect(rules.fallback).toContain('oracle');
+    expect(rules.fallback).not.toContain('worker');
+  });
+
+  test('preserves custom runtime agent entries with explicit prompt content', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      agents: {
+        customLead: {
+          type: 'mode',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+          model: 'pi-native/custom-lead',
+          prompt: 'Custom lead runtime prompt.',
+        },
+      },
+    });
+
+    const defs = loadRuntimeAgentDefinitions(projectDir);
+
+    expect(defs.customLead?.model).toBe('pi-native/custom-lead');
+    expect(defs.customLead?.prompt).toBe('Custom lead runtime prompt.');
+  });
+
+  test('does not preserve custom runtime agents without a model', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      agents: {
+        customLead: {
+          type: 'mode',
+          pipelineMode: true,
+          workflow: 'custom-flow',
+          prompt: 'Custom lead runtime prompt.',
+        },
+      },
+    });
+
+    const defs = loadRuntimeAgentDefinitions(projectDir);
+
+    expect(defs.customLead).toBeUndefined();
   });
 
   test('merges active preset from Pi native config fallback', () => {
@@ -236,6 +322,8 @@ describe('runtime agent config', () => {
         customReviewer: {
           type: 'subagent',
           roles: ['review'],
+          model: 'custom/reviewer-model',
+          prompt: 'Custom reviewer prompt.',
         },
       },
     });

@@ -29,7 +29,6 @@ JSONC supports comments and trailing commas.
       "search": { "model": "provider/model" },
       "designer": { "model": "provider/model" },
       "fixer": { "model": "provider/model" },
-      "worker": { "model": "provider/model" },
       "dispatcher": { "model": "provider/model" },
       "observer": { "model": "provider/model" },
       "council": { "model": "provider/model" }
@@ -55,13 +54,12 @@ JSONC supports comments and trailing commas.
 Current built-in agents include:
 
 ```text
-standard-dev, quick-fix, research-only, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
+standard-dev, quick-fix, research-only, analyst, search, oracle, designer, fixer, dispatcher, observer, council, fallback
 ```
 
 The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
-`research-only`. `fallback` is the explicit rescue mode. Older managed
-`coordinator` mode entries are retired during Pi-native startup normalization;
-new configs should bind the foreground preset model to `standard-dev`; switch
+`research-only`. `fallback` is the explicit rescue mode. New configs should
+bind the foreground preset model to `standard-dev`; switch
 behavior with modes, not with preset model entries for every mode.
 The foreground preset target is the single built-in mode marked
 `presetPrimary: true`.
