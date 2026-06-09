@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   checkPoolContinuationAllowed,
+  formatPoolResultContent,
   planPoolResume,
   selectPoolResultText,
 } from './subagent-tool';
@@ -57,6 +58,22 @@ describe('selectPoolResultText', () => {
     expect(
       selectPoolResultText(undefined, { lastResponse: 'registry result' }),
     ).toBe('registry result');
+  });
+});
+
+describe('formatPoolResultContent', () => {
+  test('separates failure status from partial result text', () => {
+    const text = formatPoolResultContent({
+      id: 'deep-local-refs',
+      agentName: 'search',
+      response: '完成：只读证据扫描已完成。',
+      errorMessage: 'Agent "deep-local-refs" timed out',
+    });
+
+    expect(text).toContain('Status: failed (Agent "deep-local-refs" timed out)');
+    expect(text).toContain('Partial result captured before failure:');
+    expect(text).toContain('完成：只读证据扫描已完成。');
+    expect(text).not.toContain('✗ Agent "deep-local-refs" timed out');
   });
 });
 

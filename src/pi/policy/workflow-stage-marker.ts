@@ -1,4 +1,5 @@
 import type { WorkflowStageRecoveryCandidate } from "./workflow-stage-runtime";
+import { PI_AGENT_EVENT_SCHEMA, createPiAgentEventDetails, type PiAgentEventDetails } from "./pi-agent-event";
 
 export type WorkflowStageMarkerEvent = "transition_approved" | "recovery_confirmed" | "work_package_approved";
 
@@ -12,6 +13,11 @@ export interface WorkflowStageMarkerInput {
   timestamp?: number;
   poolId?: string;
   task?: string;
+}
+
+export interface WorkflowStageNotice {
+  content: string;
+  details: PiAgentEventDetails;
 }
 
 const MARKER_START = "[workflow-stage-marker]";
@@ -39,6 +45,37 @@ export function formatWorkflowStageMarker(args: WorkflowStageMarkerInput): strin
   ].join("\n");
 }
 
+function markerStageLabel(args: { stageId?: string; stageIndex: number }): string {
+  return args.stageId?.trim() || String(Math.max(0, Math.trunc(args.stageIndex)));
+}
+
+export function createWorkflowStageMarkerNotice(args: WorkflowStageMarkerInput): WorkflowStageNotice {
+  const timestamp = Number.isFinite(args.timestamp) ? Number(args.timestamp) : Date.now();
+  const rawMarker = formatWorkflowStageMarker({ ...args, timestamp });
+  const stageLabel = markerStageLabel(args);
+  const summary = `Workflow stage recorded: ${args.workflowName}/${stageLabel} -> ${args.targetAgent}`;
+  return {
+    content: summary,
+    details: createPiAgentEventDetails({
+      kind: "workflow_stage_marker",
+      title: "Workflow stage recorded",
+      summary,
+      fields: {
+        event: args.event,
+        workflowName: args.workflowName,
+        stageIndex: Math.max(0, Math.trunc(args.stageIndex)),
+        stageId: args.stageId,
+        stageAgent: args.stageAgent,
+        targetAgent: args.targetAgent,
+        poolId: args.poolId,
+        task: args.task,
+        timestamp,
+      },
+      rawText: rawMarker,
+    }),
+  };
+}
+
 export function formatWorkflowStageResumeNotice(args: { candidate?: WorkflowStageRecoveryCandidate | null } = {}): string {
   const candidate = args.candidate;
   const candidateLine = candidate
@@ -54,6 +91,29 @@ export function formatWorkflowStageResumeNotice(args: { candidate?: WorkflowStag
   ].join("\n");
 }
 
+export function createWorkflowStageResumeNotice(args: { candidate?: WorkflowStageRecoveryCandidate | null } = {}): WorkflowStageNotice {
+  const candidate = args.candidate;
+  const stageLabel = candidate
+    ? markerStageLabel({ stageId: candidate.stageId, stageIndex: candidate.stageIndex })
+    : undefined;
+  const summary = candidate
+    ? `Workflow resume context: ${candidate.workflowName}/${stageLabel}`
+    : "Workflow resume context: no stage marker candidate";
+  return {
+    content: summary,
+    details: createPiAgentEventDetails({
+      kind: "workflow_stage_resume",
+      title: "Workflow resume context",
+      summary,
+      fields: {
+        hasRecoveryCandidate: Boolean(candidate),
+        candidate: candidate ? { ...candidate } : undefined,
+      },
+      rawText: formatWorkflowStageResumeNotice(args),
+    }),
+  };
+}
+
 function extractTextPart(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (!value || typeof value !== "object") return [];
@@ -61,20 +121,46 @@ function extractTextPart(value: unknown): string[] {
     text?: unknown;
     content?: unknown;
     message?: unknown;
+    details?: unknown;
+    rawText?: unknown;
+    rawMarker?: unknown;
   };
   const parts: string[] = [];
 
   if (typeof obj.text === "string") parts.push(obj.text);
   if (typeof obj.content === "string") parts.push(obj.content);
+  if (typeof obj.rawText === "string") parts.push(obj.rawText);
+  if (typeof obj.rawMarker === "string") parts.push(obj.rawMarker);
   if (Array.isArray(obj.content)) {
     for (const item of obj.content) parts.push(...extractTextPart(item));
   }
   if (obj.message) parts.push(...extractTextPart(obj.message));
+  if (obj.details) parts.push(...extractTextPart(obj.details));
   return parts;
 }
 
 function extractEntryText(entry: unknown): string {
   return extractTextPart(entry).join("\n");
+}
+
+function collectDetailsObjects(value: unknown, output: unknown[]): void {
+  if (!value || typeof value !== "object") return;
+  const obj = value as {
+    content?: unknown;
+    details?: unknown;
+    message?: unknown;
+  };
+  if (obj.details && typeof obj.details === "object") output.push(obj.details);
+  if (Array.isArray(obj.content)) {
+    for (const item of obj.content) collectDetailsObjects(item, output);
+  }
+  if (obj.message) collectDetailsObjects(obj.message, output);
+}
+
+function extractDetailsObjects(entry: unknown): unknown[] {
+  const output: unknown[] = [];
+  collectDetailsObjects(entry, output);
+  return output;
 }
 
 interface WorkflowStageMarkerParseOptions {
@@ -121,17 +207,73 @@ function parseMarkerBlock(block: string, options: WorkflowStageMarkerParseOption
   };
 }
 
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function detailString(fields: Record<string, unknown>, key: string): string | undefined {
+  const value = fields[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function detailNumber(fields: Record<string, unknown>, key: string): number | undefined {
+  const value = fields[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function parseMarkerDetails(details: unknown, options: WorkflowStageMarkerParseOptions = {}): WorkflowStageRecoveryCandidate | null {
+  const detailObject = objectValue(details);
+  const fields = objectValue(detailObject?.fields);
+  if (!detailObject || !fields) return null;
+  if (detailString(detailObject, "schema") !== PI_AGENT_EVENT_SCHEMA) return null;
+  if (detailString(detailObject, "kind") !== "workflow_stage_marker") return null;
+
+  const event = detailString(fields, "event");
+  if (event !== "transition_approved" && event !== "recovery_confirmed") return null;
+  const workflowName = detailString(fields, "workflowName") ?? detailString(fields, "workflow");
+  if (!workflowName) return null;
+  const stageIndex = detailNumber(fields, "stageIndex");
+  if (typeof stageIndex !== "number" || !Number.isInteger(stageIndex) || stageIndex < 0) return null;
+  const parsedStageIndex = stageIndex;
+  const timestamp = detailNumber(fields, "timestamp");
+  if (isUsableTimestamp(options.minTimestamp) && (!isUsableTimestamp(timestamp) || timestamp < options.minTimestamp)) {
+    return null;
+  }
+
+  return {
+    workflowName,
+    stageIndex: parsedStageIndex,
+    stageId: detailString(fields, "stageId"),
+    stageAgent: detailString(fields, "stageAgent"),
+    markerEvent: event,
+    timestamp,
+    source: "session_marker",
+  };
+}
+
 export function parseWorkflowStageMarkersFromEntries(entries: unknown[], options: WorkflowStageMarkerParseOptions = {}): WorkflowStageRecoveryCandidate | null {
   let last: WorkflowStageRecoveryCandidate | null = null;
   for (const entry of entries ?? []) {
     const text = extractEntryText(entry);
-    if (!text) continue;
-    const regex = /\[workflow-stage-marker\]([\s\S]*?)\[\/workflow-stage-marker\]/g;
-    let match = regex.exec(text);
-    while (match) {
-      const parsed = parseMarkerBlock(match[1] ?? "", options);
+    if (text) {
+      const regex = /\[workflow-stage-marker\]([\s\S]*?)\[\/workflow-stage-marker\]/g;
+      let match = regex.exec(text);
+      while (match) {
+        const parsed = parseMarkerBlock(match[1] ?? "", options);
+        if (parsed) last = parsed;
+        match = regex.exec(text);
+      }
+    }
+    for (const details of extractDetailsObjects(entry)) {
+      const parsed = parseMarkerDetails(details, options);
       if (parsed) last = parsed;
-      match = regex.exec(text);
     }
   }
   return last;

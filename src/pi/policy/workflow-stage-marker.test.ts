@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { formatWorkflowStageMarker, formatWorkflowStageResumeNotice, parseWorkflowStageMarkersFromEntries } from './workflow-stage-marker';
+import {
+  createWorkflowStageMarkerNotice,
+  createWorkflowStageResumeNotice,
+  formatWorkflowStageMarker,
+  formatWorkflowStageResumeNotice,
+  parseWorkflowStageMarkersFromEntries,
+} from './workflow-stage-marker';
 
 describe('workflow stage marker', () => {
   test('formats and parses a marker roundtrip', () => {
@@ -46,6 +52,100 @@ describe('workflow stage marker', () => {
     expect(parseWorkflowStageMarkersFromEntries([{ content: marker }])?.stageIndex).toBe(4);
   });
 
+  test('creates a short stage notice while preserving raw marker details', () => {
+    const notice = createWorkflowStageMarkerNotice({
+      event: 'transition_approved',
+      workflowName: 'flow',
+      stageIndex: 4,
+      stageId: 'ship',
+      stageAgent: 'alpha',
+      targetAgent: 'alpha',
+      timestamp: 9,
+    });
+
+    expect(notice.content).toBe('Workflow stage recorded: flow/ship -> alpha');
+    expect(notice.content).not.toContain('[workflow-stage-marker]');
+    expect(notice.details).toMatchObject({
+      schema: 'pi.agent.event.v1',
+      kind: 'workflow_stage_marker',
+      fields: {
+        event: 'transition_approved',
+        workflowName: 'flow',
+        stageIndex: 4,
+        stageId: 'ship',
+        stageAgent: 'alpha',
+        targetAgent: 'alpha',
+        timestamp: 9,
+      },
+    });
+    expect(notice.details.rawText).toContain('[workflow-stage-marker]');
+  });
+
+  test('parses marker text from structured notice details', () => {
+    const notice = createWorkflowStageMarkerNotice({
+      event: 'transition_approved',
+      workflowName: 'flow',
+      stageIndex: 4,
+      stageId: 'ship',
+      stageAgent: 'alpha',
+      targetAgent: 'alpha',
+      timestamp: 9,
+    });
+
+    expect(parseWorkflowStageMarkersFromEntries([{ content: notice.content, details: notice.details }])?.stageIndex).toBe(4);
+  });
+
+  test('parses structured marker details without raw marker text', () => {
+    const parsed = parseWorkflowStageMarkersFromEntries([
+      {
+        details: {
+          schema: 'pi.agent.event.v1',
+          kind: 'workflow_stage_marker',
+          title: 'Workflow stage recorded',
+          summary: 'short display',
+          fields: {
+            event: 'recovery_confirmed',
+            workflowName: 'flow',
+            stageIndex: 5,
+            stageId: 'review',
+            stageAgent: 'beta',
+            targetAgent: 'beta',
+            timestamp: 12,
+          },
+        },
+      },
+    ]);
+
+    expect(parsed).toMatchObject({
+      workflowName: 'flow',
+      stageIndex: 5,
+      stageId: 'review',
+      stageAgent: 'beta',
+      markerEvent: 'recovery_confirmed',
+      timestamp: 12,
+    });
+  });
+
+  test('ignores structured marker details with an unknown schema', () => {
+    const parsed = parseWorkflowStageMarkersFromEntries([
+      {
+        details: {
+          schema: 'other.schema.v1',
+          kind: 'workflow_stage_marker',
+          fields: {
+            event: 'transition_approved',
+            workflowName: 'flow',
+            stageIndex: 5,
+            targetAgent: 'beta',
+            timestamp: 12,
+          },
+        },
+      },
+    ]);
+
+    expect(parsed).toBeNull();
+  });
+
   test('ignores markers older than the current session timestamp', () => {
     const parentMarker = formatWorkflowStageMarker({ event: 'transition_approved', workflowName: 'flow', stageIndex: 1, targetAgent: 'a', timestamp: 100 });
     const currentMarker = formatWorkflowStageMarker({ event: 'transition_approved', workflowName: 'flow', stageIndex: 2, targetAgent: 'b', timestamp: 200 });
@@ -65,5 +165,28 @@ describe('workflow stage marker', () => {
     expect(notice).toContain('[workflow-stage-resume]');
     expect(notice).toContain('flow');
     expect(notice).toContain('其他 future stage');
+  });
+
+  test('creates a short resume notice with detailed recovery context', () => {
+    const notice = createWorkflowStageResumeNotice({
+      candidate: { workflowName: 'flow', stageIndex: 1, stageId: 'fix', markerEvent: 'transition_approved', source: 'session_marker' },
+    });
+
+    expect(notice.content).toBe('Workflow resume context: flow/fix');
+    expect(notice.content).not.toContain('[workflow-stage-resume]');
+    expect(notice.details).toMatchObject({
+      schema: 'pi.agent.event.v1',
+      kind: 'workflow_stage_resume',
+      fields: {
+        hasRecoveryCandidate: true,
+        candidate: {
+          workflowName: 'flow',
+          stageIndex: 1,
+          stageId: 'fix',
+          markerEvent: 'transition_approved',
+        },
+      },
+    });
+    expect(notice.details.rawText).toContain('[workflow-stage-resume]');
   });
 });

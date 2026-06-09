@@ -51,6 +51,18 @@ export function formatPoolCompletedContent(event: PoolNoticeEvent): string {
     : `${header}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`;
 }
 
+export function formatPoolErrorContent(event: PoolNoticeEvent): string {
+  const header = `[pool] ${formatPoolEventLabel(event)} 已结束: failed`;
+  const error = event.error?.trim() || 'unknown error';
+  return [
+    header,
+    '',
+    `error: ${error}`,
+    '',
+    '[decision] 该子代理不会再发送完成通知。请调用 pool=result 查看是否有部分结果；需要继续时使用 pool=resume 或重新 spawn。',
+  ].join('\n');
+}
+
 function isCurrentGeneration(generation: number): boolean {
   return bridgeState().generation === generation;
 }
@@ -95,6 +107,18 @@ export function registerPoolNoticeBridge(options: {
           'warning',
         );
       } catch {}
+      if (isCurrentGeneration(generation)) {
+        try {
+          options.pi.sendMessage(
+            {
+              customType: 'pool_failed',
+              content: formatPoolErrorContent(event),
+              display: true,
+            },
+            { deliverAs: 'followUp', triggerTurn: true },
+          );
+        } catch {}
+      }
     }
     // Deliver the user-visible completion promptly; verifier ingestion is best-effort and must not block the follow-up turn.
     if (event.type === 'completed') {

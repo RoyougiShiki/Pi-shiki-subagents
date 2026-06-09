@@ -1,6 +1,7 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
 import {
   formatPoolCompletedContent,
+  formatPoolErrorContent,
   formatPoolEventLabel,
   registerPoolNoticeBridge,
   resetPoolNoticeBridgeForTests,
@@ -57,6 +58,25 @@ describe('subagent pool notice bridge', () => {
         response: 'OK',
       }),
     ).toContain('[pool] fixer/run-1 已完成\n\nOK');
+  });
+
+  test('formats error follow-up with pool identity and next action', () => {
+    expect(
+      formatPoolErrorContent({
+        type: 'error',
+        agentName: 'fixer',
+        poolId: 'run-1',
+        error: 'timed out',
+      }),
+    ).toContain('[pool] fixer/run-1 已结束: failed\n\nerror: timed out');
+    expect(
+      formatPoolErrorContent({
+        type: 'error',
+        agentName: 'fixer',
+        poolId: 'run-1',
+        error: 'timed out',
+      }),
+    ).toContain('pool=result');
   });
 
   test('replaces previous listener so old ctx does not receive delayed completion', async () => {
@@ -221,5 +241,17 @@ describe('subagent pool notice bridge', () => {
       '[pool] oracle/review-1: failed',
       'warning',
     );
+    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      customType: 'pool_failed',
+      display: true,
+    });
+    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
+      '[pool] oracle/review-1 已结束: failed',
+    );
+    expect(pi.sendMessage.mock.calls[0]?.[1]).toEqual({
+      deliverAs: 'followUp',
+      triggerTurn: true,
+    });
   });
 });

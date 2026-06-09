@@ -71,6 +71,29 @@ export function selectPoolResultText(
   return active?.lastResponse || record?.lastResponse || '';
 }
 
+export function formatPoolResultContent(args: {
+  id: string;
+  agentName: string;
+  response: string;
+  errorMessage?: string;
+}): string {
+  const header = `Result from ${args.id} (${args.agentName}):`;
+  const response = args.response.trim();
+  const error = args.errorMessage?.trim();
+  if (!error) return `${header}\n\n${response}`;
+  const lines = [
+    header,
+    '',
+    `Status: failed (${error})`,
+  ];
+  if (response) {
+    lines.push('', 'Partial result captured before failure:', '', response);
+  } else {
+    lines.push('', 'No partial result was captured.');
+  }
+  return lines.join('\n');
+}
+
 export function checkPoolContinuationAllowed(args: {
   callerAgent?: string;
   targetAgent?: string;
@@ -460,14 +483,16 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               ],
               details: buildDetails('result', params.id, true),
             };
-          const header = `Result from ${params.id} (${record?.agentName ?? active?.agentName ?? 'unknown'}):`;
           return {
             content: [
               {
                 type: 'text',
-                text: errorMessage
-                  ? `${header}\n\n✗ ${errorMessage}\n\n${response}`
-                  : `${header}\n\n${response}`,
+                text: formatPoolResultContent({
+                  id: params.id,
+                  agentName: record?.agentName ?? active?.agentName ?? 'unknown',
+                  response,
+                  errorMessage,
+                }),
               },
             ],
             details: buildDetails('result', params.id, true),

@@ -837,6 +837,27 @@ describe('AgentPool basic operations', () => {
     expect(errors[0]?.error).toContain('timed out');
   });
 
+  test('initial prompt timeout can be delivered as a terminal pool event', async () => {
+    const { createSession } = mockCreateSession();
+    const pool = new AgentPool(makeMockPoolOptions(createSession, { timeoutMs: 1 }));
+    const eventPromise = onNextPoolEvent(pool);
+
+    await pool.spawn({
+      id: 'timeout-notice-agent',
+      name: 'timeout-notice-agent',
+      agent: makeAgent(),
+      task: 'hang forever',
+    });
+
+    const event = await eventPromise;
+    expect(event).toMatchObject({
+      type: 'error',
+      poolId: 'timeout-notice-agent',
+      agentName: 'dispatcher',
+    });
+    expect(event.error).toContain('timed out');
+  });
+
   test('spawn uses discovered runtime agent model instead of re-reading stale config', async () => {
     const { session, createSession } = mockCreateSession();
     const resolvedModel = { provider: 'dmxapi-responses', id: 'gpt-5.5' };

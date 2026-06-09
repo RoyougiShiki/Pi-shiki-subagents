@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import type { WorkflowsConfig } from '../../config/workflow-types';
 import { consumePipelineDelegationGrant, resetPipelineDelegationGrantsForTests } from './pipeline-delegation-grants';
 import { createToolCallGates, createWorkflowStageGateHelpers, SWITCH_MODE_APPROVAL_MESSAGE } from './tool-call-gates';
+import type { WorkflowStageNotice } from './workflow-stage-marker';
 import type { WorkflowStageRecoveryCandidate } from './workflow-stage-runtime';
 
 const workflows: WorkflowsConfig = {
@@ -24,7 +25,7 @@ function makeGates(args: {
   resumed?: boolean;
   recoveryStageIndex?: number;
   approvals?: boolean[];
-  notices?: string[];
+  notices?: WorkflowStageNotice[];
   caller?: string;
   workflowName?: string | null;
   workflowsConfig?: WorkflowsConfig;
@@ -57,7 +58,7 @@ function makeGates(args: {
     isCurrentModePipeline: () => args.pipeline === true,
     resolveDelegationCaller: () => args.caller,
     resolveSwitchModeTarget: args.resolveSwitchModeTarget,
-    emitWorkflowStageNotice: (text) => args.notices?.push(text),
+    emitWorkflowStageNotice: (notice) => args.notices?.push(notice),
   });
   const ctx = { ui: { confirm: async () => approvals.shift() ?? true } };
   return { gates, ctx, helpers };
@@ -255,8 +256,8 @@ describe('tool call workflow stage gates', () => {
   });
 
   test('requires work package approval for current primary stage when configured', async () => {
-    const confirmations: Array<{ title: string; message: string }> = [];
-    const notices: string[] = [];
+    const confirmations: Array<{ title: string; message: string; details?: any }> = [];
+    const notices: WorkflowStageNotice[] = [];
     const quickFixWorkflow: WorkflowsConfig = {
       list: [
         {
@@ -282,8 +283,8 @@ describe('tool call workflow stage gates', () => {
 
     const decision = await gates.gatePipelineSubagent({
       ui: {
-        confirm: async (title: string, message: string) => {
-          confirmations.push({ title, message });
+        confirm: async (title: string, message: string, details?: any) => {
+          confirmations.push({ title, message, details });
           return true;
         },
       },
@@ -292,12 +293,32 @@ describe('tool call workflow stage gates', () => {
     expect(decision.ok).toBe(true);
     expect(confirmations).toHaveLength(1);
     expect(confirmations[0].title).toBe('批准实现工作包');
-    expect(confirmations[0].message).toContain('工作包任务');
+    expect(confirmations[0].message).toContain('批准工作包: quick-fix/fix -> beta');
+    expect(confirmations[0].message).toContain('pool: id-beta');
+    expect(confirmations[0].message).not.toContain('Do the task with explicit context.');
+    expect(confirmations[0].details?.fields).toMatchObject({
+      approvalKind: 'workflow_work_package',
+      workflowName: 'quick-fix',
+      stageId: 'fix',
+      targetAgent: 'beta',
+      poolId: 'id-beta',
+      task: 'Do the task with explicit context.',
+    });
     expect(helpers.getWorkflowStageRuntimeSnapshot().history).toEqual([
       expect.objectContaining({ type: 'work_package_approved', targetAgent: 'beta' }),
       expect.objectContaining({ type: 'attempt_started', targetAgent: 'beta' }),
     ]);
-    expect(notices.join('\n')).toContain('event: work_package_approved');
+    expect(notices[0]?.content).toBe('Workflow stage recorded: quick-fix/fix -> beta');
+    expect(notices[0]?.content).not.toContain('[workflow-stage-marker]');
+    expect(notices[0]?.details.rawText).toContain('event: work_package_approved');
+    expect(notices[0]?.details.fields).toMatchObject({
+      event: 'work_package_approved',
+      workflowName: 'quick-fix',
+      stageId: 'fix',
+      targetAgent: 'beta',
+      poolId: 'id-beta',
+      task: 'Do the task with explicit context.',
+    });
   });
 
   test('blocks configured work package when user rejects approval', async () => {
@@ -417,12 +438,13 @@ describe('tool call workflow stage gates', () => {
   });
 
   test('approves next stage, advances cursor, and emits marker', async () => {
-    const notices: string[] = [];
+    const notices: WorkflowStageNotice[] = [];
     const { gates, ctx, helpers } = makeGates({ pipeline: true, approvals: [true], notices });
     const decision = await gates.gatePipelineSubagent(ctx, spawn('beta'));
     expect(decision.ok).toBe(true);
     expect(helpers.getWorkflowStageRuntimeSnapshot().currentStageIndex).toBe(1);
-    expect(notices.join('\n')).toContain('event: transition_approved');
+    expect(notices[0]?.content).toBe('Workflow stage recorded: flow/implementation -> beta');
+    expect(notices[0]?.details.rawText).toContain('event: transition_approved');
   });
 
   test('denies invalid unknown target agents', async () => {
@@ -466,14 +488,14 @@ describe('tool call workflow stage gates', () => {
   });
 
   test('resumed matching next stage uses recovery before normal transition', async () => {
-    const notices: string[] = [];
+    const notices: WorkflowStageNotice[] = [];
     const { gates, ctx, helpers } = makeGates({ pipeline: true, resumed: true, recoveryStageIndex: 1, approvals: [true], notices });
     const decision = await gates.gatePipelineSubagent(ctx, spawn('beta'));
     expect(decision.ok).toBe(true);
     expect(helpers.getWorkflowStageRuntimeSnapshot().currentStageIndex).toBe(1);
     expect(helpers.getWorkflowStageRuntimeSnapshot().recoveryConsumed).toBe(true);
-    expect(notices.join('\n')).toContain('event: recovery_confirmed');
-    expect(notices.join('\n')).not.toContain('event: transition_approved');
+    expect(notices[0]?.details.rawText).toContain('event: recovery_confirmed');
+    expect(notices[0]?.details.rawText).not.toContain('event: transition_approved');
   });
 
   test('allows resumed future stage only when recovery candidate matches', async () => {
@@ -488,12 +510,12 @@ describe('tool call workflow stage gates', () => {
   });
 
   test('agent switch_mode calls require user approval', async () => {
-    const confirmations: Array<{ title: string; message: string }> = [];
+    const confirmations: Array<{ title: string; message: string; details?: any }> = [];
     const { gates } = makeGates();
     const decision = await gates.gateSwitchMode({
       ui: {
-        confirm: async (title: string, message: string) => {
-          confirmations.push({ title, message });
+        confirm: async (title: string, message: string, details?: any) => {
+          confirmations.push({ title, message, details });
           return true;
         },
       },
@@ -504,6 +526,10 @@ describe('tool call workflow stage gates', () => {
     expect(confirmations[0].title).toBe(SWITCH_MODE_APPROVAL_MESSAGE.title);
     expect(confirmations[0].message).toContain(SWITCH_MODE_APPROVAL_MESSAGE.action);
     expect(confirmations[0].message).toContain('target-mode');
+    expect(confirmations[0].details?.fields).toMatchObject({
+      approvalKind: 'mode_switch',
+      mode: 'target-mode',
+    });
   });
 
   test('agent switch_mode calls are blocked when user rejects approval', async () => {

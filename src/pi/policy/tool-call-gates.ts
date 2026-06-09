@@ -8,7 +8,8 @@ import {
   type WorkflowStageRecoveryCandidate,
   type WorkflowStageRuntimeSnapshot,
 } from "./workflow-stage-runtime";
-import { formatWorkflowStageMarker } from "./workflow-stage-marker";
+import { createPiAgentEventDetails, type PiAgentEventDetails } from "./pi-agent-event";
+import { createWorkflowStageMarkerNotice, type WorkflowStageNotice } from "./workflow-stage-marker";
 import { isSubagentExecutionPoolAction } from "../subagent/subagent-tool-actions";
 
 export type ApprovalResult = { approved: true } | { approved: false; reason: string };
@@ -168,9 +169,16 @@ type ConfirmResponse =
   | boolean
   | { approved: boolean; reason?: string };
 
+export interface ApprovalRequest {
+  title: string;
+  summary: string;
+  body?: string;
+  details?: PiAgentEventDetails;
+}
+
 interface GateUiContext {
   ui?: {
-    confirm?: (title: string, message: string) => ConfirmResponse | Promise<ConfirmResponse>;
+    confirm?: (title: string, message: string, details?: PiAgentEventDetails) => ConfirmResponse | Promise<ConfirmResponse>;
     input?: (title: string, message: string) => string | undefined | Promise<string | undefined>;
   };
 }
@@ -198,11 +206,11 @@ function stringValue(value: unknown): string {
 
 async function requestApproval(
   ctx: GateUiContext,
-  title: string,
-  message: string,
+  request: ApprovalRequest,
 ): Promise<ApprovalResult | null> {
   if (!ctx?.ui?.confirm) return null;
-  const result = await ctx.ui.confirm(title, message);
+  const message = [request.summary, request.body].filter(Boolean).join("\n\n");
+  const result = await ctx.ui.confirm(request.title, message, request.details);
 
   // Backward-compatible host UI: boolean confirm result.
   if (typeof result === "boolean") {
@@ -247,9 +255,9 @@ function stageId(stage: StageNode | undefined, fallbackIndex: number | undefined
   return stage?.id ?? (fallbackIndex === undefined ? undefined : String(fallbackIndex));
 }
 
-function emitNotice(args: { emit?: (text: string) => void; text: string }): void {
+function emitNotice(args: { emit?: (notice: WorkflowStageNotice) => void; notice: WorkflowStageNotice }): void {
   try {
-    args.emit?.(args.text);
+    args.emit?.(args.notice);
   } catch {}
 }
 
@@ -266,21 +274,86 @@ function issueGrant(args: {
   });
 }
 
-function formatWorkPackageApprovalMessage(args: {
+function createWorkPackageApprovalRequest(args: {
   workflowName: string;
   stageId?: string;
   targetAgent: string;
+  poolId: string;
   task: string;
-}): string {
-  return [
-    `模型请求进入 workflow「${args.workflowName}」的实现工作包「${args.stageId ?? "current"}」，并委托「${args.targetAgent}」执行。`,
-    "",
-    "请确认当前需求、修改范围、停止条件和验证方式已经明确；同意后该工作包内可继续同一子代理会话返工和复审。",
-    "如果需求变更、范围扩大、意图不确定或要改新的关键模块，后续必须重新回到用户确认。",
-    "",
-    "工作包任务:",
-    args.task,
-  ].join("\n");
+}): ApprovalRequest {
+  const stageLabel = args.stageId?.trim() || "current";
+  const summary = `批准工作包: ${args.workflowName}/${stageLabel} -> ${args.targetAgent}`;
+  return {
+    title: "批准实现工作包",
+    summary,
+    body: [
+      `pool: ${args.poolId}`,
+      "确认需求、修改范围、停止条件和验证方式已明确。范围变化时需要重新确认。",
+    ].join("\n"),
+    details: createPiAgentEventDetails({
+      kind: "approval",
+      title: "批准实现工作包",
+      summary,
+      fields: {
+        approvalKind: "workflow_work_package",
+        workflowName: args.workflowName,
+        stageId: args.stageId,
+        targetAgent: args.targetAgent,
+        poolId: args.poolId,
+        task: args.task,
+      },
+    }),
+  };
+}
+
+function createWorkflowStageRecoveryApprovalRequest(args: {
+  candidate: WorkflowStageRecoveryCandidate;
+  targetAgent: string;
+}): ApprovalRequest {
+  const stageLabel = args.candidate.stageId?.trim() || String(args.candidate.stageIndex);
+  const summary = `恢复工作流阶段: ${args.candidate.workflowName}/${stageLabel} -> ${args.targetAgent}`;
+  return {
+    title: "恢复工作流阶段",
+    summary,
+    body: "确认后会恢复 runtime stage 位置并放行。同一话题后续优先使用 pool send/resume。",
+    details: createPiAgentEventDetails({
+      kind: "approval",
+      title: "恢复工作流阶段",
+      summary,
+      fields: {
+        approvalKind: "workflow_stage_recovery",
+        candidate: { ...args.candidate },
+        targetAgent: args.targetAgent,
+      },
+    }),
+  };
+}
+
+function createWorkflowStageTransitionApprovalRequest(args: {
+  workflowName: string;
+  targetStageId?: string;
+  targetStageIndex: number;
+  targetAgent: string;
+}): ApprovalRequest {
+  const stageLabel = args.targetStageId?.trim() || String(args.targetStageIndex);
+  const summary = `进入下一阶段: ${args.workflowName}/${stageLabel} -> ${args.targetAgent}`;
+  return {
+    title: "进入下一阶段",
+    summary,
+    body: "请确认上一阶段结论、unknowns 和风险已处理；同意后会记录 stage marker 并放行。",
+    details: createPiAgentEventDetails({
+      kind: "approval",
+      title: "进入下一阶段",
+      summary,
+      fields: {
+        approvalKind: "workflow_stage_transition",
+        workflowName: args.workflowName,
+        targetStageId: args.targetStageId,
+        targetStageIndex: args.targetStageIndex,
+        targetAgent: args.targetAgent,
+      },
+    }),
+  };
 }
 
 export function createToolCallGates(args: {
@@ -295,7 +368,7 @@ export function createToolCallGates(args: {
   isCurrentModePipeline: () => boolean;
   resolveDelegationCaller: () => string | undefined;
   resolveSwitchModeTarget?: (mode: string) => SwitchModeTargetPolicy | undefined;
-  emitWorkflowStageNotice?: (text: string) => void;
+  emitWorkflowStageNotice?: (notice: WorkflowStageNotice) => void;
 }) {
   const gatePipelineSubagent = async (ctx: GateUiContext, input: SubagentGateInput): Promise<GateDecision> => {
     const isExecutionAction = isSubagentExecutionPoolAction(input?.pool);
@@ -365,11 +438,11 @@ ${contractDecision.hint}` : ""}`);
         if (!alreadyApproved) {
           const approval = await requestApproval(
             ctx,
-            "批准实现工作包",
-            formatWorkPackageApprovalMessage({
+            createWorkPackageApprovalRequest({
               workflowName: stageContext.workflowName,
               stageId: classification.currentStageId,
               targetAgent: agent,
+              poolId: id,
               task,
             }),
           );
@@ -388,7 +461,7 @@ ${contractDecision.hint}` : ""}`);
 
           emitNotice({
             emit: args.emitWorkflowStageNotice,
-            text: formatWorkflowStageMarker({
+            notice: createWorkflowStageMarkerNotice({
               event: "work_package_approved",
               workflowName: stageContext.workflowName,
               stageIndex: stageContext.stageIndex,
@@ -433,8 +506,10 @@ ${contractDecision.hint}` : ""}`);
     if ((classification.kind === "next" || classification.kind === "future") && candidateMatches && candidate) {
       const approval = await requestApproval(
         ctx,
-        "恢复工作流阶段",
-        `检测到这是恢复后的会话。历史 stage marker 显示 workflow「${candidate.workflowName}」曾进入阶段「${candidate.stageId ?? candidate.stageIndex}」。模型请求委托「${agent}」继续该阶段。确认后会恢复 runtime stage 位置并放行；同一话题后续应继续使用 pool send/resume。`,
+        createWorkflowStageRecoveryApprovalRequest({
+          candidate,
+          targetAgent: agent,
+        }),
       );
       if (!approval) return deny("阶段恢复被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
       if (!approval.approved) return deny(`用户拒绝恢复工作流阶段。原因：${approval.reason}`);
@@ -449,7 +524,7 @@ ${contractDecision.hint}` : ""}`);
 
       emitNotice({
         emit: args.emitWorkflowStageNotice,
-        text: formatWorkflowStageMarker({
+        notice: createWorkflowStageMarkerNotice({
           event: "recovery_confirmed",
           workflowName: stageContext.workflowName,
           stageIndex: targetStageIndex,
@@ -475,8 +550,12 @@ ${contractDecision.hint}` : ""}`);
 
       const approval = await requestApproval(
         ctx,
-        "进入下一阶段",
-        `模型请求从当前阶段进入 workflow「${stageContext.workflowName}」的下一阶段「${targetStageId ?? targetStageIndex}」，并委托「${agent}」执行。请确认上一阶段结论、unknowns 和风险已处理；同意后会记录 stage marker 并放行。`,
+        createWorkflowStageTransitionApprovalRequest({
+          workflowName: stageContext.workflowName,
+          targetStageId,
+          targetStageIndex,
+          targetAgent: agent,
+        }),
       );
       if (!approval) return deny("阶段推进被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");
       if (!approval.approved) return deny(`用户拒绝进入下一阶段。原因：${approval.reason}`);
@@ -493,7 +572,7 @@ ${contractDecision.hint}` : ""}`);
 
       emitNotice({
         emit: args.emitWorkflowStageNotice,
-        text: formatWorkflowStageMarker({
+        notice: createWorkflowStageMarkerNotice({
           event: "transition_approved",
           workflowName: stageContext.workflowName,
           stageIndex: targetStageIndex,
@@ -538,8 +617,20 @@ ${contractDecision.hint}` : ""}`);
 
     const approval = await requestApproval(
       ctx,
-      SWITCH_MODE_APPROVAL_MESSAGE.title,
-      `${SWITCH_MODE_APPROVAL_MESSAGE.action}\n目标：${mode}`,
+      {
+        title: SWITCH_MODE_APPROVAL_MESSAGE.title,
+        summary: SWITCH_MODE_APPROVAL_MESSAGE.action,
+        body: `目标：${mode}`,
+        details: createPiAgentEventDetails({
+          kind: "approval",
+          title: SWITCH_MODE_APPROVAL_MESSAGE.title,
+          summary: SWITCH_MODE_APPROVAL_MESSAGE.action,
+          fields: {
+            approvalKind: "mode_switch",
+            mode,
+          },
+        }),
+      },
     );
     if (!approval) {
       return deny("模式切换被拒绝：当前环境不支持审批确认（ui.confirm 不可用）。");

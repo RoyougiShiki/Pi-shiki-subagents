@@ -144,9 +144,10 @@ import {
 } from '../policy/tool-call-gates';
 import type { WorkflowStageRecoveryCandidate } from '../policy/workflow-stage-runtime';
 import {
-  formatWorkflowStageResumeNotice,
+  createWorkflowStageResumeNotice,
   parseWorkflowStageMarkersFromEntries,
 } from '../policy/workflow-stage-marker';
+import type { WorkflowStageNotice } from '../policy/workflow-stage-marker';
 import {
   ensureAgentFiles,
   getPiAgentsDirForSync,
@@ -943,13 +944,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     }
     if (isResume || workflowSessionRecoveryState.recoveryCandidate) {
       try {
+        const notice = createWorkflowStageResumeNotice({
+          candidate: workflowSessionRecoveryState.recoveryCandidate,
+        });
         pi.sendMessage(
           {
             customType: 'workflow_stage_resume',
-            content: formatWorkflowStageResumeNotice({
-              candidate: workflowSessionRecoveryState.recoveryCandidate,
-            }),
+            content: notice.content,
             display: true,
+            details: notice.details,
           },
           { deliverAs: 'followUp', triggerTurn: false },
         );
@@ -1236,13 +1239,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         requiresUserCommand: agent?.requiresUserCommand === true || agent?.hidden === true,
       };
     },
-    emitWorkflowStageNotice: (text: string) => {
+    emitWorkflowStageNotice: (notice: WorkflowStageNotice) => {
       try {
         pi.sendMessage(
           {
             customType: 'workflow_stage',
-            content: text,
+            content: notice.content,
             display: true,
+            details: notice.details,
           },
           { deliverAs: 'followUp', triggerTurn: false },
         );
