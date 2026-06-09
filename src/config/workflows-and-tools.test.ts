@@ -37,11 +37,11 @@ describe('default workflows and agent tool matrix', () => {
 
     const quickFix = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'quick-fix');
     expect(quickFix?.stages.map((stage) => stage.agent)).toEqual([
-      'analyst',
-      'worker',
-    ]);
-    expect(quickFix?.stages.at(-1)?.allowedSubagents).toEqual([
       'fixer',
+    ]);
+    expect(quickFix?.stages.map((stage) => stage.id)).toEqual(['fix']);
+    expect(quickFix?.stages.at(-1)?.allowedSubagents).toEqual([
+      'search',
       'oracle',
     ]);
   });
@@ -105,10 +105,12 @@ describe('default workflows and agent tool matrix', () => {
     expect(defs['standard-dev']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'standard-dev' });
     expect(defs['quick-fix']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'quick-fix' });
     expect(defs['research-only']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'research-only' });
-    for (const mode of ['standard-dev', 'quick-fix']) {
-      expect(defs[mode]?.tools).toEqual(['@交互', '@子代理']);
-      expect(defs[mode]?.delegates).toEqual(['search', 'oracle']);
-    }
+    expect(defs['standard-dev']?.tools).toEqual(['@交互', '@子代理']);
+    expect(defs['standard-dev']?.delegates).toEqual(['search', 'oracle']);
+    expect(defs['quick-fix']?.tools).toEqual(['@交互', 'omo_subagent']);
+    expect(defs['quick-fix']?.tools).not.toContain('@子代理');
+    expect(defs['quick-fix']?.tools).not.toContain('omo_council');
+    expect(defs['quick-fix']?.delegates).toEqual(['search', 'fixer', 'oracle']);
     expect(defs['research-only']?.tools).toEqual(['@交互', 'omo_subagent']);
     expect(defs['research-only']?.tools).not.toContain('@子代理');
     expect(defs['research-only']?.tools).not.toContain('omo_council');

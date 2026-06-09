@@ -35,14 +35,14 @@ Legacy OpenCode adapter code has been removed. The package keeps a lightweight `
 ## Built-in Agent Boundaries
 
 - `standard-dev` — primary workflow-bound mode for clarified development: analysis, plan, user confirmation, implementation dispatch, and oracle review.
-- `quick-fix` — workflow-bound mode for small, low-risk fixes with minimal scope and review.
+- `quick-fix` — lighter workflow-bound mode where the main agent scopes the fix and directly delegates search, fixer, and oracle.
 - `research-only` — workflow-bound read-only mode for evidence gathering, analysis, and conclusion boundaries.
 - `coordinator` — hidden compatibility/template entry for older configs and sessions; new user-facing work should enter through a workflow-bound mode.
 - `analyst` — non-questioning analysis support; analyzes known materials, identifies unknowns, risks, and options.
 - `oracle` — evidence-driven adversarial reviewer; reviews human text, AI output, implementation plans, code, docs, config, and test expectations.
 - `search` — read/search fact gathering.
 - `designer` — technical design after requirements are clear.
-- `fixer` / `worker` / `dispatcher` — implementation paths with scoped responsibilities.
+- `fixer` / `worker` / `dispatcher` — implementation paths with scoped responsibilities; quick-fix uses fixer directly, while standard-dev uses dispatcher.
 - `fallback` — explicit user-driven rescue mode with broad tools.
 
 ## Control Model

@@ -137,6 +137,7 @@ describe('Pi adapter agent prompt sync', () => {
     expect(prompt).toContain('@quick-fix -> quick-fix');
     expect(prompt).toContain('@research-only -> research-only');
     expect(prompt).toContain('3.implement:dispatcher (+fixer, oracle)');
+    expect(prompt).toContain('1.fix:fixer (+search, oracle)');
 
     const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
     fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });

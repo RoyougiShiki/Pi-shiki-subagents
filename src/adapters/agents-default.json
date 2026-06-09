@@ -17,10 +17,11 @@
     "type": "mode",
     "tools": [
       "@交互",
-      "@子代理"
+      "omo_subagent"
     ],
     "delegates": [
       "search",
+      "fixer",
       "oracle"
     ],
     "pipelineMode": true,

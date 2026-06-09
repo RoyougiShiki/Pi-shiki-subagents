@@ -30,21 +30,14 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
   },
   {
     name: 'quick-fix',
-    description: '快速修复流程：边界分析 → 快速调度实现与审查',
+    description: '轻量快速修复流程：主 agent 判断边界 → fixer 最小实现 → oracle 审查',
     stages: [
       {
-        id: 'analysis',
-        agent: 'analyst',
-        description: '分析修复范围、边界、风险和最小验证路径；必要时委托 search 补证',
-        outputSchema: 'analysis',
-        allowedSubagents: ['search'],
-      },
-      {
-        id: 'implement',
-        agent: 'worker',
-        description: '调度 fixer 实施最小修复并用 oracle 审查；不通过则继续同一 fixer 会话返工',
+        id: 'fix',
+        agent: 'fixer',
+        description: '主 agent 自行收束范围后，委托 fixer 做最小修复；必要时用 search 补证，并用 oracle 审查；不通过则继续同一 fixer 会话返工',
         outputSchema: 'implementation',
-        allowedSubagents: ['fixer', 'oracle'],
+        allowedSubagents: ['search', 'oracle'],
       },
     ],
   },

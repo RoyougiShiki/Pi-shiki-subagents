@@ -64,6 +64,7 @@ describe('checkPoolContinuationAllowed', () => {
   const rules = {
     'research-only': ['search', 'oracle'],
     'standard-dev': ['search', 'oracle'],
+    'quick-fix': ['search', 'fixer', 'oracle'],
   };
 
   test('allows continuing a parent-owned pool run only when it belongs to the parent workflow', () => {
@@ -110,6 +111,19 @@ describe('checkPoolContinuationAllowed', () => {
       checkPoolContinuationAllowed({
         callerAgent: 'research-only',
         targetAgent: 'oracle',
+        depth: 0,
+        rules,
+      }).ok,
+    ).toBe(true);
+  });
+
+  test('allows quick-fix to continue its short-path fixer runs', () => {
+    expect(
+      checkPoolContinuationAllowed({
+        callerAgent: 'quick-fix',
+        parentAgent: 'quick-fix',
+        targetAgent: 'fixer',
+        parentWorkflowAgents: ['fixer', 'search', 'oracle'],
         depth: 0,
         rules,
       }).ok,

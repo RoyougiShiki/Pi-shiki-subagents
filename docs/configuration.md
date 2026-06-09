@@ -65,6 +65,11 @@ The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
 entry for older configs and sessions; new configs should bind models to
 `standard-dev` as the primary mode.
 
+`quick-fix` is the shortest write-capable path: the main agent scopes the
+small fix itself, may delegate `search` for evidence, delegates `fixer` for the
+minimal implementation, and delegates `oracle` for review. It intentionally
+does not route through `analyst` or `worker`.
+
 ## Agent Definitions and Prompts
 
 Built-in agent definitions live in:

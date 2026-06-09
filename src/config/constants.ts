@@ -47,7 +47,7 @@ export function getOrchestratableAgents(
 
 export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly string[]>> = {
   'standard-dev': ['search', 'oracle'],
-  'quick-fix': ['search', 'oracle'],
+  'quick-fix': ['search', 'fixer', 'oracle'],
   'research-only': ['search', 'oracle'],
   coordinator: ORCHESTRATABLE_AGENTS,
   designer: [],
