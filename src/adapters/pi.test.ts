@@ -130,10 +130,12 @@ describe('Pi adapter agent prompt sync', () => {
     expect(prompt).toContain('<AvailableAgents>');
     expect(prompt).not.toContain('<CONSTITUTION>');
     expect(prompt).not.toContain('未找到 constitution.md');
-    const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
-    expect(coordinatorLine).toContain('非阶段可委托: search, oracle');
+    const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
+    expect(standardDevLine).toContain('非阶段可委托: search, oracle');
     expect(prompt).toContain('<ModeWorkflows>');
-    expect(prompt).toContain('@coordinator -> standard-dev');
+    expect(prompt).toContain('@standard-dev -> standard-dev');
+    expect(prompt).toContain('@quick-fix -> quick-fix');
+    expect(prompt).toContain('@research-only -> research-only');
     expect(prompt).toContain('3.implement:dispatcher (+fixer, oracle)');
 
     const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
@@ -165,9 +167,9 @@ describe('Pi adapter agent prompt sync', () => {
     });
 
     expect(prompt).toContain('<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>');
-    const coordinatorLine = prompt.split('\n').find((line) => line.includes('@coordinator')) ?? '';
-    expect(coordinatorLine).toContain('非阶段可委托: oracle');
-    expect(coordinatorLine).not.toContain('search');
+    const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
+    expect(standardDevLine).toContain('非阶段可委托: oracle');
+    expect(standardDevLine).not.toContain('search');
     const availableAgents = prompt.match(/<AvailableAgents>[\s\S]*?<\/AvailableAgents>/)?.[0] ?? '';
     expect(availableAgents).not.toContain('@search');
     const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
@@ -256,7 +258,7 @@ describe('Pi adapter agent prompt sync', () => {
 
     expect(prompt).toContain('@customLead (模式) — Snapshot Lead');
     expect(prompt).toContain('@customLead -> snapshot-flow: 1.work:customWorker');
-    expect(prompt).not.toContain('@coordinator');
+    expect(prompt).not.toContain('@standard-dev');
   });
 
   test('mode workflow prompt hides hidden stage agents and helpers like gate known agents', async () => {
@@ -966,7 +968,7 @@ describe('Pi adapter preset helpers', () => {
     const plan = resolvePresetSwitchPlan({
       presets: {
         powerful: {
-          coordinator: { model: 'openai/gpt-4o', thinking: 'high' },
+          'standard-dev': { model: 'openai/gpt-4o', thinking: 'high' },
           observer: { model: 'openai/gpt-4o-mini' },
         },
       },
@@ -981,7 +983,7 @@ describe('Pi adapter preset helpers', () => {
     const plan = resolvePresetSwitchPlan({
       presets: {
         cheap: {
-          coordinator: { model: '<YOUR_MODEL>' },
+          'standard-dev': { model: '<YOUR_MODEL>' },
         },
       },
     } as any, 'cheap');

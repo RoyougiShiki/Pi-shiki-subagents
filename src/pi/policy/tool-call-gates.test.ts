@@ -392,6 +392,29 @@ describe('tool call workflow stage gates', () => {
     if (!decision.ok) expect(decision.reason).toContain('/mode');
   });
 
+  test('agent switch_mode calls to hidden modes are blocked before approval', async () => {
+    let confirmCalled = false;
+    const { gates } = makeGates({
+      resolveSwitchModeTarget: () => ({
+        exists: true,
+        usableAsMode: true,
+        requiresUserCommand: true,
+      }),
+    });
+    const decision = await gates.gateSwitchMode({
+      ui: {
+        confirm: async () => {
+          confirmCalled = true;
+          return true;
+        },
+      },
+    }, { mode: 'coordinator' });
+
+    expect(decision.ok).toBe(false);
+    expect(confirmCalled).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('/mode');
+  });
+
   test('agent switch_mode calls to missing modes are blocked before approval', async () => {
     let confirmCalled = false;
     const { gates } = makeGates({

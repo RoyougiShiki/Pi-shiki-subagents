@@ -1,4 +1,46 @@
 {
+  "standard-dev": {
+    "type": "mode",
+    "tools": [
+      "@交互",
+      "@子代理"
+    ],
+    "delegates": [
+      "search",
+      "oracle"
+    ],
+    "pipelineMode": true,
+    "workflow": "standard-dev",
+    "label": "标准开发模式（阶段门禁）"
+  },
+  "quick-fix": {
+    "type": "mode",
+    "tools": [
+      "@交互",
+      "@子代理"
+    ],
+    "delegates": [
+      "search",
+      "oracle"
+    ],
+    "pipelineMode": true,
+    "workflow": "quick-fix",
+    "label": "快速修复模式（阶段门禁）"
+  },
+  "research-only": {
+    "type": "mode",
+    "tools": [
+      "@交互",
+      "omo_subagent"
+    ],
+    "delegates": [
+      "search",
+      "oracle"
+    ],
+    "pipelineMode": true,
+    "workflow": "research-only",
+    "label": "只读研究模式（阶段门禁）"
+  },
   "coordinator": {
     "type": "mode",
     "tools": [
@@ -11,7 +53,8 @@
     ],
     "pipelineMode": true,
     "workflow": "standard-dev",
-    "label": "主控模式（阶段门禁）"
+    "hidden": true,
+    "label": "主控模板（兼容）"
   },
   "analyst": {
     "type": "subagent",

@@ -4,6 +4,9 @@ export const AGENT_ALIASES: Record<string, string> = {
 };
 
 export const ALL_AGENT_NAMES = [
+  'standard-dev',
+  'quick-fix',
+  'research-only',
   'coordinator',
   'analyst',
   'designer',
@@ -17,7 +20,7 @@ export const ALL_AGENT_NAMES = [
   'council',
 ] as const;
 
-export const PRIMARY_MODE_AGENT_NAME = 'coordinator' as const;
+export const PRIMARY_MODE_AGENT_NAME = 'standard-dev' as const;
 
 export const MODEL_PLACEHOLDER = '<YOUR_MODEL>' as const;
 
@@ -43,6 +46,9 @@ export function getOrchestratableAgents(
 }
 
 export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly string[]>> = {
+  'standard-dev': ['search', 'oracle'],
+  'quick-fix': ['search', 'oracle'],
+  'research-only': ['search', 'oracle'],
   coordinator: ORCHESTRATABLE_AGENTS,
   designer: [],
   worker: [],

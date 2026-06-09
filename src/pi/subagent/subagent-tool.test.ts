@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { planPoolResume, selectPoolResultText } from './subagent-tool';
+import {
+  checkPoolContinuationAllowed,
+  planPoolResume,
+  selectPoolResultText,
+} from './subagent-tool';
 
 describe('planPoolResume', () => {
   const record = {
@@ -53,5 +57,62 @@ describe('selectPoolResultText', () => {
     expect(
       selectPoolResultText(undefined, { lastResponse: 'registry result' }),
     ).toBe('registry result');
+  });
+});
+
+describe('checkPoolContinuationAllowed', () => {
+  const rules = {
+    'research-only': ['search', 'oracle'],
+    'standard-dev': ['search', 'oracle'],
+  };
+
+  test('allows continuing a parent-owned pool run only when it belongs to the parent workflow', () => {
+    expect(
+      checkPoolContinuationAllowed({
+        callerAgent: 'standard-dev',
+        parentAgent: 'standard-dev',
+        targetAgent: 'dispatcher',
+        parentWorkflowAgents: ['analyst', 'designer', 'dispatcher', 'fixer', 'oracle'],
+        depth: 0,
+        rules,
+      }).ok,
+    ).toBe(true);
+  });
+
+  test('blocks same-parent implementation records outside the current workflow', () => {
+    const result = checkPoolContinuationAllowed({
+      callerAgent: 'research-only',
+      parentAgent: 'research-only',
+      targetAgent: 'fixer',
+      parentWorkflowAgents: ['analyst', 'search'],
+      depth: 0,
+      rules,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.allowedAgents).toEqual(['search', 'oracle']);
+  });
+
+  test('blocks continuing an unrelated implementation agent in research-only mode', () => {
+    const result = checkPoolContinuationAllowed({
+      callerAgent: 'research-only',
+      targetAgent: 'fixer',
+      depth: 0,
+      rules,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.allowedAgents).toEqual(['search', 'oracle']);
+  });
+
+  test('allows research-only to continue configured read-only delegates', () => {
+    expect(
+      checkPoolContinuationAllowed({
+        callerAgent: 'research-only',
+        targetAgent: 'oracle',
+        depth: 0,
+        rules,
+      }).ok,
+    ).toBe(true);
   });
 });

@@ -71,7 +71,51 @@ export function selectPoolResultText(
   return active?.lastResponse || record?.lastResponse || '';
 }
 
-export function registerSubagentTool(pi: ExtensionAPI): void {
+export function checkPoolContinuationAllowed(args: {
+  callerAgent?: string;
+  targetAgent?: string;
+  parentAgent?: string;
+  parentWorkflowAgents?: readonly string[];
+  depth?: number;
+  cwd?: string;
+  allowedSubagents?: readonly string[];
+  rules?: Record<string, readonly string[]>;
+}):
+  | { ok: true }
+  | { ok: false; reason: string; allowedAgents?: readonly string[] } {
+  const targetAgent = args.targetAgent?.trim();
+  if (!targetAgent) {
+    return { ok: false, reason: 'Saved or active pool agent has no target agent name.' };
+  }
+
+  const callerAgent = args.callerAgent?.trim();
+  const parentAgent = args.parentAgent?.trim();
+  if (callerAgent && parentAgent && callerAgent === parentAgent) {
+    const parentWorkflowAgents = new Set(
+      (args.parentWorkflowAgents ?? []).map((agent) => agent.trim()).filter(Boolean),
+    );
+    if (parentWorkflowAgents.has(targetAgent)) return { ok: true };
+  }
+
+  const delegation = checkDelegationAllowed({
+    caller: callerAgent,
+    target: targetAgent,
+    depth: args.depth,
+    cwd: args.cwd,
+    allowedSubagents: args.allowedSubagents,
+    rules: args.rules,
+  });
+  if (delegation.allowed) return { ok: true };
+  return {
+    ok: false,
+    reason: delegation.reason ?? `Agent '${callerAgent ?? ''}' is not allowed to continue '${targetAgent}'.`,
+    allowedAgents: delegation.allowedAgents,
+  };
+}
+
+export function registerSubagentTool(pi: ExtensionAPI, options: {
+  getWorkflowContinuationAgents?: (parentAgent: string) => readonly string[] | undefined;
+} = {}): void {
   const poolActionDescription = `Pool action: ${SUBAGENT_POOL_ACTIONS.join(' | ')}`;
 
   pi.registerTool({
@@ -247,6 +291,35 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           const current = pool
             .list()
             .find((a: PoolAgentInfo) => a.id === params.id);
+          const record = pool.getRegistryEntry(params.id);
+          if (current || record) {
+            const continuation = checkPoolContinuationAllowed({
+              callerAgent,
+              targetAgent: current?.agentName ?? record?.agentName,
+              parentAgent: record?.parentAgent,
+              parentWorkflowAgents: record?.parentAgent
+                ? options.getWorkflowContinuationAgents?.(record.parentAgent)
+                : undefined,
+              depth: callerDepth,
+              cwd,
+              allowedSubagents,
+            });
+            if (!continuation.ok) {
+              const allowed = continuation.allowedAgents?.length
+                ? continuation.allowedAgents.join(', ')
+                : '(none)';
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: `${continuation.reason}. Allowed agents: ${allowed}`,
+                  },
+                ],
+                details: emptyDetails('send', params.id),
+                isError: true,
+              };
+            }
+          }
           if (
             current &&
             (current.status === 'starting' || current.status === 'streaming')
@@ -422,6 +495,32 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
               details: emptyDetails('resume', params.id),
               isError: true,
             };
+          const continuation = checkPoolContinuationAllowed({
+            callerAgent,
+            targetAgent: record.agentName,
+            parentAgent: record.parentAgent,
+            parentWorkflowAgents: record.parentAgent
+              ? options.getWorkflowContinuationAgents?.(record.parentAgent)
+              : undefined,
+            depth: callerDepth,
+            cwd: record.cwd || cwd,
+            allowedSubagents,
+          });
+          if (!continuation.ok) {
+            const allowed = continuation.allowedAgents?.length
+              ? continuation.allowedAgents.join(', ')
+              : '(none)';
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `${continuation.reason}. Allowed agents: ${allowed}`,
+                },
+              ],
+              details: emptyDetails('resume', params.id),
+              isError: true,
+            };
+          }
           const agentCfg = agents.find((a) => a.name === record.agentName);
           if (!agentCfg)
             return {

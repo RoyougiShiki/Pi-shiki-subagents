@@ -407,6 +407,29 @@ function buildModeWorkflowLines(
   return lines.sort();
 }
 
+function getModeWorkflowContinuationAgents(
+  modeName: string,
+  agentDefs: Record<string, RuntimeAgentDefinition>,
+  config: OmniMoConfig | null,
+): string[] | undefined {
+  const workflowName = agentDefs[modeName]?.workflow?.trim();
+  if (!workflowName) return undefined;
+  const workflow = resolveWorkflowList(config?.workflows)
+    .find((candidate) => candidate.name === workflowName);
+  if (!workflow) return undefined;
+
+  const agents = new Set<string>();
+  for (const stage of workflow.stages) {
+    const stageAgent = stage.agent.trim();
+    if (stageAgent) agents.add(stageAgent);
+    for (const helper of stage.allowedSubagents ?? []) {
+      const helperAgent = helper.trim();
+      if (helperAgent) agents.add(helperAgent);
+    }
+  }
+  return [...agents];
+}
+
 export function buildPiOrchestratorPrompt(
   disabledAgents: string[],
   config: OmniMoConfig | null,
@@ -1204,7 +1227,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       return {
         exists: Boolean(agent),
         usableAsMode: agent?.type === 'mode' || agent?.type === 'both',
-        requiresUserCommand: agent?.requiresUserCommand === true,
+        requiresUserCommand: agent?.requiresUserCommand === true || agent?.hidden === true,
       };
     },
     emitWorkflowStageNotice: (text: string) => {
@@ -1381,7 +1404,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   pi.registerTool(tools.council);
 
   // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
-  registerSubagentTool(pi);
+  registerSubagentTool(pi, {
+    getWorkflowContinuationAgents: (parentAgent) =>
+      getModeWorkflowContinuationAgents(parentAgent, runtimeAgentDefinitions, config),
+  });
 
   // ── Pipeline completion is driven by pool_completed + coordinator decision.
   // step_report / step_ask_user tools removed to keep runtime protocol minimal.

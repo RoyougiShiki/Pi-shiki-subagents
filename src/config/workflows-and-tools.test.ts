@@ -98,14 +98,26 @@ describe('default workflows and agent tool matrix', () => {
     expect(parsed.agents?.customRescue?.requiresUserCommand).toBe(true);
   });
 
-  test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {
+  test('agents-default.json exposes workflow-bound modes and keeps fallback as full rescue mode', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
-    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; roles?: string[]; delegates?: string[]; workflow?: string }>;
+    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; roles?: string[]; delegates?: string[]; workflow?: string; pipelineMode?: boolean; hidden?: boolean }>;
 
-    // coordinator 使用工具组引用
-    expect(defs.coordinator?.tools).toEqual(['@交互', '@子代理']);
-    expect(defs.coordinator?.delegates).toEqual(['search', 'oracle']);
-    expect(defs.coordinator?.workflow).toBe('standard-dev');
+    expect(defs['standard-dev']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'standard-dev' });
+    expect(defs['quick-fix']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'quick-fix' });
+    expect(defs['research-only']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'research-only' });
+    for (const mode of ['standard-dev', 'quick-fix']) {
+      expect(defs[mode]?.tools).toEqual(['@交互', '@子代理']);
+      expect(defs[mode]?.delegates).toEqual(['search', 'oracle']);
+    }
+    expect(defs['research-only']?.tools).toEqual(['@交互', 'omo_subagent']);
+    expect(defs['research-only']?.tools).not.toContain('@子代理');
+    expect(defs['research-only']?.tools).not.toContain('omo_council');
+    expect(defs['research-only']?.delegates).toEqual(['search', 'oracle']);
+    expect(defs.coordinator?.hidden).toBe(true);
+    const visibleModes = Object.entries(defs)
+      .filter(([, def]) => !def.hidden && (def.type === 'mode' || def.type === 'both'))
+      .map(([name]) => name);
+    expect(visibleModes).toEqual(['standard-dev', 'quick-fix', 'research-only', 'fallback']);
     expect(defs.worker?.delegates).toEqual(['fixer', 'oracle']);
     expect(defs.worker?.roles).toEqual(['流程', '管理']);
 

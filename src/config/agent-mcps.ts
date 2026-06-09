@@ -10,6 +10,9 @@ import {
 
 export const DEFAULT_AGENT_MCPS: Partial<Record<AgentName, string[]>> = {
   [PRIMARY_MODE_AGENT_NAME]: ['*', '!context7'],
+  'quick-fix': ['*', '!context7'],
+  'research-only': ['*', '!context7'],
+  coordinator: ['*', '!context7'],
   designer: [],
   worker: [],
   oracle: [],

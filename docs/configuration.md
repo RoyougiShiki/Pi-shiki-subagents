@@ -23,7 +23,9 @@ JSONC supports comments and trailing commas.
   "preset": "default",
   "presets": {
     "default": {
-      "coordinator": { "model": "provider/model" },
+      "standard-dev": { "model": "provider/model" },
+      "quick-fix": { "model": "provider/model" },
+      "research-only": { "model": "provider/model" },
       "analyst": { "model": "provider/model" },
       "oracle": { "model": "provider/model", "variant": "high" },
       "search": { "model": "provider/model" },
@@ -55,8 +57,13 @@ JSONC supports comments and trailing commas.
 Current built-in agents include:
 
 ```text
-coordinator, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
+standard-dev, quick-fix, research-only, coordinator, analyst, search, oracle, designer, fixer, worker, dispatcher, observer, council, fallback
 ```
+
+The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
+`research-only`. `coordinator` is retained as a hidden compatibility/template
+entry for older configs and sessions; new configs should bind models to
+`standard-dev` as the primary mode.
 
 ## Agent Definitions and Prompts
 
@@ -120,10 +127,20 @@ Use this for explicit rescue modes that should not be entered by model initiativ
 ```jsonc
 {
   "agents": {
-    "coordinator": {
+    "standard-dev": {
       "type": "mode",
       "pipelineMode": true,
       "workflow": "standard-dev"
+    },
+    "quick-fix": {
+      "type": "mode",
+      "pipelineMode": true,
+      "workflow": "quick-fix"
+    },
+    "research-only": {
+      "type": "mode",
+      "pipelineMode": true,
+      "workflow": "research-only"
     },
     "fallback": {
       "type": "mode",

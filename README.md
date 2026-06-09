@@ -34,7 +34,10 @@ Legacy OpenCode adapter code has been removed. The package keeps a lightweight `
 
 ## Built-in Agent Boundaries
 
-- `coordinator` — main mode; clarifies with the user, delegates work, receives subagent results, and decides whether to pause or proceed.
+- `standard-dev` — primary workflow-bound mode for clarified development: analysis, plan, user confirmation, implementation dispatch, and oracle review.
+- `quick-fix` — workflow-bound mode for small, low-risk fixes with minimal scope and review.
+- `research-only` — workflow-bound read-only mode for evidence gathering, analysis, and conclusion boundaries.
+- `coordinator` — hidden compatibility/template entry for older configs and sessions; new user-facing work should enter through a workflow-bound mode.
 - `analyst` — non-questioning analysis support; analyzes known materials, identifies unknowns, risks, and options.
 - `oracle` — evidence-driven adversarial reviewer; reviews human text, AI output, implementation plans, code, docs, config, and test expectations.
 - `search` — read/search fact gathering.
@@ -48,11 +51,12 @@ The current runtime relies on:
 
 - tool-scope allowlists;
 - mode switching boundaries;
-- coordinator-controlled subagent delegation;
+- mode-bound workflow stage gates;
+- main-mode subagent delegation and pool reuse;
 - prompt-defined role boundaries;
 - informational mode/session notifications.
 
-It does **not** use per-edit/per-write/per-command approval gates. Those were removed because low-level repeated approvals made normal implementation work inefficient. High-level control remains at the mode/tool-scope and coordinator delegation layers.
+It does **not** use per-edit/per-write/per-command approval gates. Those were removed because low-level repeated approvals made normal implementation work inefficient. High-level control remains at the mode/tool-scope, workflow stage, and subagent delegation layers.
 
 ## Development
 
