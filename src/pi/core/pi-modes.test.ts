@@ -60,6 +60,8 @@ describe('mode switch notices', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.sessionStarted);
     expect(sent[0].message.content).toContain('[workflow] standard-dev (stage-gated; next stage requires approval)');
+    expect(sent[0].message.content).toContain('<MODE name="standard-dev">');
+    expect(sent[0].message.content).toContain('标准开发主控 agent');
     expect(sent[0].message.details.workflow).toBe('standard-dev');
   });
 

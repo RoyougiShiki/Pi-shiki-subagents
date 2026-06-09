@@ -1,4 +1,7 @@
-import { getDefaultAgentDefinitionNames } from '../adapters/default-agent-assets';
+import {
+  getDefaultAgentDefinitionNames,
+  readDefaultAgentDefinitions,
+} from '../adapters/default-agent-assets';
 
 // Agent names
 export const AGENT_ALIASES: Record<string, string> = {
@@ -12,13 +15,44 @@ export const ALL_AGENT_NAMES = [
   ...CONFIG_ONLY_AGENT_NAMES,
 ] as const;
 
-export const PRIMARY_MODE_AGENT_NAME = 'standard-dev' as const;
-
 export const MODEL_PLACEHOLDER = '<YOUR_MODEL>' as const;
 
-export const PRESET_CONFIGURABLE_AGENT_NAMES = ALL_AGENT_NAMES.filter(
-  (name) => name !== 'fallback',
-);
+function getPrimaryModeAgentName(): string {
+  const defaults = readDefaultAgentDefinitions();
+  const primaryModes = Object.entries(defaults)
+    .filter(([, definition]) => {
+      const typed = definition as { type?: unknown; presetPrimary?: unknown };
+      return (
+        typed.presetPrimary === true &&
+        (typed.type === 'mode' || typed.type === 'both')
+      );
+    })
+    .map(([name]) => name);
+  if (primaryModes.length !== 1) {
+    throw new Error(
+      `[oh-my-opencode-slim] agents-default.json must define exactly one presetPrimary mode; found ${primaryModes.length}`,
+    );
+  }
+  return primaryModes[0]!;
+}
+
+export const PRIMARY_MODE_AGENT_NAME = getPrimaryModeAgentName();
+
+function getPresetConfigurableAgentNames(): string[] {
+  const defaults = readDefaultAgentDefinitions();
+  const names = new Set<string>([PRIMARY_MODE_AGENT_NAME]);
+  for (const [name, definition] of Object.entries(defaults)) {
+    const type = (definition as { type?: unknown } | undefined)?.type;
+    if (type === 'subagent' || type === 'both') names.add(name);
+  }
+  for (const name of CONFIG_ONLY_AGENT_NAMES) names.add(name);
+  return [...names].filter((name) =>
+    (ALL_AGENT_NAMES as readonly string[]).includes(name),
+  );
+}
+
+export const PRESET_CONFIGURABLE_AGENT_NAMES =
+  getPresetConfigurableAgentNames();
 
 export type AgentName = string;
 

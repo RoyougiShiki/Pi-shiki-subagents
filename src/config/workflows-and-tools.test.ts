@@ -123,9 +123,9 @@ describe('default workflows and agent tool matrix', () => {
 
   test('agents-default.json exposes workflow-bound modes and keeps fallback as full rescue mode', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
-    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; roles?: string[]; delegates?: string[]; workflow?: string; pipelineMode?: boolean; hidden?: boolean }>;
+    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; roles?: string[]; delegates?: string[]; workflow?: string; pipelineMode?: boolean; presetPrimary?: boolean; hidden?: boolean }>;
 
-    expect(defs['standard-dev']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'standard-dev' });
+    expect(defs['standard-dev']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'standard-dev', presetPrimary: true });
     expect(defs['quick-fix']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'quick-fix' });
     expect(defs['research-only']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'research-only' });
     expect(defs['standard-dev']?.tools).toEqual(['@交互', '@子代理']);
@@ -143,6 +143,10 @@ describe('default workflows and agent tool matrix', () => {
       .filter(([, def]) => !def.hidden && (def.type === 'mode' || def.type === 'both'))
       .map(([name]) => name);
     expect(visibleModes).toEqual(['standard-dev', 'quick-fix', 'research-only', 'fallback']);
+    const presetPrimaryModes = Object.entries(defs)
+      .filter(([, def]) => def.presetPrimary === true)
+      .map(([name]) => name);
+    expect(presetPrimaryModes).toEqual(['standard-dev']);
     expect(defs.worker?.delegates).toEqual(['fixer', 'oracle']);
     expect(defs.worker?.roles).toEqual(['流程', '管理']);
 

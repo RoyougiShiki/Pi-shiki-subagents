@@ -16,6 +16,7 @@ export interface RuntimeAgentDefinition {
   delegates?: string[];
   pipelineMode?: boolean;
   workflow?: string;
+  presetPrimary?: boolean;
   requiresUserCommand?: boolean;
   hidden?: boolean;
   instructions?: string;

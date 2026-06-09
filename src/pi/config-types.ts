@@ -29,7 +29,13 @@ export interface OmniMoConfig {
   >;
   agents?: Record<
     string,
-    { model?: string; variant?: string; thinking?: string; workflow?: string }
+    {
+      model?: string;
+      variant?: string;
+      thinking?: string;
+      workflow?: string;
+      presetPrimary?: boolean;
+    }
   >;
   disabled_agents?: string[];
   council?: PiCouncilConfig;

@@ -47,6 +47,8 @@ interface AgentDefinition {
   pipelineMode?: boolean;
   /** Workflow bound to this pipeline mode. */
   workflow?: string;
+  /** If true, presets use this mode entry as the foreground model target. */
+  presetPrimary?: boolean;
 }
 
 // ── 常量 ──────────────────────────────────────────────────────────────────
@@ -524,13 +526,14 @@ export function emitModeSessionNotice(
 ): void {
   const { tools, line: toolLine } = getModeToolSummary();
   const workflowLine = getWorkflowSummaryLine(mode);
+  const modePromptBlock = formatModePromptBlock(mode);
   const customType = kind === "resumed"
     ? MODE_MESSAGE_TYPES.sessionResumed
     : MODE_MESSAGE_TYPES.sessionStarted;
 
   pi.sendMessage({
     customType,
-    content: `[mode-session] ${kind} | mode: ${mode}${workflowLine}${toolLine}`,
+    content: `[mode-session] ${kind} | mode: ${mode}${workflowLine}${toolLine}${modePromptBlock}`,
     display: true,
     details: {
       kind,

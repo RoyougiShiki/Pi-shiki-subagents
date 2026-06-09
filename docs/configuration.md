@@ -24,8 +24,6 @@ JSONC supports comments and trailing commas.
   "presets": {
     "default": {
       "standard-dev": { "model": "provider/model" },
-      "quick-fix": { "model": "provider/model" },
-      "research-only": { "model": "provider/model" },
       "analyst": { "model": "provider/model" },
       "oracle": { "model": "provider/model", "variant": "high" },
       "search": { "model": "provider/model" },
@@ -63,7 +61,10 @@ standard-dev, quick-fix, research-only, analyst, search, oracle, designer, fixer
 The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
 `research-only`. `fallback` is the explicit rescue mode. Older managed
 `coordinator` mode entries are retired during Pi-native startup normalization;
-new configs should bind models to the workflow-bound modes directly.
+new configs should bind the foreground preset model to `standard-dev`; switch
+behavior with modes, not with preset model entries for every mode.
+The foreground preset target is the single built-in mode marked
+`presetPrimary: true`.
 
 `quick-fix` is the shortest write-capable path: the main agent scopes the
 small fix itself, asks for work-package approval, then delegates through the
@@ -137,7 +138,8 @@ Use this for explicit rescue modes that should not be entered by model initiativ
     "standard-dev": {
       "type": "mode",
       "pipelineMode": true,
-      "workflow": "standard-dev"
+      "workflow": "standard-dev",
+      "presetPrimary": true
     },
     "quick-fix": {
       "type": "mode",

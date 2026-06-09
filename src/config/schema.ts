@@ -80,6 +80,7 @@ export const AgentOverrideConfigSchema = z
     delegates: z.array(z.string()).optional(),
     pipelineMode: z.boolean().optional(),
     workflow: z.string().min(1).optional(),
+    presetPrimary: z.boolean().optional(),
     requiresUserCommand: z.boolean().optional(),
     hidden: z.boolean().optional(),
     label: z.string().optional(),

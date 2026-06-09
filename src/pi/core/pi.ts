@@ -1426,7 +1426,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const modelItem: AutocompleteItem = {
         value: PRESET_MODEL_SUBCOMMAND,
         label: PRESET_MODEL_SUBCOMMAND,
-        description: 'Set a model for one agent in a preset',
+        description: 'Set a model for the primary mode or a subagent in a preset',
       };
       const items = [modelItem, ...presetItems].filter(
         (item) =>
@@ -1694,11 +1694,18 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       return;
     }
 
+    const agentNames = getConfigAgentNames(config, presetName);
     if (!agentName) {
-      const agentNames = getConfigAgentNames(config, presetName);
       const selectedAgent = await ctx.ui.select('Select agent', agentNames);
       if (!selectedAgent) return;
       agentName = selectedAgent;
+    } else if (!agentNames.includes(agentName)) {
+      const available = agentNames.join(', ') || '(none)';
+      ctx.ui.notify(
+        `"${agentName}" is not model-configurable in presets. Available targets: ${available}`,
+        'error',
+      );
+      return;
     }
 
     const currentModelRef = getConfiguredAgentModel(

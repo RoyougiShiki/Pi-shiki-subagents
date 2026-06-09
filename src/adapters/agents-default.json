@@ -11,6 +11,7 @@
     ],
     "pipelineMode": true,
     "workflow": "standard-dev",
+    "presetPrimary": true,
     "label": "标准开发模式（阶段门禁）"
   },
   "quick-fix": {
