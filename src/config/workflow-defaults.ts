@@ -3,7 +3,7 @@ import type { WorkflowDefinition, WorkflowsConfig } from './workflow-types';
 export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
   {
     name: 'standard-dev',
-    description: '标准受控开发流程：分析 → 计划 → 实现与审查',
+    description: '标准受控开发流程：分析 → 计划 → 调度实现与审查',
     stages: [
       {
         id: 'analysis',
@@ -21,16 +21,16 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
       },
       {
         id: 'implement',
-        agent: 'fixer',
-        description: '按已确认计划实现并验证；实现后委托 oracle 做规格/质量审查，不通过则继续同一 fixer 会话返工',
+        agent: 'dispatcher',
+        description: '按已确认计划调度 fixer 实现和 oracle 审查；审查不通过则继续同一 fixer 会话返工',
         outputSchema: 'implementation',
-        allowedSubagents: ['oracle'],
+        allowedSubagents: ['fixer', 'oracle'],
       },
     ],
   },
   {
     name: 'quick-fix',
-    description: '快速修复流程：边界分析 → 实现与审查',
+    description: '快速修复流程：边界分析 → 快速调度实现与审查',
     stages: [
       {
         id: 'analysis',
@@ -41,10 +41,10 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
       },
       {
         id: 'implement',
-        agent: 'fixer',
-        description: '实施最小修复并运行验证；必要时委托 oracle 审查，不通过则继续同一 fixer 会话返工',
+        agent: 'worker',
+        description: '调度 fixer 实施最小修复并用 oracle 审查；不通过则继续同一 fixer 会话返工',
         outputSchema: 'implementation',
-        allowedSubagents: ['oracle'],
+        allowedSubagents: ['fixer', 'oracle'],
       },
     ],
   },

@@ -246,9 +246,8 @@ describe('resolveDelegationCaller', () => {
 
   test('resolves subagent tools from explicit tools and default role groups', () => {
     expect(resolveSubagentToolNamesForAgent('worker')).toEqual([
-      'read',
-      'write',
-      'edit',
+      'omo_subagent',
+      'omo_council',
     ]);
     const fixerTools = resolveSubagentToolNamesForAgent('fixer') ?? [];
     expect(fixerTools.includes('read')).toBe(true);
@@ -475,9 +474,8 @@ describe('AgentPool basic operations', () => {
     expect(event.type).toBe('completed');
     expect(event.response).toBe('task done');
     expect(createSession.mock.calls[0]?.[0]?.tools).toEqual([
-      'read',
-      'write',
-      'edit',
+      'omo_subagent',
+      'omo_council',
     ]);
     expect(createSession.mock.calls[0]?.[0]?.sessionManager).toBeDefined();
     expect(createSession.mock.calls[0]?.[0]?.sessionManager.kind).toBe(

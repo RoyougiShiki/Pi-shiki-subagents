@@ -41,13 +41,13 @@
   "worker": {
     "type": "subagent",
     "delegates": [
+      "fixer",
       "oracle"
     ],
-    "label": "备用快速调度",
-    "tools": [
-      "read",
-      "write",
-      "edit"
+    "label": "快速实施调度",
+    "roles": [
+      "流程",
+      "管理"
     ]
   },
   "oracle": {
@@ -115,7 +115,7 @@
       "fixer",
       "oracle"
     ],
-    "label": "备用实施调度",
+    "label": "标准实施调度",
     "roles": [
       "流程",
       "管理"

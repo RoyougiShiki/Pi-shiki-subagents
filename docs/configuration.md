@@ -135,7 +135,7 @@ Use this for explicit rescue modes that should not be entered by model initiativ
     "list": [
       {
         "name": "standard-dev",
-        "description": "标准受控开发流程：分析 → 计划 → 实现与审查",
+        "description": "标准受控开发流程：分析 → 计划 → 调度实现与审查",
         "stages": [
           {
             "id": "analysis",
@@ -151,9 +151,9 @@ Use this for explicit rescue modes that should not be entered by model initiativ
           },
           {
             "id": "implement",
-            "agent": "fixer",
-            "description": "实现、验证，并用 oracle 审查；不通过则继续同一 fixer 会话返工",
-            "allowedSubagents": ["oracle"]
+            "agent": "dispatcher",
+            "description": "调度 fixer 实现和 oracle 审查；不通过则继续同一 fixer 会话返工",
+            "allowedSubagents": ["fixer", "oracle"]
           }
         ]
       }

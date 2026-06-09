@@ -28,14 +28,21 @@ describe('default workflows and agent tool matrix', () => {
     expect(standardDev?.stages.map((stage) => stage.agent)).toEqual([
       'analyst',
       'designer',
-      'fixer',
+      'dispatcher',
     ]);
-    expect(standardDev?.stages.at(-1)?.allowedSubagents).toContain('oracle');
+    expect(standardDev?.stages.at(-1)?.allowedSubagents).toEqual([
+      'fixer',
+      'oracle',
+    ]);
 
     const quickFix = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'quick-fix');
     expect(quickFix?.stages.map((stage) => stage.agent)).toEqual([
       'analyst',
+      'worker',
+    ]);
+    expect(quickFix?.stages.at(-1)?.allowedSubagents).toEqual([
       'fixer',
+      'oracle',
     ]);
   });
 
@@ -93,12 +100,14 @@ describe('default workflows and agent tool matrix', () => {
 
   test('agents-default.json keeps coordinator scoped and fallback as full rescue mode', () => {
     const configPath = path.join(import.meta.dir, '..', 'adapters', 'agents-default.json');
-    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; delegates?: string[]; workflow?: string }>;
+    const defs = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Record<string, { type?: string; tools?: string[]; roles?: string[]; delegates?: string[]; workflow?: string }>;
 
     // coordinator 使用工具组引用
     expect(defs.coordinator?.tools).toEqual(['@交互', '@子代理']);
     expect(defs.coordinator?.delegates).toEqual(['search', 'oracle']);
     expect(defs.coordinator?.workflow).toBe('standard-dev');
+    expect(defs.worker?.delegates).toEqual(['fixer', 'oracle']);
+    expect(defs.worker?.roles).toEqual(['流程', '管理']);
 
     // fallback 使用 "*" 表示全部工具
     expect(defs.fallback?.tools).toEqual(['*']);

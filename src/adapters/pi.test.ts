@@ -134,7 +134,7 @@ describe('Pi adapter agent prompt sync', () => {
     expect(coordinatorLine).toContain('非阶段可委托: search, oracle');
     expect(prompt).toContain('<ModeWorkflows>');
     expect(prompt).toContain('@coordinator -> standard-dev');
-    expect(prompt).toContain('3.implement:fixer (+oracle)');
+    expect(prompt).toContain('3.implement:dispatcher (+fixer, oracle)');
 
     const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
     fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
