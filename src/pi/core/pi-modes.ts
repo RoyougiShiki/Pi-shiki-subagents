@@ -480,11 +480,6 @@ function getWorkflowSummaryLine(mode: string): string {
     : "\n[workflow] none (non-pipeline/rescue)";
 }
 
-function formatModePromptBlock(mode: string): string {
-  const instructions = getModeInstructions(mode)?.trim();
-  return instructions ? `\n\n<MODE name="${mode}">\n${instructions}\n</MODE>` : "";
-}
-
 export function emitModeSwitched(
   pi: ExtensionAPI,
   fromMode: string,
@@ -496,7 +491,7 @@ export function emitModeSwitched(
 
   pi.sendMessage({
     customType: MODE_MESSAGE_TYPES.switched,
-    content: `[mode] ${fromMode} -> ${toMode}${workflowLine}${toolLine}${formatModePromptBlock(toMode)}`,
+    content: `[mode] ${fromMode} -> ${toMode}${workflowLine}${toolLine}`,
     display: true,
     details: {
       kind: "switched",
@@ -517,14 +512,13 @@ export function emitModeSessionNotice(
 ): void {
   const { tools, line: toolLine } = getModeToolSummary();
   const workflowLine = getWorkflowSummaryLine(mode);
-  const modePromptBlock = formatModePromptBlock(mode);
   const customType = kind === "resumed"
     ? MODE_MESSAGE_TYPES.sessionResumed
     : MODE_MESSAGE_TYPES.sessionStarted;
 
   pi.sendMessage({
     customType,
-    content: `[mode-session] ${kind} | mode: ${mode}${workflowLine}${toolLine}${modePromptBlock}`,
+    content: `[mode-session] ${kind} | mode: ${mode}${workflowLine}${toolLine}`,
     display: true,
     details: {
       kind,

@@ -60,12 +60,12 @@ describe('mode switch notices', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].message.customType).toBe(MODE_MESSAGE_TYPES.sessionStarted);
     expect(sent[0].message.content).toContain('[workflow] standard-dev (stage-gated; next stage requires approval)');
-    expect(sent[0].message.content).toContain('<MODE name="standard-dev">');
-    expect(sent[0].message.content).toContain('标准开发主控 agent');
+    expect(sent[0].message.content).not.toContain('<MODE name="standard-dev">');
+    expect(sent[0].message.content).not.toContain('标准开发主控 agent');
     expect(sent[0].message.details.workflow).toBe('standard-dev');
   });
 
-  test('mode switch notices include the target mode prompt for the next turn', () => {
+  test('mode switch notices stay short and leave prompt injection to before_agent_start', () => {
     resetToolScope();
     setToolScope(['omo_subagent'], 'mode', 'quick-fix');
 
@@ -79,9 +79,11 @@ describe('mode switch notices', () => {
     emitModeSwitched(pi, 'standard-dev', 'quick-fix', true);
 
     expect(sent).toHaveLength(1);
-    expect(sent[0].message.content).toContain('<MODE name="quick-fix">');
-    expect(sent[0].message.content).toContain('等待系统工作包审批');
-    expect(sent[0].message.content).toContain('委托当前实现阶段主子代理做最小修复');
+    expect(sent[0].message.content).toContain('[mode] standard-dev -> quick-fix');
+    expect(sent[0].message.content).toContain('[workflow] quick-fix (stage-gated; next stage requires approval)');
+    expect(sent[0].message.content).not.toContain('<MODE name="quick-fix">');
+    expect(sent[0].message.content).not.toContain('等待系统工作包审批');
+    expect(sent[0].message.content).not.toContain('委托当前实现阶段主子代理做最小修复');
     expect(sent[0].message.content).not.toContain('不委托 analyst');
   });
 
