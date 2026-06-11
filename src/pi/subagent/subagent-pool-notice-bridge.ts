@@ -125,6 +125,12 @@ export function registerPoolNoticeBridge(options: {
       const guardedCtx = createGenerationGuardedContext(options.ctx, generation);
       if (isCurrentGeneration(generation)) {
         try {
+          options.ctx.ui.notify(
+            `[pool] ${formatPoolEventLabel(event)} completed`,
+            'success',
+          );
+        } catch {}
+        try {
           options.pi.sendMessage(
             {
               customType: 'pool_completed',

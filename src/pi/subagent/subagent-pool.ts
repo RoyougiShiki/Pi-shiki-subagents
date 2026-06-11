@@ -187,11 +187,24 @@ export interface PoolAgentInfo {
 // ─── One-shot runner ──────────────────────────────────────────────────────
 
 function extractText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
   if (!Array.isArray(content)) return '';
   const parts = content
-    .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
+    .filter(
+      (c: any) =>
+        (c?.type === 'text' || c?.type === undefined) &&
+        typeof c.text === 'string',
+    )
     .map((c: any) => c.text);
   return parts.join('\n').trim();
+}
+
+function noCapturedAssistantText(id: string): string {
+  return [
+    `[diagnostic] Sub-agent "${id}" completed, but no assistant text was captured.`,
+    'The session may have ended without a final message, or the Pi SDK returned a message shape this extension did not recognize.',
+    'Use pool=send/resume to ask the sub-agent for a concise summary, or inspect the saved session if available.',
+  ].join('\n');
 }
 
 function extractAssistantMessageText(message: any): string {
@@ -836,7 +849,16 @@ export class AgentPool {
         lastResponse: entry.lastResponse,
         messageCount: entry.messageCount,
       });
-      return { response: entry.lastResponse };
+      if (entry.lastResponse) return { response: entry.lastResponse };
+
+      const diagnostic = noCapturedAssistantText(id);
+      entry.lastResponse = diagnostic;
+      this.updateRegistry(id, {
+        status: entry.status,
+        lastResponse: diagnostic,
+        messageCount: entry.messageCount,
+      });
+      return { response: diagnostic };
     } catch (err: any) {
       const errorMsg = err.message ?? String(err);
       this.updateRegistry(id, {

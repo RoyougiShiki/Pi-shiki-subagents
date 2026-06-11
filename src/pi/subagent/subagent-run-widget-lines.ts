@@ -29,8 +29,8 @@ function sanitizeAscii(text: string): string {
     .replace(/↑/g, 'in:')
     .replace(/↓/g, 'out:')
     .replace(/·/g, '|')
-    .replace(/[^\x20-\x7E]/g, '?')
-    .replace(/[\t\r\n]+/g, ' ');
+    .replace(/[\t\r\n]+/g, ' ')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
 function truncateLine(text: string, width: number): string {

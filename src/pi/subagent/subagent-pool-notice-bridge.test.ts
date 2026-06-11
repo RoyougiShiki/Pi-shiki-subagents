@@ -110,6 +110,10 @@ describe('subagent pool notice bridge', () => {
     expect(newPi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
       '[pool] fixer/run-1 已完成',
     );
+    expect(newCtx.ui.notify).toHaveBeenCalledWith(
+      '[pool] fixer/run-1 completed',
+      'success',
+    );
     expect(newPi.sendMessage.mock.calls[0]?.[1]).toEqual({
       deliverAs: 'followUp',
       triggerTurn: true,
@@ -136,6 +140,10 @@ describe('subagent pool notice bridge', () => {
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
     expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
       '[pool] fixer/run-1 已完成',
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      '[pool] fixer/run-1 completed',
+      'success',
     );
     expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(1);
   });
@@ -174,6 +182,7 @@ describe('subagent pool notice bridge', () => {
     });
 
     expect(oldPi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(oldCtx.ui.notify).toHaveBeenCalledTimes(1);
 
     registerPoolNoticeBridge({
       pool,
@@ -185,7 +194,7 @@ describe('subagent pool notice bridge', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(oldCtx.ui.notify).not.toHaveBeenCalled();
+    expect(oldCtx.ui.notify).toHaveBeenCalledTimes(1);
     expect(newPi.sendMessage).not.toHaveBeenCalled();
     expect(pool.listenerCount()).toBe(1);
   });

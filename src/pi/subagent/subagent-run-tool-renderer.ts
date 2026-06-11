@@ -26,7 +26,10 @@ const COLLAPSED_EVENT_LIMIT = 2;
 const COLLAPSED_LINE_LIMIT = 3;
 
 function sanitizeAscii(value: string): string {
-  return value.replace(/[^\x20-\x7e]/g, '?').replace(/\s+/g, ' ').trim();
+  return value
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function clip(line: string, width: number): string {

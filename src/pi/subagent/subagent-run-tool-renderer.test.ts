@@ -147,6 +147,28 @@ describe('omo subagent tool renderer', () => {
     ).toEqual(['fallback']);
   });
 
+  test('renderer preserves unicode text and strips control characters', () => {
+    const lines = renderOmoSubagentResultLines(
+      {
+        details: details({
+          action: 'send',
+          focusedRun: {
+            ...details().focusedRun!,
+            title: '实现 子代理\u0007',
+            latestEvents: [{ type: 'activity', summary: '完成 中文摘要\u0007' }],
+          },
+        }),
+      },
+      { expanded: false, width: 120 },
+    );
+
+    const rendered = lines.join('\n');
+    expect(rendered).toContain('实现 子代理');
+    expect(rendered).toContain('完成 中文摘要');
+    expect(rendered).not.toContain('\u0007');
+    expect(rendered).not.toContain('????');
+  });
+
   test('renderer does not render raw prompt/message sentinels', () => {
     const lines = renderOmoSubagentResultLines(
       {

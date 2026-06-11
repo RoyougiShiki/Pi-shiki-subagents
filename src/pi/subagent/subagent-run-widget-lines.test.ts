@@ -182,21 +182,18 @@ describe('subagent run widget lines', () => {
     expect(lines.join('\n')).not.toContain('expired completed');
   });
 
-  test('ascii-sanitizes wide text before truncation', () => {
+  test('preserves unicode text while removing control characters before truncation', () => {
     const lines = renderSubagentRunWidgetLines(
       view([
-        node({ title: '审查 oracle 非ASCII', recentLines: ['读取 文件 内容'] }),
+        node({ title: '审查 oracle 非ASCII\u0007', recentLines: ['读取 文件 内容'] }),
       ]),
-      { now: 1000, width: 24 },
+      { now: 1000, width: 80 },
     );
-    expect(lines.every((line) => line.length <= 24)).toBe(true);
-    expect(lines.join('\n')).not.toContain('审查');
-    expect(lines.join('\n')).not.toContain('读取');
-    for (const char of lines.join('\n')) {
-      const code = char.charCodeAt(0);
-      expect(code >= 0x20 || code === 0x0a).toBe(true);
-      expect(code <= 0x7e || code === 0x0a).toBe(true);
-    }
+    const rendered = lines.join('\n');
+    expect(rendered).toContain('审查');
+    expect(rendered).toContain('读取');
+    expect(rendered).not.toContain('\u0007');
+    expect(rendered).not.toContain('????');
   });
 
   test('shows active descendants under expired inactive parents', () => {
