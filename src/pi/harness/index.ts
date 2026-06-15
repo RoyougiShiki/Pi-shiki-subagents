@@ -148,28 +148,6 @@ export {
   type VerifierVerdictIngestionResult,
 } from "./verifier-verdict-evidence";
 
-// Verification Nudge Detector
-export {
-  detectVerificationNudge,
-  getDefaultNudgeMessage,
-  formatNudgeMessage,
-  DEFAULT_THRESHOLD,
-  DEFAULT_VERIFICATION_STEP_PATTERN,
-  DEFAULT_NUDGE_MESSAGE,
-  type VerificationNudgeConfig,
-  type VerificationNudgeResult,
-} from "./verification-nudge";
-
-// Verification Nudge Runtime
-export {
-  appendNudgeToModelFacingContent,
-  updateTaskStateFromToolResult,
-  type ModelFacingContent,
-  type RuntimeTaskItem,
-  type TaskToolStateUpdateInput,
-  type TaskToolStateUpdateResult,
-} from "./verification-nudge-runtime";
-
 // Completion Audit Scope
 export {
   hasModificationEvidence,
@@ -196,13 +174,3 @@ export {
   type StructuredToolResult,
   type ToolResultNormalizeOutput,
 } from "./tool-result-normalizer";
-
-// Final Request Detector
-export {
-  detectFinalRequest,
-  detectFinalRequestFromMessages,
-  DEFAULT_FINAL_REQUEST_PATTERNS,
-  type FinalRequestPatternConfig,
-  type FinalRequestDetectorOptions,
-  type UserMessage,
-} from "./final-request-detector";

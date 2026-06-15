@@ -7,7 +7,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     stages: [
       {
         id: 'analysis',
-        agent: 'analyst',
+        agent: 'standard-dev',
         description: '分析需求边界、影响范围、证据缺口和风险；必要时委托查证类辅助补证',
         outputSchema: 'analysis',
         allowedSubagents: ['search'],
@@ -48,7 +48,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
     stages: [
       {
         id: 'analysis',
-        agent: 'analyst',
+        agent: 'research-only',
         description: '分析研究问题、证据、unknowns 和结论边界；必要时委托查证类辅助补证',
         outputSchema: 'analysis',
         allowedSubagents: ['search'],

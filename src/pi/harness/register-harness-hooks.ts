@@ -2,25 +2,18 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { recordEvidence, type ToolEvidence } from "../policy/evidence-tracker";
-import { auditEvidence } from "../policy/runtime-audit";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 import {
-  appendNudgeToModelFacingContent,
   applyToolResultBudget,
   applyVerifierVerdictsToEvidenceSummary,
   compilePatterns,
   createEvidenceSessionStore,
   DEFAULT_PATTERN_SOURCES,
-  detectFinalRequestFromMessages,
-  detectVerificationNudge,
-  formatNudgeMessage,
   ingestVerifierVerdict,
   normalizeToolResult,
   resolveHarnessConfig,
   runHarnessAudit,
   selectCompletionAuditEvidence,
-  updateTaskStateFromToolResult,
-  type RuntimeTaskItem,
   type ResolvedHarnessConfig,
 } from "../harness";
 import { createToolResultBudgetState, type ToolResultBudgetState } from "./tool-result-budget-state";
@@ -132,7 +125,6 @@ export function registerHarnessHooks(
   const harnessSessionId = createHarnessSessionId();
   const evidenceSessionStore = createEvidenceSessionStore();
   let currentTurnEvidences: ToolEvidence[] = [];
-  let runtimeTasks: RuntimeTaskItem[] = [];
   let budgetState: ToolResultBudgetState = createToolResultBudgetState();
   let budgetStateKey: string | undefined;
   let verifierVerdictsKey: string | undefined;
@@ -259,15 +251,6 @@ export function registerHarnessHooks(
     const evidence = normalized.evidence;
 
     evidenceSessionStore.recordEvidence(evidence);
-    recordEvidence(
-      evidence.toolName,
-      evidence.toolCallId,
-      evidence.rawInput,
-      normalized.modelFacingMessage,
-      evidence.success,
-      evidence.exitCode,
-    );
-    auditEvidence("recorded", toolName, toolCallId);
     currentTurnEvidences = [
       ...currentTurnEvidences,
       {
@@ -293,26 +276,7 @@ export function registerHarnessHooks(
       await saveEvidenceSummaryState(recoveredEvidenceSummaryState, storage.baseDir, storage.sessionId);
     });
 
-    let nudgeMessage: string | undefined;
-    const taskState = updateTaskStateFromToolResult(runtimeTasks, {
-      toolName,
-      rawInput: args,
-      contentText: extractTextFromContentParts(Array.isArray(normalized.modelFacingMessage) ? normalized.modelFacingMessage : [normalized.modelFacingMessage]),
-    });
-    if (taskState.changed) {
-      const oldTasks = runtimeTasks;
-      runtimeTasks = taskState.tasks;
-      const hasVerifierVerdict = verifierVerdictsAfter(evidenceSessionStore.getVerifierVerdicts(sessionId), evidence.timestamp).length > 0;
-      const nudge = detectVerificationNudge(oldTasks, runtimeTasks);
-      if (nudge.needed && !hasVerifierVerdict) {
-        nudgeMessage = formatNudgeMessage(nudge.closedCount);
-        try {
-          (ctx as any)?.ui?.notify?.(`[harness] ${nudgeMessage}`, "warning");
-        } catch {}
-      }
-    }
-
-    let outputContent = appendNudgeToModelFacingContent(normalized.modelFacingMessage as any, nudgeMessage);
+    let outputContent = normalized.modelFacingMessage;
     const outputIsError = evidence.success ? false : isError;
 
     if (harnessConfig.toolResultBudget.enabled) {
@@ -342,7 +306,7 @@ export function registerHarnessHooks(
       }
     }
 
-    if (normalized.messageModified || outputIsError !== isError || nudgeMessage) {
+    if (normalized.messageModified || outputIsError !== isError) {
       const returnedContent: any[] = Array.isArray(outputContent) ? outputContent : [outputContent];
       return {
         content: returnedContent,
@@ -361,14 +325,6 @@ export function registerHarnessHooks(
     const finalText = extractTextFromContentParts(message?.content ?? []);
     if (!finalText) return;
 
-    const entries = ctx.sessionManager?.getEntries?.() ?? [];
-    const userAskedForFinal = detectFinalRequestFromMessages(entries);
-
-    const patterns = compilePatterns(DEFAULT_PATTERN_SOURCES);
-    const claimsCompletion = patterns.completion.some((p) => p.test(finalText));
-    const isFinalReport = userAskedForFinal || claimsCompletion;
-    if (!isFinalReport) return;
-
     const verifierStorage = await withVerifierVerdicts(ctx, async (storage) => storage);
     const sessionId = verifierStorage.sessionId;
     await withRecoveredEvidenceSummary(ctx, async () => undefined);
@@ -376,7 +332,7 @@ export function registerHarnessHooks(
       sessionId,
       sessionEvidences: evidenceSessionStore.getEvidenceSnapshot(sessionId),
       currentTurnEvidences,
-      forceSessionWindow: claimsCompletion,
+      forceSessionWindow: true,
     });
     const latestRelevantModificationAt = Math.max(
       latestModificationTimestamp(auditEvidenceSelection.evidences) ?? -Infinity,
@@ -395,7 +351,6 @@ export function registerHarnessHooks(
       {
         finalText,
         evidenceSummary,
-        userAskedForFinal,
       },
       {
         messages: harnessConfig.messages,

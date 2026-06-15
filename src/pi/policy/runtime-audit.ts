@@ -1,10 +1,14 @@
 /**
- * RuntimeAudit — 结构化审计输出
+ * RuntimeAudit — 轻量可观测日志（无全局状态）
  *
  * 设计原则：
- * - 可观测性：所有决策都有审计记录
- * - 不污染用户：审计输出到 stderr 或 jsonl，不进聊天流
- * - 开关控制：默认关闭，按需开启
+ * - 可观测性：harness 决策有结构化日志输出（stderr，不污染聊天流）
+ * - 无状态：不维护全局数组，避免内存泄漏和跨会话污染
+ * - 开关控制：OMO_AUDIT=1 或 OMO_DEBUG_TOOLS=1 时输出
+ *
+ * 降级说明：原实现维护全局 _auditLog 数组 + _auditEnabled 状态，
+ * 属于未被消费的可变状态（内存泄漏源）。降级为纯函数日志，
+ * 保留函数签名以兼容调用方（pi.ts）。详见 proposal-v2.md §2 H2。
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -12,9 +16,7 @@
 export type AuditEvent =
   | ToolScopeEvent
   | ClarificationEvent
-  | ApprovalEvent
-  | EvidenceEvent
-  | ViolationEvent;
+  | ApprovalEvent;
 
 export interface ToolScopeEvent {
   type: "tool_scope";
@@ -42,161 +44,50 @@ export interface ApprovalEvent {
   timestamp: number;
 }
 
-export interface EvidenceEvent {
-  type: "evidence";
-  action: "recorded" | "verified" | "failed";
-  toolName: string;
-  toolCallId?: string;
-  hasEvidence?: boolean;
-  timestamp: number;
-}
+// ─── Switch (环境变量驱动，无全局可变状态) ─────────────────────────────────
 
-export interface ViolationEvent {
-  type: "violation";
-  action: "blocked" | "logged";
-  toolName: string;
-  reason: string;
-  timestamp: number;
-}
-
-// ─── State ────────────────────────────────────────────────────────────────
-
-let _auditEnabled = false;
-let _auditLog: AuditEvent[] = [];
-
-// ─── Configuration ────────────────────────────────────────────────────────
-
-/**
- * 启用/禁用审计
- */
-export function setAuditEnabled(enabled: boolean): void {
-  _auditEnabled = enabled;
+function isAuditEnabled(): boolean {
+  return process.env.OMO_AUDIT === "1" || process.env.OMO_DEBUG_TOOLS === "1";
 }
 
 /**
- * 获取审计状态
+ * 兼容旧调用方（pi.ts 在 session_start 调用）。
+ * 降级后为 no-op：开关由环境变量驱动，无需运行时设置。
  */
-export function isAuditEnabled(): boolean {
-  return _auditEnabled;
-}
-
-/**
- * 清空审计日志
- */
-export function clearAuditLog(): void {
-  _auditLog = [];
-}
-
-/**
- * 获取审计日志
- */
-export function getAuditLog(): AuditEvent[] {
-  return [..._auditLog];
-}
+export function setAuditEnabled(_enabled: boolean): void {}
 
 // ─── Core API ─────────────────────────────────────────────────────────────
 
-/**
- * 记录审计事件
- */
-export function recordAudit(event: AuditEvent): void {
-  if (!_auditEnabled) return;
-
-  _auditLog.push(event);
-
+function logEvent(event: AuditEvent): void {
+  if (!isAuditEnabled()) return;
   // 输出到 stderr（不污染聊天流）
-  if (process.env.OMO_DEBUG_TOOLS === "1" || process.env.OMO_AUDIT === "1") {
-    console.error(`[audit] ${JSON.stringify(event)}`);
-  }
+  console.error(`[audit] ${JSON.stringify(event)}`);
 }
 
-/**
- * 记录工具真值事件
- */
+// ─── Convenience wrappers（签名不变，兼容 pi.ts） ──────────────────────────
+
 export function auditToolScope(
   action: "set" | "audit",
   source: string,
   sourceName: string,
   tools: string[]
 ): void {
-  recordAudit({
-    type: "tool_scope",
-    action,
-    source,
-    sourceName,
-    tools,
-    timestamp: Date.now(),
-  });
+  logEvent({ type: "tool_scope", action, source, sourceName, tools, timestamp: Date.now() });
 }
 
-/**
- * 记录澄清事件
- */
 export function auditClarification(
   action: "blocked" | "passed",
   toolName: string,
   reason?: string
 ): void {
-  recordAudit({
-    type: "clarification",
-    action,
-    toolName,
-    reason,
-    timestamp: Date.now(),
-  });
+  logEvent({ type: "clarification", action, toolName, reason, timestamp: Date.now() });
 }
 
-/**
- * 记录审批事件
- */
 export function auditApproval(
   action: "required" | "approved" | "denied" | "passed",
   toolName: string,
   riskLevel?: string,
   reason?: string
 ): void {
-  recordAudit({
-    type: "approval",
-    action,
-    toolName,
-    riskLevel,
-    reason,
-    timestamp: Date.now(),
-  });
-}
-
-/**
- * 记录证据事件
- */
-export function auditEvidence(
-  action: "recorded" | "verified" | "failed",
-  toolName: string,
-  toolCallId?: string,
-  hasEvidence?: boolean
-): void {
-  recordAudit({
-    type: "evidence",
-    action,
-    toolName,
-    toolCallId,
-    hasEvidence,
-    timestamp: Date.now(),
-  });
-}
-
-/**
- * 记录违规事件
- */
-export function auditViolation(
-  action: "blocked" | "logged",
-  toolName: string,
-  reason: string
-): void {
-  recordAudit({
-    type: "violation",
-    action,
-    toolName,
-    reason,
-    timestamp: Date.now(),
-  });
+  logEvent({ type: "approval", action, toolName, riskLevel, reason, timestamp: Date.now() });
 }

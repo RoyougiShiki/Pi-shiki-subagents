@@ -154,10 +154,6 @@ import {
   updateAgentModels,
 } from '../agents/managed-agent-files';
 import {
-  trimProviderToolDescriptions,
-  trimToolDescriptions,
-} from '../prompt/tool-description-trimmer';
-import {
   getPresetCompletions,
   getPresetModelForPrimaryMode,
   isModelPlaceholder,
@@ -1081,11 +1077,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
           });
 
           const activeSet = new Set(active);
-          const filteredPrompt = trimToolDescriptions(event.systemPrompt, {
-            hide: allToolNames.filter((name) => !activeSet.has(name)),
-            truncate: (config as any)?.tool_descriptions?.truncate ?? {},
-          });
-
           const toolPreview = active.slice(0, 20).join(', ');
           const more = active.length > 20 ? ` ...(+${active.length - 20})` : '';
           const boundary = `\n\n[ToolBoundary]\n当前可用工具(${active.length}): ${toolPreview}${more}\n[/ToolBoundary]`;
@@ -1098,7 +1089,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
               ...(event.systemPromptOptions ?? {}),
               selectedTools: active,
             },
-            systemPrompt: `${filteredPrompt}${boundary}`,
+            systemPrompt: `${event.systemPrompt}${boundary}`,
           };
         } catch {}
       }
@@ -1113,11 +1104,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       runtimeAgentDefinitions,
     );
 
-    // Trim verbose tool descriptions in system prompt
-    const trimmedPrompt = trimToolDescriptions(
-      event.systemPrompt,
-      (config as any)?.tool_descriptions ?? {},
-    );
     const activeMode = loadActiveMode();
     const modeInstructions = getModeInstructions(activeMode) ?? '';
     const modePrompt = modeInstructions
@@ -1125,33 +1111,14 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       : '';
 
     return {
-      systemPrompt: [omniPrompt, modePrompt, trimmedPrompt]
+      systemPrompt: [omniPrompt, modePrompt, event.systemPrompt]
         .filter(Boolean)
         .join('\n\n---\n\n'),
     };
   });
 
-  // ── Trim tool descriptions in provider API payload ────────────────
+  // ── 审计：payload.tools vs snapshot（仅观测，不参与决策）──────────
   pi.on('before_provider_request', (event, _ctx) => {
-    const toolCfg = (config as any)?.tool_descriptions ?? {};
-    const hide = new Set<string>((toolCfg.hide as string[]) ?? []);
-    const truncCfg = (toolCfg.truncate ?? {}) as Record<string, number>;
-    const defaultTrunc = truncCfg.default ?? 0;
-    if (
-      hide.size === 0 &&
-      defaultTrunc === 0 &&
-      Object.keys(truncCfg).length === 0
-    ) {
-      // still continue to debug payload tools below
-    } else {
-      trimProviderToolDescriptions(
-        event.payload as Record<string, any>,
-        hide,
-        truncCfg,
-        defaultTrunc,
-      );
-    }
-
     // ── 审计：payload.tools vs snapshot（仅观测，不参与决策）──────────
     try {
       const payload = event.payload as Record<string, any>;

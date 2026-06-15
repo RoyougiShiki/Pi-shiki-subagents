@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { registerHarnessHooks } from "./register-harness-hooks";
-import { resetEvidence } from "../policy/evidence-tracker";
 
 type HookName = "turn_start" | "tool_result" | "message_end";
 type HookMap = Partial<Record<HookName, Function[]>>;
@@ -51,7 +50,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("normalizes grep exit 1 through tool_result hook", async () => {
-    resetEvidence();
     const { pi, hooks } = createPiMock();
     const { ctx } = createCtx();
     registerHarnessHooks(pi as any, {});
@@ -73,7 +71,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("normalizes piped grep exit 1 through tool_result hook", async () => {
-    resetEvidence();
     const { pi, hooks } = createPiMock();
     const { ctx } = createCtx();
     registerHarnessHooks(pi as any, {});
@@ -95,7 +92,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("does not let earlier verifier verdict suppress later task nudge", async () => {
-    resetEvidence();
     const dir = await mkdtemp(join(tmpdir(), "omo-verdict-nudge-"));
     try {
       const { pi, hooks } = createPiMock();
@@ -133,7 +129,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("verifier FAIL is consumed by message_end audit", async () => {
-    resetEvidence();
     const dir = await mkdtemp(join(tmpdir(), "omo-verdict-fail-"));
     try {
       const { pi, hooks } = createPiMock();
@@ -166,7 +161,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("notifies when multiple tasks close without verifier verdict", async () => {
-    resetEvidence();
     const { pi, hooks } = createPiMock();
     const { ctx, notifications } = createCtx([], "no-verdict-nudge");
     registerHarnessHooks(pi as any, {});
@@ -196,7 +190,6 @@ describe("register-harness-hooks", () => {
   });
 
   test("verifier PASS satisfies message_end audit after modification", async () => {
-    resetEvidence();
     const dir = await mkdtemp(join(tmpdir(), "omo-verdict-pass-"));
     try {
       const { pi, hooks } = createPiMock();

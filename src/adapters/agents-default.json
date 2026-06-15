@@ -43,16 +43,6 @@
     "workflow": "research-only",
     "label": "只读研究模式（阶段门禁）"
   },
-  "analyst": {
-    "type": "subagent",
-    "delegates": [
-      "search"
-    ],
-    "label": "非提问型分析支持",
-    "roles": [
-      "读"
-    ]
-  },
   "designer": {
     "type": "subagent",
     "delegates": [
@@ -89,14 +79,6 @@
       "检索"
     ]
   },
-  "observer": {
-    "type": "subagent",
-    "delegates": [],
-    "label": "看图",
-    "roles": [
-      "读"
-    ]
-  },
   "fallback": {
     "type": "mode",
     "pipelineMode": false,
@@ -106,25 +88,50 @@
     ],
     "label": "兜底模式（全工具救援）",
     "delegates": [
-      "analyst",
       "designer",
       "oracle",
       "fixer",
-      "observer",
       "dispatcher",
       "search"
     ]
   },
   "_tool_groups": {
-    "读": ["read"],
-    "写": ["write", "edit"],
-    "执行": ["bash"],
-    "检索": ["codebase_*", "context_mode_ctx_search"],
-    "搜索": ["grep", "find", "ls", "web_search", "code_search", "fetch_content", "get_search_content"],
-    "交互": ["ask_user_question", "switch_mode", "todo"],
-    "子代理": ["omo_subagent", "omo_council"],
+    "读": [
+      "read"
+    ],
+    "写": [
+      "write",
+      "edit"
+    ],
+    "执行": [
+      "bash"
+    ],
+    "检索": [
+      "codebase_*",
+      "context_mode_ctx_search"
+    ],
+    "搜索": [
+      "grep",
+      "find",
+      "ls",
+      "web_search",
+      "code_search",
+      "fetch_content",
+      "get_search_content"
+    ],
+    "交互": [
+      "ask_user_question",
+      "switch_mode",
+      "todo"
+    ],
+    "子代理": [
+      "omo_subagent",
+      "omo_council"
+    ],
     "流程": [],
-    "管理": ["@子代理"]
+    "管理": [
+      "@子代理"
+    ]
   },
   "dispatcher": {
     "type": "subagent",

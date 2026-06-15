@@ -13,7 +13,7 @@
  * - evidence adapter 来自 evidence-adapter.ts
  */
 
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 import {
   checkVerificationEvidence,
   type VerificationEvidenceContext,

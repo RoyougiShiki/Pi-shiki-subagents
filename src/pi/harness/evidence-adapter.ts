@@ -1,4 +1,4 @@
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 import type { VerificationEvidenceState } from "../policy/verification-evidence-policy";
 import { interpretCommandSemantic, type CommandSemanticConfig } from "../policy/command-semantics";
 import type { CompletionEvidenceKind, CompletionEvidenceSummary } from "./completion-auditor";

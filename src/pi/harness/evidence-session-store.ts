@@ -1,4 +1,4 @@
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 import type { VerifierVerdictEvidence } from "./verifier-verdict-evidence";
 import type { SessionArtifactRef, StructuredToolResult } from "./tool-result-normalizer";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasModificationEvidence, selectCompletionAuditEvidence } from "./completion-audit-scope";
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 
 function ev(toolName: string, success = true): ToolEvidence {
   return {

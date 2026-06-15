@@ -1,4 +1,4 @@
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 
 export interface CompletionAuditScope {
   sessionId: string;

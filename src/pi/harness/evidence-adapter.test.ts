@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { auditCompletion } from "./completion-auditor";
 import { toCompletionEvidenceSummary, toVerificationEvidenceState } from "./evidence-adapter";
-import type { ToolEvidence } from "../policy/evidence-tracker";
+import type { ToolEvidence } from "../policy/tool-evidence-types";
 
 function evidence(partial: Partial<ToolEvidence>): ToolEvidence {
   return {
