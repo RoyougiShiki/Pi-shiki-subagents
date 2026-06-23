@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { TOOL_GROUPS_CONFIG_KEY } from "../config/config-keys";
 
 function firstExistingPath(candidates: readonly string[]): string {
@@ -7,9 +8,11 @@ function firstExistingPath(candidates: readonly string[]): string {
 }
 
 function adapterRootCandidates(): string[] {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   return [
-    __dirname,
-    path.join(__dirname, "..", "..", "src", "adapters"),
+    moduleDir,
+    path.resolve(moduleDir, "..", "src", "adapters"),
+    path.resolve(moduleDir, "..", "..", "src", "adapters"),
   ];
 }
 
