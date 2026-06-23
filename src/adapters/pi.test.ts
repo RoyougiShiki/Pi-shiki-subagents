@@ -117,7 +117,7 @@ describe('Pi adapter agent prompt sync', () => {
 
   // (workflow stage result test removed — stage-result-store 已删除，存储已改为 pi.ts 内部变量)
 
-  test('omits missing or blank constitution and labels static delegation hints', async () => {
+  test('omits missing or blank constitution and labels workflow stages', async () => {
     const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
 
     ensureAgentFiles();
@@ -131,13 +131,13 @@ describe('Pi adapter agent prompt sync', () => {
     expect(prompt).not.toContain('<CONSTITUTION>');
     expect(prompt).not.toContain('未找到 constitution.md');
     const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
-    expect(standardDevLine).toContain('非阶段可委托: search, oracle');
+    expect(standardDevLine).not.toContain('非阶段可委托');
     expect(prompt).toContain('<ModeWorkflows>');
     expect(prompt).toContain('@standard-dev -> standard-dev');
     expect(prompt).toContain('@quick-fix -> quick-fix');
-    expect(prompt).toContain('@research-only -> research-only');
     expect(prompt).toContain('3.implement:dispatcher (+fixer, oracle)');
-    expect(prompt).toContain('1.fix:fixer (+search, oracle)');
+    expect(prompt).toContain('1.analysis:quick-fix (+search) -> 2.fix:fixer (+search, oracle)');
+    expect(prompt).toContain('用户决定 WHAT');
 
     const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
     fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
@@ -153,7 +153,7 @@ describe('Pi adapter agent prompt sync', () => {
     expect(blankPrompt).not.toContain('未找到 constitution.md');
   });
 
-  test('injects non-empty constitution and filters disabled static delegates', async () => {
+  test('injects non-empty constitution and filters disabled workflow helpers', async () => {
     const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
 
     ensureAgentFiles();
@@ -169,8 +169,8 @@ describe('Pi adapter agent prompt sync', () => {
 
     expect(prompt).toContain('<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>');
     const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
-    expect(standardDevLine).toContain('非阶段可委托: oracle');
     expect(standardDevLine).not.toContain('search');
+    expect(standardDevLine).not.toContain('非阶段可委托');
     const availableAgents = prompt.match(/<AvailableAgents>[\s\S]*?<\/AvailableAgents>/)?.[0] ?? '';
     expect(availableAgents).not.toContain('@search');
     const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
@@ -227,7 +227,8 @@ describe('Pi adapter agent prompt sync', () => {
       hasAgentMessage: false,
     });
 
-    expect(prompt).toContain('@customLead (模式) — Custom Lead → 非阶段可委托: customWorker');
+    expect(prompt).toContain('@customLead (模式) — Custom Lead');
+    expect(prompt).not.toContain('非阶段可委托');
     expect(prompt).toContain('@customLead -> custom-flow: 1.custom-step:customWorker (+customReviewer)');
   });
 
@@ -617,8 +618,8 @@ describe('Pi adapter config helpers', () => {
         meeting_backend: 'collaborating',
       },
       workflows: {
-        default: 'research-only',
-        list: [{ name: 'research-only', description: 'Research', stages: [{ agent: 'analyst' }] }],
+        default: 'custom-research',
+        list: [{ name: 'custom-research', description: 'Research', stages: [{ agent: 'search' }] }],
       },
     });
 
@@ -633,7 +634,7 @@ describe('Pi adapter config helpers', () => {
     expect(sharedConfig.agents?.oracle?.model).toBe('runtime/review-oracle');
     expect(config?.agents?.oracle?.model).toBe('runtime/review-oracle');
     expect(config?.council?.meeting_backend).toBe('collaborating');
-    expect(config?.workflows?.default).toBe('research-only');
+    expect(config?.workflows?.default).toBe('custom-research');
   });
 
   test('persists selected preset to Pi native config for subagent model resolution', async () => {

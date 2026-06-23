@@ -18,8 +18,6 @@ interface AgentSyncConfig {
 const DEFAULT_MODELS: Record<string, string> = {
   oracle: "openai/gpt-4.1",
   fixer: "openai/gpt-4o-mini",
-  designer: "openai/gpt-4o-mini",
-  observer: "openai/gpt-4o-mini",
 };
 
 function getDefaultModel(
@@ -101,8 +99,6 @@ function normalizeAgentContentForComparison(content: string): string {
 const LEGACY_GENERATED_AGENT_BODY_MARKERS: Record<string, readonly RegExp[]> = {
   "oracle.md": [/You are Oracle - a strategic technical advisor and code reviewer\./],
   "fixer.md": [/You are Fixer\b/, /Fast implementation specialist/],
-  "designer.md": [/You are Designer\b/, /UI\/UX design, review, and implementation/],
-  "observer.md": [/You are Observer\b/],
 };
 
 function getAgentNameFromFileLabel(label: string): string {

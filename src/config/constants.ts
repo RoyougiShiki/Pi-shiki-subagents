@@ -5,7 +5,7 @@ import {
 
 // Agent names
 export const AGENT_ALIASES: Record<string, string> = {
-  'frontend-ui-ux-engineer': 'designer',
+  'frontend-ui-ux-engineer': 'standard-dev',
 };
 
 const CONFIG_ONLY_AGENT_NAMES = ['council'] as const;
@@ -58,7 +58,7 @@ export type AgentName = string;
 
 // Subagent delegation rules: which agents can spawn which subagents.
 // These are only fallback rules. Runtime prefers agents-default.json / user config.
-export const ORCHESTRATABLE_AGENTS = ['search', 'oracle', 'designer', 'fixer', 'observer', 'council'] as const;
+export const ORCHESTRATABLE_AGENTS = ['search', 'oracle', 'fixer', 'council'] as const;
 
 
 /**
@@ -74,11 +74,8 @@ export function getOrchestratableAgents(
 export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly string[]>> = {
   'standard-dev': ['search', 'oracle'],
   'quick-fix': ['search', 'fixer', 'oracle'],
-  'research-only': ['search', 'oracle'],
-  designer: [],
   oracle: [],
   fixer: [],
-  observer: [],
   dispatcher: [],
   search: [],
   council: [],

@@ -14,7 +14,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
       },
       {
         id: 'plan',
-        agent: 'designer',
+        agent: 'standard-dev',
         description: '基于已确认分析生成实施计划、TDD/验证路径和分步任务；必要时委托只读辅助确认',
         outputSchema: 'plan',
         allowedSubagents: ['search', 'oracle'],
@@ -25,13 +25,21 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
         description: '按已确认计划调度实现和审查；审查不通过则继续同一实现会话返工',
         outputSchema: 'implementation',
         allowedSubagents: ['fixer', 'oracle'],
+        maxReviewRounds: 3,
       },
     ],
   },
   {
     name: 'quick-fix',
-    description: '轻量快速修复流程：主 agent 判断边界 → 用户确认工作包 → 最小实现 → 审查',
+    description: '轻量快速修复流程：主 agent 澄清边界 → 用户确认工作包 → 最小实现 → 审查',
     stages: [
+      {
+        id: 'analysis',
+        agent: 'quick-fix',
+        description: '澄清修复边界、影响范围和验证方式；必要时委托查证类辅助补证',
+        outputSchema: 'analysis',
+        allowedSubagents: ['search'],
+      },
       {
         id: 'fix',
         agent: 'fixer',
@@ -39,19 +47,7 @@ export const DEFAULT_WORKFLOWS: WorkflowDefinition[] = [
         outputSchema: 'implementation',
         allowedSubagents: ['search', 'oracle'],
         requiresApproval: true,
-      },
-    ],
-  },
-  {
-    name: 'research-only',
-    description: '只读研究流程：查证与分析',
-    stages: [
-      {
-        id: 'analysis',
-        agent: 'research-only',
-        description: '分析研究问题、证据、unknowns 和结论边界；必要时委托查证类辅助补证',
-        outputSchema: 'analysis',
-        allowedSubagents: ['search'],
+        maxReviewRounds: 1,
       },
     ],
   },

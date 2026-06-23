@@ -45,6 +45,8 @@ export interface StageNode {
     agent: string;
     maxRetries?: number;
   };
+  /** Bounded oracle review loop budget for this stage. */
+  maxReviewRounds?: number;
 }
 
 export type WorkflowNode = StageNode;

@@ -278,6 +278,7 @@ export const StageNodeSchema = z.object({
   allowedSubagents: z.array(z.string()).optional(),
   requiresApproval: z.boolean().optional(),
   review: ReviewConfigSchema.optional(),
+  maxReviewRounds: z.number().int().min(1).optional(),
 });
 
 export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = StageNodeSchema;

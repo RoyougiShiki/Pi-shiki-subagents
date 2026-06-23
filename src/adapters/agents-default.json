@@ -29,35 +29,6 @@
     "workflow": "quick-fix",
     "label": "快速修复模式（阶段门禁）"
   },
-  "research-only": {
-    "type": "mode",
-    "tools": [
-      "@交互",
-      "omo_subagent"
-    ],
-    "delegates": [
-      "search",
-      "oracle"
-    ],
-    "pipelineMode": true,
-    "workflow": "research-only",
-    "label": "只读研究模式（阶段门禁）"
-  },
-  "designer": {
-    "type": "subagent",
-    "delegates": [
-      "search",
-      "oracle"
-    ],
-    "label": "计划设计",
-    "roles": [
-      "流程",
-      "管理",
-      "读",
-      "写",
-      "检索"
-    ]
-  },
   "oracle": {
     "type": "subagent",
     "delegates": [],
@@ -88,7 +59,6 @@
     ],
     "label": "兜底模式（全工具救援）",
     "delegates": [
-      "designer",
       "oracle",
       "fixer",
       "dispatcher",

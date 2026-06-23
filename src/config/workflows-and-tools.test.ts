@@ -9,7 +9,6 @@ describe('default workflows and agent tool matrix', () => {
     expect(names).toEqual([
       'standard-dev',
       'quick-fix',
-      'research-only',
     ]);
 
     for (const workflow of DEFAULT_WORKFLOWS) {
@@ -26,8 +25,8 @@ describe('default workflows and agent tool matrix', () => {
 
     const standardDev = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'standard-dev');
     expect(standardDev?.stages.map((stage) => stage.agent)).toEqual([
-      'analyst',
-      'designer',
+      'standard-dev',
+      'standard-dev',
       'dispatcher',
     ]);
     expect(standardDev?.stages.at(-1)?.allowedSubagents).toEqual([
@@ -37,9 +36,10 @@ describe('default workflows and agent tool matrix', () => {
 
     const quickFix = DEFAULT_WORKFLOWS.find((workflow) => workflow.name === 'quick-fix');
     expect(quickFix?.stages.map((stage) => stage.agent)).toEqual([
+      'quick-fix',
       'fixer',
     ]);
-    expect(quickFix?.stages.map((stage) => stage.id)).toEqual(['fix']);
+    expect(quickFix?.stages.map((stage) => stage.id)).toEqual(['analysis', 'fix']);
     expect(quickFix?.stages.at(-1)?.requiresApproval).toBe(true);
     expect(quickFix?.stages.at(-1)?.allowedSubagents).toEqual([
       'search',
@@ -87,7 +87,7 @@ describe('default workflows and agent tool matrix', () => {
     const resolved = resolveWorkflowList({ list: [staleQuickFix, customFlow] });
     const quickFix = resolved.find((workflow) => workflow.name === 'quick-fix');
 
-    expect(quickFix?.stages.map((stage) => stage.agent)).toEqual(['fixer']);
+    expect(quickFix?.stages.map((stage) => stage.agent)).toEqual(['quick-fix', 'fixer']);
     expect(resolved.find((workflow) => workflow.name === 'custom-flow')).toBe(customFlow);
   });
 
@@ -127,22 +127,17 @@ describe('default workflows and agent tool matrix', () => {
 
     expect(defs['standard-dev']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'standard-dev', presetPrimary: true });
     expect(defs['quick-fix']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'quick-fix' });
-    expect(defs['research-only']).toMatchObject({ type: 'mode', pipelineMode: true, workflow: 'research-only' });
     expect(defs['standard-dev']?.tools).toEqual(['@交互', '@子代理']);
     expect(defs['standard-dev']?.delegates).toEqual(['search', 'oracle']);
     expect(defs['quick-fix']?.tools).toEqual(['@交互', 'omo_subagent']);
     expect(defs['quick-fix']?.tools).not.toContain('@子代理');
     expect(defs['quick-fix']?.tools).not.toContain('omo_council');
     expect(defs['quick-fix']?.delegates).toEqual(['search', 'fixer', 'oracle']);
-    expect(defs['research-only']?.tools).toEqual(['@交互', 'omo_subagent']);
-    expect(defs['research-only']?.tools).not.toContain('@子代理');
-    expect(defs['research-only']?.tools).not.toContain('omo_council');
-    expect(defs['research-only']?.delegates).toEqual(['search', 'oracle']);
     expect(defs.worker).toBeUndefined();
     const visibleModes = Object.entries(defs)
       .filter(([, def]) => !def.hidden && (def.type === 'mode' || def.type === 'both'))
       .map(([name]) => name);
-    expect(visibleModes).toEqual(['standard-dev', 'quick-fix', 'research-only', 'fallback']);
+    expect(visibleModes).toEqual(['standard-dev', 'quick-fix', 'fallback']);
     const presetPrimaryModes = Object.entries(defs)
       .filter(([, def]) => def.presetPrimary === true)
       .map(([name]) => name);
@@ -154,7 +149,7 @@ describe('default workflows and agent tool matrix', () => {
       .map(([name]) => name);
     expect(defs.fallback?.delegates?.sort()).toEqual(subagents.sort());
 
-    for (const leaf of ['oracle', 'fixer', 'observer']) {
+    for (const leaf of ['oracle', 'fixer']) {
       expect(defs[leaf]?.tools ?? []).not.toContain('omo_subagent');
     }
   });

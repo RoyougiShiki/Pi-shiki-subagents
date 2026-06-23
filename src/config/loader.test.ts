@@ -130,7 +130,7 @@ describe('loadPluginConfig', () => {
             fallback2: 'chutes/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-TEE',
             fallback3: 'opencode/gpt-5-nano',
           },
-          designer: {
+          'project-planner': {
             primary: 'openai/gpt-5.5',
             fallback1: 'anthropic/claude-opus-4-6',
             fallback2: 'chutes/kimi-k2.5',
@@ -350,7 +350,7 @@ describe('deepMerge behavior', () => {
       JSON.stringify({
         agents: {
           oracle: { temperature: 0.8 }, // Override temperature only
-          designer: { model: 'project/designer-model' }, // Add new agent
+          'project-planner': { model: 'project/planner-model' }, // Add new agent
         },
       }),
     );
@@ -364,8 +364,8 @@ describe('deepMerge behavior', () => {
     // observer: from user only
     expect(config.agents?.observer?.model).toBe('user/observer-model');
 
-    // designer: from project only
-    expect(config.agents?.designer?.model).toBe('project/designer-model');
+    // project-planner: from project only
+    expect(config.agents?.['project-planner']?.model).toBe('project/planner-model');
   });
 
   test('project config overrides top-level arrays', () => {

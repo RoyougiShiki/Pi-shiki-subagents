@@ -23,7 +23,7 @@ describe('getAgentOverride', () => {
       },
     } as PluginConfig;
 
-    const override = getAgentOverride(config, 'designer');
+    const override = getAgentOverride(config, 'standard-dev');
 
     expect(override).toBeDefined();
     expect(override?.model).toBe('openai/gpt-5.4-mini');
@@ -57,7 +57,7 @@ describe('getCustomAgentNames', () => {
     const config = {
       agents: {
         oracle: { model: 'openai/gpt-5.5' },
-        designer: { model: 'openai/gpt-5.6' },
+        'standard-dev': { model: 'openai/gpt-5.6' },
       },
     } as PluginConfig;
 

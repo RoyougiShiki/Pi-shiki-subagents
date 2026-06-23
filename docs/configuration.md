@@ -24,13 +24,10 @@ JSONC supports comments and trailing commas.
   "presets": {
     "default": {
       "standard-dev": { "model": "provider/model" },
-      "analyst": { "model": "provider/model" },
       "oracle": { "model": "provider/model", "variant": "high" },
       "search": { "model": "provider/model" },
-      "designer": { "model": "provider/model" },
       "fixer": { "model": "provider/model" },
       "dispatcher": { "model": "provider/model" },
-      "observer": { "model": "provider/model" },
       "council": { "model": "provider/model" }
     }
   }
@@ -54,13 +51,13 @@ JSONC supports comments and trailing commas.
 Current built-in agents include:
 
 ```text
-standard-dev, quick-fix, research-only, analyst, search, oracle, designer, fixer, dispatcher, observer, council, fallback
+standard-dev, quick-fix, search, oracle, fixer, dispatcher, council, fallback
 ```
 
-The user-facing pipeline modes are `standard-dev`, `quick-fix`, and
-`research-only`. `fallback` is the explicit rescue mode. New configs should
-bind the foreground preset model to `standard-dev`; switch
-behavior with modes, not with preset model entries for every mode.
+The user-facing pipeline modes are `standard-dev` and `quick-fix`.
+`fallback` is the explicit rescue mode. New configs should bind the foreground
+preset model to `standard-dev`; switch behavior with modes, not with preset
+model entries for every mode.
 The foreground preset target is the single built-in mode marked
 `presetPrimary: true`.
 
@@ -69,6 +66,10 @@ small fix itself, asks for work-package approval, then delegates through the
 configured short workflow. The built-in workflow does not use the fuller
 analysis/planning implementation path; runtime behavior still comes from the
 structured workflow and agent definitions, not duplicated markdown prose.
+
+For read-only research, use `standard-dev` for analysis/plan and stop before
+approving implementation, or define a custom read-only workflow. The old
+`research-only` built-in mode is no longer part of the default agent set.
 
 ## Agent Definitions and Prompts
 
@@ -144,11 +145,6 @@ Use this for explicit rescue modes that should not be entered by model initiativ
       "pipelineMode": true,
       "workflow": "quick-fix"
     },
-    "research-only": {
-      "type": "mode",
-      "pipelineMode": true,
-      "workflow": "research-only"
-    },
     "fallback": {
       "type": "mode",
       "pipelineMode": false,
@@ -163,13 +159,13 @@ Use this for explicit rescue modes that should not be entered by model initiativ
         "stages": [
           {
             "id": "analysis",
-            "agent": "analyst",
+            "agent": "standard-dev",
             "description": "分析需求边界、影响范围、证据缺口和风险",
             "allowedSubagents": ["search"]
           },
           {
             "id": "plan",
-            "agent": "designer",
+            "agent": "standard-dev",
             "description": "生成实施计划、TDD/验证路径和分步任务",
             "allowedSubagents": ["search", "oracle"]
           },

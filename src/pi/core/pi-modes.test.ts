@@ -180,8 +180,9 @@ describe('mode tool config parsing', () => {
     expect(config.workflows.default).toBeUndefined();
 
     const quickFix = config.workflows.list.find((workflow: any) => workflow.name === 'quick-fix');
-    expect(quickFix.stages.map((stage: any) => stage.agent)).toEqual(['fixer']);
-    expect(quickFix.stages[0].requiresApproval).toBe(true);
+    expect(quickFix.stages.map((stage: any) => stage.agent)).toEqual(['quick-fix', 'fixer']);
+    expect(quickFix.stages[1].requiresApproval).toBe(true);
+    expect(quickFix.stages[1].maxReviewRounds).toBe(1);
     expect(config.workflows.list.some((workflow: any) => workflow.name === 'custom-flow')).toBe(true);
   });
 
