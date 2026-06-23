@@ -73,9 +73,10 @@ describe('workflow stage runtime', () => {
 
   test('records attempts append-only', () => {
     const runtime = createWorkflowStageRuntime();
-    runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', timestamp: 1 });
-    runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', timestamp: 2 });
+    runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', poolId: 'a-1', timestamp: 1 });
+    runtime.recordAttemptStarted({ workflowName: 'flow', stageIndex: 0, targetAgent: 'a', poolId: 'a-2', timestamp: 2 });
     expect(runtime.getSnapshot().history).toHaveLength(2);
+    expect(runtime.getSnapshot().history[0]).toMatchObject({ type: 'attempt_started', poolId: 'a-1' });
   });
 
   test('records approved work package boundary by pool id and task', () => {
@@ -113,5 +114,186 @@ describe('workflow stage runtime', () => {
       poolId: 'fix-1',
       task: 'Do the task',
     });
+  });
+
+  test('records bounded review verdict rounds and marks exhausted failures', () => {
+    const runtime = createWorkflowStageRuntime({ workflowName: 'flow', initialStageIndex: 2 });
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 2,
+      stageId: 'implement',
+      targetAgent: 'oracle',
+      poolId: 'review-1',
+      timestamp: 3,
+    });
+
+    const first = runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 2,
+      stageId: 'implement',
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'FAIL',
+      maxReviewRounds: 2,
+      timestamp: 4,
+    });
+    expect(first).toMatchObject({
+      ok: true,
+      rounds: 1,
+      maxReviewRounds: 2,
+      lastVerdict: 'FAIL',
+      exhausted: false,
+    });
+
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 2,
+      stageId: 'implement',
+      targetAgent: 'oracle',
+      poolId: 'review-2',
+    });
+    const second = runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 2,
+      stageId: 'implement',
+      poolId: 'review-2',
+      verifierAgent: 'oracle',
+      verdict: 'PARTIAL',
+      maxReviewRounds: 2,
+      timestamp: 5,
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      rounds: 2,
+      lastVerdict: 'PARTIAL',
+      exhausted: true,
+    });
+    expect(runtime.getSnapshot().reviewLoop).toMatchObject({
+      workflowName: 'flow',
+      stageIndex: 2,
+      rounds: 2,
+      exhausted: true,
+    });
+    expect(runtime.getSnapshot().history.at(-1)).toMatchObject({
+      type: 'review_verdict_recorded',
+      round: 2,
+      exhausted: true,
+    });
+  });
+
+  test('rejects review verdicts for unknown, mismatched, or repeated pool ids', () => {
+    const runtime = createWorkflowStageRuntime({ workflowName: 'flow', initialStageIndex: 1 });
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 1,
+      stageId: 'implement',
+      targetAgent: 'oracle',
+      poolId: 'review-1',
+    });
+
+    expect(runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 1,
+      stageId: 'implement',
+      poolId: 'missing',
+      verifierAgent: 'oracle',
+      verdict: 'PASS',
+      maxReviewRounds: 2,
+    }).ok).toBe(false);
+
+    expect(runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 1,
+      stageId: 'other',
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'PASS',
+      maxReviewRounds: 2,
+    }).ok).toBe(false);
+
+    const recorded = runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 1,
+      stageId: 'implement',
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'PASS',
+      maxReviewRounds: 2,
+    });
+    expect(recorded.ok).toBe(true);
+    expect(runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 1,
+      stageId: 'implement',
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'PASS',
+      maxReviewRounds: 2,
+    }).ok).toBe(false);
+  });
+
+  test('keeps exhausted review loops sticky until stage reset', () => {
+    const runtime = createWorkflowStageRuntime({ workflowName: 'flow' });
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 0,
+      targetAgent: 'oracle',
+      poolId: 'review-1',
+    });
+    expect(runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 0,
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'FAIL',
+      maxReviewRounds: 1,
+    })).toMatchObject({ ok: true, exhausted: true });
+
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 0,
+      targetAgent: 'oracle',
+      poolId: 'review-2',
+    });
+    const latePass = runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 0,
+      poolId: 'review-2',
+      verifierAgent: 'oracle',
+      verdict: 'PASS',
+      maxReviewRounds: 1,
+    });
+    expect(latePass.ok).toBe(false);
+    expect(runtime.getSnapshot().reviewLoop).toMatchObject({
+      lastVerdict: 'FAIL',
+      exhausted: true,
+    });
+  });
+
+  test('clears review loop state when advancing stage', () => {
+    const runtime = createWorkflowStageRuntime();
+    runtime.recordAttemptStarted({
+      workflowName: 'flow',
+      stageIndex: 0,
+      targetAgent: 'oracle',
+      poolId: 'review-1',
+    });
+    runtime.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 0,
+      poolId: 'review-1',
+      verifierAgent: 'oracle',
+      verdict: 'FAIL',
+      maxReviewRounds: 1,
+    });
+    expect(runtime.getSnapshot().reviewLoop?.exhausted).toBe(true);
+
+    expect(runtime.advanceToNextStage({
+      workflowName: 'flow',
+      fromStageIndex: 0,
+      toStageIndex: 1,
+      targetAgent: 'next',
+    }).ok).toBe(true);
+    expect(runtime.getSnapshot().reviewLoop).toBeUndefined();
   });
 });

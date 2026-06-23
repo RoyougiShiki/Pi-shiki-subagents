@@ -5,6 +5,7 @@ import { issuePipelineDelegationGrant } from "./pipeline-delegation-grants";
 import {
   createWorkflowStageRuntime,
   type RuntimeDecision,
+  type ReviewVerdictRecordResult,
   type WorkflowStageRecoveryCandidate,
   type WorkflowStageRuntimeSnapshot,
 } from "./workflow-stage-runtime";
@@ -60,7 +61,17 @@ export interface WorkflowStageGateHelpers {
     stageIndex: number;
     stageId?: string;
     targetAgent: string;
+    poolId?: string;
   }) => void;
+  recordReviewVerdict: (args: {
+    workflowName: string;
+    stageIndex: number;
+    stageId?: string;
+    poolId: string;
+    verifierAgent: string;
+    verdict: "PASS" | "FAIL" | "PARTIAL";
+    maxReviewRounds: number;
+  }) => ReviewVerdictRecordResult;
 }
 
 export function createWorkflowStageGateHelpers(args: {
@@ -147,6 +158,7 @@ export function createWorkflowStageGateHelpers(args: {
     confirmWorkflowStageRecovery: (next) => runtime.confirmRecovery(next),
     approveWorkPackage: (next) => runtime.approveWorkPackage(next),
     recordWorkflowStageAttempt: (next) => runtime.recordAttemptStarted(next),
+    recordReviewVerdict: (next) => runtime.recordReviewVerdict(next),
   };
 }
 
@@ -163,6 +175,14 @@ function deny(reason: string): GateDecision {
 
 function allow(): GateDecision {
   return { ok: true };
+}
+
+function formatReviewLoopBlockedMessage(reviewLoop: NonNullable<WorkflowStageRuntimeSnapshot["reviewLoop"]>): string {
+  return `Review loop exhausted for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: VERDICT ${reviewLoop.lastVerdict} after ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds} rounds. Stop further返工/复审 and ask the user to decide.`;
+}
+
+function formatReviewLoopPendingMessage(reviewLoop: NonNullable<WorkflowStageRuntimeSnapshot["reviewLoop"]>): string {
+  return `Review loop pending for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: last VERDICT ${reviewLoop.lastVerdict} at round ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds}. Continue the current-stage rework/re-review loop before entering another stage.`;
 }
 
 type ConfirmResponse =
@@ -416,6 +436,14 @@ ${contractDecision.hint}` : ""}`);
       return deny(`Workflow stage gate blocked "${agent}": ${classification.reason ?? "invalid workflow stage target"}`);
     }
 
+    const reviewLoop = args.getWorkflowStageRuntimeSnapshot().reviewLoop;
+    const reviewLoopAppliesToCurrentStage = reviewLoop?.workflowName === stageContext.workflowName
+      && reviewLoop.stageIndex === stageContext.stageIndex;
+    if (reviewLoopAppliesToCurrentStage && reviewLoop?.lastVerdict !== "PASS") {
+      if (reviewLoop.exhausted) return deny(formatReviewLoopBlockedMessage(reviewLoop));
+      if (classification.kind !== "current") return deny(formatReviewLoopPendingMessage(reviewLoop));
+    }
+
     if (classification.kind === "unrelated") {
       return allow();
     }
@@ -425,6 +453,10 @@ ${contractDecision.hint}` : ""}`);
     }
 
     if (classification.kind === "current") {
+      if (reviewLoop?.exhausted) {
+        return deny(formatReviewLoopBlockedMessage(reviewLoop));
+      }
+
       if (stageContext.stage.requiresApproval === true && classification.requiresApproval) {
         const snapshot = args.getWorkflowStageRuntimeSnapshot();
         const approvedPackage = snapshot.approvedWorkPackage;
@@ -480,6 +512,7 @@ ${contractDecision.hint}` : ""}`);
         stageIndex: stageContext.stageIndex,
         stageId: classification.currentStageId,
         targetAgent: agent,
+        poolId: id,
       });
       issueGrant({ caller: args.resolveDelegationCaller(), target: agent, stage: stageContext.stage });
       return allow();
@@ -538,6 +571,7 @@ ${contractDecision.hint}` : ""}`);
         stageIndex: targetStageIndex,
         stageId: targetStageId,
         targetAgent: agent,
+        poolId: id,
       });
       issueGrant({ caller: args.resolveDelegationCaller(), target: agent, stage: targetStage });
       return allow();

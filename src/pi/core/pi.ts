@@ -107,7 +107,10 @@ import {
 } from '../subagent/subagent-pool';
 import { registerSubagentTool } from '../subagent/subagent-tool';
 import { ensureSubagentRunWidgetRegistered } from '../subagent/subagent-run-widget';
-import { registerPoolNoticeBridge } from '../subagent/subagent-pool-notice-bridge';
+import {
+  registerPoolNoticeBridge,
+  type PoolNoticeEvent,
+} from '../subagent/subagent-pool-notice-bridge';
 import {
   createComplianceState,
   recordViolation,
@@ -161,6 +164,7 @@ import {
   resolvePresetSwitchPlan,
 } from '../preset/preset-switch';
 import { registerHarnessHooks } from '../harness/register-harness-hooks';
+import { getVerdictStatus } from '../harness/verifier-verdict-parser';
 
 export {
   createWorkflowStageGateHelpers,
@@ -459,17 +463,7 @@ export function buildPiOrchestratorPrompt(
             ? '(模式/子代理)'
           : '';
     const label = def.label || AGENT_PROMPTS[name]?.description || name;
-    const staticDelegates = def.delegates?.length
-      ? [...new Set(def.delegates)].filter((delegate) =>
-          !disabledSet.has(delegate) &&
-          agentDefs[delegate] !== undefined &&
-          !agentDefs[delegate]?.hidden
-        )
-      : [];
-    const delegates = staticDelegates.length
-      ? ` → 非阶段可委托: ${staticDelegates.join(', ')}`
-      : '';
-    agentLines.push(`  @${name} ${typeLabel} — ${label}${delegates}`);
+    agentLines.push(`  @${name} ${typeLabel} — ${label}`);
   }
   const workflowLines = buildModeWorkflowLines(agentDefs, config, disabledSet);
 
@@ -495,6 +489,7 @@ export function buildPiOrchestratorPrompt(
         '\n<ModeWorkflows>',
         ...workflowLines,
         '  规则: 当前阶段主子代理由 workflow stage gate 放行；进入下一阶段需要用户审批；同一话题继续用 pool send/resume。',
+        '  优先级: 用户决定 WHAT（目标/范围/约束），workflow 决定 HOW（阶段/门禁/验证）。用户要求做 X 不等于可以跳过当前 workflow、审批或验证。',
         '</ModeWorkflows>',
       ].join('\n'),
     );
@@ -984,6 +979,49 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       pi,
       ctx,
       harnessRuntime,
+      reviewLoopRuntime: {
+        recordPoolCompletedReview(event: PoolNoticeEvent) {
+          if (event.agentName !== 'oracle' || !event.response) return undefined;
+          const verdict = getVerdictStatus(event.response);
+          if (!verdict) return undefined;
+          const snapshot = workflowGateHelpers.getWorkflowStageRuntimeSnapshot();
+          const attempt = [...snapshot.history].reverse().find((entry) =>
+            entry.type === 'attempt_started' &&
+            entry.poolId === event.poolId &&
+            entry.targetAgent === event.agentName
+          );
+          if (!attempt || attempt.type !== 'attempt_started') return undefined;
+          const stageContext = workflowGateHelpers.getWorkflowStageGateContext();
+          if (!stageContext) return undefined;
+          if (
+            stageContext.workflowName !== attempt.workflowName ||
+            stageContext.stageIndex !== attempt.stageIndex ||
+            stageContext.stage.id !== attempt.stageId
+          ) {
+            return undefined;
+          }
+          const maxReviewRounds = stageContext.stage.maxReviewRounds;
+          if (typeof maxReviewRounds !== 'number' || !Number.isInteger(maxReviewRounds) || maxReviewRounds < 1) {
+            return undefined;
+          }
+          const recorded = workflowGateHelpers.recordReviewVerdict({
+            workflowName: attempt.workflowName,
+            stageIndex: attempt.stageIndex,
+            stageId: attempt.stageId,
+            poolId: event.poolId,
+            verifierAgent: event.agentName,
+            verdict,
+            maxReviewRounds,
+          });
+          if (!recorded.ok) return undefined;
+          return {
+            verdict: recorded.lastVerdict,
+            round: recorded.rounds,
+            maxReviewRounds: recorded.maxReviewRounds,
+            exhausted: recorded.exhausted,
+          };
+        },
+      },
     });
 
     // Wire mode change → status bar + immediate switch notification
@@ -1384,6 +1422,22 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   registerSubagentTool(pi, {
     getWorkflowContinuationAgents: (parentAgent) =>
       getModeWorkflowContinuationAgents(parentAgent, runtimeAgentDefinitions, config),
+    shouldBlockPoolContinuation: (targetAgent) => {
+      if (!isCurrentModePipeline()) return undefined;
+      const snapshot = workflowGateHelpers.getWorkflowStageRuntimeSnapshot();
+      const reviewLoop = snapshot.reviewLoop;
+      if (!reviewLoop || reviewLoop.lastVerdict === 'PASS') return undefined;
+      if (!reviewLoop.exhausted) {
+        const stageContext = workflowGateHelpers.getWorkflowStageGateContext();
+        const currentStageAgents = new Set([
+          stageContext?.stage.agent,
+          ...(stageContext?.stage.allowedSubagents ?? []),
+        ].filter((name): name is string => Boolean(name)));
+        if (currentStageAgents.has(targetAgent)) return undefined;
+        return `Review loop pending for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: last VERDICT ${reviewLoop.lastVerdict} at round ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds}. Continue the current-stage rework/re-review loop before continuing unrelated pool agents.`;
+      }
+      return `Review loop exhausted for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: VERDICT ${reviewLoop.lastVerdict} after ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds} rounds. Stop further返工/复审 and ask the user to decide.`;
+    },
   });
 
   // ── Pipeline completion is driven by pool_completed + active mode decision.

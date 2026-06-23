@@ -60,6 +60,52 @@ describe('subagent pool notice bridge', () => {
     ).toContain('[pool] fixer/run-1 已完成\n\nOK');
   });
 
+  test('formats passing review loop completion as stage-ready', () => {
+    const content = formatPoolCompletedContent(
+      {
+        type: 'completed',
+        agentName: 'oracle',
+        poolId: 'review-1',
+        response: 'VERDICT: PASS',
+      },
+      { verdict: 'PASS', round: 1, maxReviewRounds: 3, exhausted: false },
+    );
+
+    expect(content).toContain('[review-loop] VERDICT: PASS; round 1/3');
+    expect(content).toContain('审查已通过');
+  });
+
+  test('formats failing review loop completion within budget as same-session rework', () => {
+    const content = formatPoolCompletedContent(
+      {
+        type: 'completed',
+        agentName: 'oracle',
+        poolId: 'review-1',
+        response: 'VERDICT: FAIL',
+      },
+      { verdict: 'FAIL', round: 1, maxReviewRounds: 3, exhausted: false },
+    );
+
+    expect(content).toContain('[review-loop] VERDICT: FAIL; round 1/3');
+    expect(content).toContain('同一实现会话返工');
+  });
+
+  test('formats exhausted review loop completion as user decision stop', () => {
+    const content = formatPoolCompletedContent(
+      {
+        type: 'completed',
+        agentName: 'oracle',
+        poolId: 'review-1',
+        response: 'VERDICT: PARTIAL',
+      },
+      { verdict: 'PARTIAL', round: 1, maxReviewRounds: 1, exhausted: true },
+    );
+
+    expect(content).toContain('[review-loop] VERDICT: PARTIAL; round 1/1');
+    expect(content).toContain('已达到本阶段 MAX_REVIEW_ROUNDS');
+    expect(content).toContain('由用户裁决');
+  });
+
   test('formats error follow-up with pool identity and next action', () => {
     expect(
       formatPoolErrorContent({
@@ -86,9 +132,17 @@ describe('subagent pool notice bridge', () => {
     const oldPi = { sendMessage: mock(() => {}) };
     const newPi = { sendMessage: mock(() => {}) };
     const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
+    const reviewLoopRuntime = {
+      recordPoolCompletedReview: mock(() => ({
+        verdict: 'FAIL' as const,
+        round: 1,
+        maxReviewRounds: 1,
+        exhausted: true,
+      })),
+    };
 
     registerPoolNoticeBridge({ pool, pi: oldPi, ctx: oldCtx, harnessRuntime });
-    registerPoolNoticeBridge({ pool, pi: newPi, ctx: newCtx, harnessRuntime });
+    registerPoolNoticeBridge({ pool, pi: newPi, ctx: newCtx, harnessRuntime, reviewLoopRuntime });
 
     expect(pool.listenerCount()).toBe(1);
 
@@ -110,6 +164,10 @@ describe('subagent pool notice bridge', () => {
     expect(newPi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
       '[pool] fixer/run-1 已完成',
     );
+    expect(newPi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
+      'MAX_REVIEW_ROUNDS',
+    );
+    expect(reviewLoopRuntime.recordPoolCompletedReview).toHaveBeenCalledTimes(1);
     expect(newCtx.ui.notify).toHaveBeenCalledWith(
       '[pool] fixer/run-1 completed',
       'success',

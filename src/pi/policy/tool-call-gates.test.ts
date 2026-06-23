@@ -29,11 +29,12 @@ function makeGates(args: {
   caller?: string;
   workflowName?: string | null;
   workflowsConfig?: WorkflowsConfig;
+  knownAgents?: string[];
   resolveSwitchModeTarget?: Parameters<typeof createToolCallGates>[0]['resolveSwitchModeTarget'];
 } = {}) {
   const helpers = createWorkflowStageGateHelpers({
     workflows: args.workflowsConfig ?? workflows,
-    knownAgents: ['alpha', 'helper', 'beta', 'helper2', 'gamma'],
+    knownAgents: args.knownAgents ?? ['alpha', 'helper', 'beta', 'helper2', 'gamma'],
     getActiveWorkflowName: () => args.workflowName === undefined ? 'flow' : args.workflowName ?? undefined,
     getSessionRecoveryState: () => ({
       sessionWasResumed: args.resumed === true,
@@ -445,6 +446,61 @@ describe('tool call workflow stage gates', () => {
     expect(helpers.getWorkflowStageRuntimeSnapshot().currentStageIndex).toBe(1);
     expect(notices[0]?.content).toBe('Workflow stage recorded: flow/implementation -> beta');
     expect(notices[0]?.details.rawText).toContain('event: transition_approved');
+  });
+
+  test('blocks next stage while a non-passing review verdict is pending', async () => {
+    const { gates, ctx, helpers } = makeGates({ pipeline: true, approvals: [true] });
+    helpers.recordWorkflowStageAttempt({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'analysis',
+      targetAgent: 'helper',
+      poolId: 'review-1',
+    });
+    expect(helpers.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'analysis',
+      poolId: 'review-1',
+      verifierAgent: 'helper',
+      verdict: 'FAIL',
+      maxReviewRounds: 3,
+    }).ok).toBe(true);
+
+    const blocked = await gates.gatePipelineSubagent(ctx, spawn('beta'));
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.reason).toContain('Review loop pending');
+
+    const currentStage = await gates.gatePipelineSubagent(ctx, spawn('helper'));
+    expect(currentStage.ok).toBe(true);
+    expect(helpers.getWorkflowStageRuntimeSnapshot().currentStageIndex).toBe(0);
+  });
+
+  test('blocks unrelated pipeline spawns after review loop exhaustion', async () => {
+    const { gates, ctx, helpers } = makeGates({
+      pipeline: true,
+      knownAgents: ['alpha', 'helper', 'beta', 'helper2', 'gamma', 'delta'],
+    });
+    helpers.recordWorkflowStageAttempt({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'analysis',
+      targetAgent: 'helper',
+      poolId: 'review-1',
+    });
+    expect(helpers.recordReviewVerdict({
+      workflowName: 'flow',
+      stageIndex: 0,
+      stageId: 'analysis',
+      poolId: 'review-1',
+      verifierAgent: 'helper',
+      verdict: 'FAIL',
+      maxReviewRounds: 1,
+    })).toMatchObject({ ok: true, exhausted: true });
+
+    const decision = await gates.gatePipelineSubagent(ctx, spawn('delta'));
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain('Review loop exhausted');
   });
 
   test('denies invalid unknown target agents', async () => {

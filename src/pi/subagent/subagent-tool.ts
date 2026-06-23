@@ -138,6 +138,7 @@ export function checkPoolContinuationAllowed(args: {
 
 export function registerSubagentTool(pi: ExtensionAPI, options: {
   getWorkflowContinuationAgents?: (parentAgent: string) => readonly string[] | undefined;
+  shouldBlockPoolContinuation?: (targetAgent: string) => string | undefined;
 } = {}): void {
   const poolActionDescription = `Pool action: ${SUBAGENT_POOL_ACTIONS.join(' | ')}`;
 
@@ -315,10 +316,26 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
             .list()
             .find((a: PoolAgentInfo) => a.id === params.id);
           const record = pool.getRegistryEntry(params.id);
+          const targetAgent = current?.agentName ?? record?.agentName;
           if (current || record) {
+            if (targetAgent) {
+              const reviewLoopBlock = options.shouldBlockPoolContinuation?.(targetAgent);
+              if (reviewLoopBlock) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: reviewLoopBlock,
+                    },
+                  ],
+                  details: emptyDetails('send', params.id),
+                  isError: true,
+                };
+              }
+            }
             const continuation = checkPoolContinuationAllowed({
               callerAgent,
-              targetAgent: current?.agentName ?? record?.agentName,
+              targetAgent,
               parentAgent: record?.parentAgent,
               parentWorkflowAgents: record?.parentAgent
                 ? options.getWorkflowContinuationAgents?.(record.parentAgent)
@@ -540,6 +557,19 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
                 {
                   type: 'text',
                   text: `${continuation.reason}. Allowed agents: ${allowed}`,
+                },
+              ],
+              details: emptyDetails('resume', params.id),
+              isError: true,
+            };
+          }
+          const reviewLoopBlock = options.shouldBlockPoolContinuation?.(record.agentName);
+          if (reviewLoopBlock) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: reviewLoopBlock,
                 },
               ],
               details: emptyDetails('resume', params.id),

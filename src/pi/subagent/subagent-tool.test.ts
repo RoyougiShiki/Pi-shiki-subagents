@@ -79,7 +79,6 @@ describe('formatPoolResultContent', () => {
 
 describe('checkPoolContinuationAllowed', () => {
   const rules = {
-    'research-only': ['search', 'oracle'],
     'standard-dev': ['search', 'oracle'],
     'quick-fix': ['search', 'fixer', 'oracle'],
   };
@@ -90,7 +89,7 @@ describe('checkPoolContinuationAllowed', () => {
         callerAgent: 'standard-dev',
         parentAgent: 'standard-dev',
         targetAgent: 'dispatcher',
-        parentWorkflowAgents: ['analyst', 'designer', 'dispatcher', 'fixer', 'oracle'],
+        parentWorkflowAgents: ['standard-dev', 'dispatcher', 'fixer', 'oracle'],
         depth: 0,
         rules,
       }).ok,
@@ -99,10 +98,10 @@ describe('checkPoolContinuationAllowed', () => {
 
   test('blocks same-parent implementation records outside the current workflow', () => {
     const result = checkPoolContinuationAllowed({
-      callerAgent: 'research-only',
-      parentAgent: 'research-only',
+      callerAgent: 'standard-dev',
+      parentAgent: 'standard-dev',
       targetAgent: 'fixer',
-      parentWorkflowAgents: ['analyst', 'search'],
+      parentWorkflowAgents: ['standard-dev', 'search'],
       depth: 0,
       rules,
     });
@@ -111,9 +110,9 @@ describe('checkPoolContinuationAllowed', () => {
     if (!result.ok) expect(result.allowedAgents).toEqual(['search', 'oracle']);
   });
 
-  test('blocks continuing an unrelated implementation agent in research-only mode', () => {
+  test('blocks continuing an unrelated implementation agent outside configured delegates', () => {
     const result = checkPoolContinuationAllowed({
-      callerAgent: 'research-only',
+      callerAgent: 'standard-dev',
       targetAgent: 'fixer',
       depth: 0,
       rules,
@@ -123,10 +122,10 @@ describe('checkPoolContinuationAllowed', () => {
     if (!result.ok) expect(result.allowedAgents).toEqual(['search', 'oracle']);
   });
 
-  test('allows research-only to continue configured read-only delegates', () => {
+  test('allows standard-dev to continue configured read-only delegates', () => {
     expect(
       checkPoolContinuationAllowed({
-        callerAgent: 'research-only',
+        callerAgent: 'standard-dev',
         targetAgent: 'oracle',
         depth: 0,
         rules,
