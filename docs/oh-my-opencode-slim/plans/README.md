@@ -14,12 +14,12 @@ README.md
 
 | Path | Class | How to read it |
 |------|-------|----------------|
-| `agent-boundary-redesign/` | Historical design proposal | Use as design background. Verify current code before acting on details. |
-| `claude-code-harness-study/` | Research notes | Reference material for harness behavior. Not a runtime contract. |
-| `lightweight-runtime-stage-gate-design/` | Historical design proposal | Use as workflow/stage-gate background. Verify current implementation before changing behavior. |
-| `platform-adapter-cleanup/` | Historical cleanup proposal | Already marked historical; use for package/build boundary context only. |
-| `subagent-tui-observability/` | Approved staged plan plus later migration notes | Use for subagent state/view/UI boundary guardrails. Runtime changes still need separate review. |
-| `whole-module-complexity-audit/` | Audit snapshot | Use as reproducible audit evidence and follow-up queue. Some findings may be superseded by later commits. |
+| `archive/agent-boundary-redesign/` | Historical design proposal | Use as design background. Verify current code before acting on details. |
+| `archive/claude-code-harness-study/` | Research notes | Reference material for harness behavior. Not a runtime contract. |
+| `archive/lightweight-runtime-stage-gate-design/` | Historical design proposal | Use as workflow/stage-gate background. Verify current implementation before changing behavior. |
+| `archive/platform-adapter-cleanup/` | Historical cleanup proposal | Already marked historical; use for package/build boundary context only. |
+| `archive/subagent-tui-observability/` | Approved staged plan plus later migration notes | Use for subagent state/view/UI boundary guardrails. Runtime changes still need separate review. |
+| `archive/whole-module-complexity-audit/` | Audit snapshot | Use as reproducible audit evidence and follow-up queue. Some findings may be superseded by later commits. |
 
 ## Maintenance Rules
 

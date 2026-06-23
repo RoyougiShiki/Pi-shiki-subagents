@@ -29,7 +29,7 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 | standard-dev 改 5-stage（analysis→grill→plan→implement→review） | **保持 3-stage**（analysis→plan→implement），grill 规则注入 analysis 阶段，oracle 对抗循环内嵌 implement 阶段 | 新增 stage 增加人工审批节点；grill/oracle 可内嵌现有 stage |
 | 保留 analyst 做 grill stage 主代理 | **删除 analyst**，analysis 阶段由主控自做 | analyst 子代理存在上下文断层；主控拿完整对话上下文做对齐更优；查证由 search 覆盖 |
 | 新增 `omo-skill-matcher` 启动 hook + `<AvailableSkills>` 注入块 | **不做** skill matcher，不新增注入块 | 用户要求"不污染提示词"；Iron Law / grill 规则直接写进 agent prompt + 塞进现有 `<ModeWorkflows>` 块 |
-| 保留 research-only 独立 mode | **合并** research-only 为 standard-dev 只读变体 | 减少重复定义；mode 数从 4→3 |
+| 保留 research-only 独立 mode | **合并** research-only 为 standard-dev 只读用法 | 减少重复定义；mode 数从 4→3 |
 | 未涉及 harness 层健康度审计 | **新增 H1–H7** harness 层优化 | cc-haha 源码核对发现正则检测层是项目原创（cc-haha 没有），且全局 evidence-tracker 是污染源 |
 
 ---
@@ -55,7 +55,7 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 | **H3** | `harness/final-request-detector.ts` | 直接删减 | 删除 | 靠正则+长度魔数检测用户意图；方向错误（审计不该由用户语气触发） |
 | **H4** | `harness/verification-nudge.ts` + `verification-nudge-runtime.ts` | 直接删减 | 删除 | 价值被 `verification-evidence-policy.ts` 更可靠覆盖（基于真实工具调用 vs task 文本正则） |
 | **H5** | `harness/completion-auditor.ts` | 修改后增加 | 改造：去正则 claim 检测，保留 evidence-kind 判断 + 硬阻止（`blockOnUnverifiedModification`） | cc-haha 不扫模型输出；改为"有修改+无验证+message_end 触发"，比正则更可靠；保留用户要的硬阻止 |
-| **H6** | `harness/tool-result-budget.ts` | 修改删减 | 保留核心（per-message 预算+seenId 冻结），裁掉 read/grep/bash 落盘重叠部分 | Pi 缺这两层是核心价值；落盘让给 Pi 原生处理 |
+| **H6** | `harness/tool-result-budget.ts` | 修改删减 | 保留核心（per-message 预算+seenId 冻结）；read 已在 SKIP_PERSIST 跳过；grep/bash 落盘经查证为增量能力一并保留 | Pi 缺 per-message 预算和 seenId 冻结是核心价值；原计划裁 grep/bash 落盘基于"Pi 有 bash 全文落盘"的前提，实际查证 Pi 无落盘能力（per-result 超限即截断丢弃），故全保留（详见 §A5 修订） |
 | **H7** | `harness/run-harness-audit.ts` 的 block continuation | 修改后增加 | 补连续阻止次数上限（对齐 cc-haha 的 8 次硬上限） | 防止硬阻止导致无限阻塞循环；本项目当前缺这层保护 |
 
 ---
@@ -105,7 +105,7 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 
 **#8 PLAN 模板作为 plan stage 输出**
 - **来源**：grill-me-codex（Goal/Approach/Key decisions & tradeoffs/Risks/Out of scope）
-- **改动**：designer prompt 产出固定模板，复用现有 outputSchema，不引入文件 IPC
+- **改动**：standard-dev 的 plan 阶段产出固定模板，复用现有 outputSchema，不引入文件 IPC
 - **能力**：结构化交接物，给 oracle 对抗循环明确攻击面
 
 **#9 review-log 可观测产物**
@@ -124,8 +124,8 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 - **改动**：引用 standard-dev 共享段（grill 规则、子代理复用、输出格式），仅声明差异（无 plan stage、MAX_REVIEW_ROUNDS=1）
 - **能力**：消除两主控 prompt 重复条文
 
-**#12 research-only 合并为 standard-dev 只读变体**
-- **改动**：删除独立 research-only mode + prompt；standard-dev 增加只读入口（禁用 implement stage 变体）；mode 数 4→3
+**#12 research-only 合并为 standard-dev 只读用法**
+- **改动**：删除独立 research-only mode + prompt；默认只读研究通过 standard-dev 的 analysis/plan 停止点或用户自定义只读 workflow 表达，不再新增内置用户可见 mode；mode 数 4→3
 - **能力**：mode 减一，消除双重定义
 
 **#13 agent prompt 去除工具/委托重复描述**
@@ -162,14 +162,14 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 
 | Mode | Workflow | 变化 |
 |---|---|---|
-| `standard-dev` | analysis（主控+grill）→ plan（PLAN 模板 + CONTEXT/ADR 沉淀）→ implement（oracle 3 轮对抗） | analysis 主控化；grill 规则注入；oracle 循环；吸收 research-only 只读变体 |
+| `standard-dev` | analysis（主控+grill）→ plan（PLAN 模板 + CONTEXT/ADR 沉淀）→ implement（oracle 3 轮对抗） | analysis 主控化；grill 规则注入；oracle 循环；吸收 research-only 只读用法 |
 | `quick-fix` | analysis（主控+grill，小范围）→ implement（oracle 1 轮对抗） | grill 规则注入；oracle 单轮对抗；prompt 瘦身 |
 | `fallback` | — | 不动，全能力救援 |
 
-### Agent（删 2 个：analyst、observer）
+### Agent（删 3 个：analyst、observer、designer）
 
 - 主控：standard-dev、quick-fix、fallback
-- 子代理：search、designer、oracle、fixer、dispatcher、council
+- 子代理：search、oracle、fixer、dispatcher、council
 
 ### 不新增
 
@@ -213,8 +213,8 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 | 3 | #13 + #14 | agent prompt 去重 + `<AvailableAgents>` 去后缀 | `src/adapters/agents/*.md`（批量）、`src/pi/core/pi.ts`（buildPromptAgentDefinitions） |
 | 4 | #11 + #12 | quick-fix prompt 瘦身 + research-only 合并 | `src/adapters/agents/quick-fix.md`、`src/adapters/agents/research-only.md`（删）、`src/adapters/agents-default.json`、`src/config/workflow-defaults.ts`（删 research-only workflow） |
 | 5 | #3 | oracle 有界对抗循环 | `src/adapters/agents/oracle.md`（VERDICT 协议）、`src/adapters/agents/dispatcher.md`（循环调度）、`src/config/workflow-defaults.ts`（MAX_REVIEW_ROUNDS 配置）、`src/pi/harness/verifier-verdict-parser.ts`（复用 VERDICT 解析） |
-| 6 | #8 + #9 | PLAN 模板 + review-log 产物 | `src/adapters/agents/designer.md`（PLAN 模板）、新增 review-ledger 写入逻辑（fail-soft，沿用 evidence-tracker 的 companion JSON 风格） |
-| 7 | #4 | CONTEXT.md / ADR 沉淀绑 plan stage | `src/adapters/agents/designer.md`（写入规则）、新建 `docs/oh-my-opencode-slim/context/CONTEXT.md`（空）、`docs/oh-my-opencode-slim/adr/`（空目录 + README） |
+| 6 | #8 + #9 | PLAN 模板 + review-log 产物 | `src/adapters/agents/standard-dev.md`（PLAN 模板）、后续可新增 review-ledger 写入逻辑（fail-soft） |
+| 7 | #4 | CONTEXT.md / ADR 沉淀绑 plan stage | `src/adapters/agents/standard-dev.md`（plan 阶段列出沉淀项，进入实现后由有写权限路径落地） |
 | 8 | #5 | Iron Law 写进 fixer/dispatcher/oracle prompt | `src/adapters/agents/fixer.md`、`src/adapters/agents/dispatcher.md`、`src/adapters/agents/oracle.md` |
 | 9 | #10 | dispatcher 四要素派发模板 | `src/adapters/agents/dispatcher.md` |
 | 10 | #6 | 优先级声明 + WHAT≠HOW 注入 `<ModeWorkflows>` | `src/pi/core/pi.ts`（buildConstitutionPrompt 的 `<ModeWorkflows>` 块） |
@@ -284,7 +284,15 @@ grill 的核心是三条机制规则（一次一问/推荐答案/能查代码就
 
 ### A5 为什么 tool-result-budget 保留（H6）
 
-Pi runtime 查证确认：Pi 有 per-result 截断但**没有** per-message 总量预算（10 个并发工具各 50KB=500KB 全进 context，Pi 不拦）和 seen-id 冻结（prompt cache 稳定性）。项目补的正是这两层，属高价值。只裁与 Pi 重叠的 read/grep/bash 落盘部分。
+Pi runtime 查证确认：Pi 有 per-result 截断但**没有** per-message 总量预算（10 个并发工具各 50KB=500KB 全进 context，Pi 不拦）和 seen-id 冻结（prompt cache 稳定性）。项目补的正是这两层，属高价值。
+
+**修订（2026-06-15，基于 Pi hook 类型定义实际查证）**：原计划"只裁与 Pi 重叠的 read/grep/bash 落盘部分"基于一个错误前提——以为 Pi 有 bash 全文落盘。实际查 Pi 的 `ExtensionAPI.on` 类型定义（`@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts`）：Pi 对超长工具结果的处理是 **per-result 截断（50K/2000 行）+ 截断后丢弃**，**没有"落盘供后续读取"的机制**。`message_end` 的 result 只能替换 assistant 消息，不能持久化工具输出。
+
+因此项目的 read/grep/bash 落盘不是"与 Pi 重叠"，而是 **Pi 缺失的增量能力**：
+- read：已在 `SKIP_PERSIST_TOOL_NAMES` 跳过（Pi 的 maxTokens 控制足够），符合原计划
+- grep/bash：落盘阈值（grep 30K / bash 50K），超阈值写文件 + 留 preview + 模型可后续 read 恢复全文。若裁掉，超长输出会从"可恢复"退化为"Pi 截断后永久丢失"
+
+**结论**：H6 核查完毕，无需代码改动。per-message 预算 + seenId 冻结保留（原计划）；read 跳过（原计划）；grep/bash 落盘保留（修订：增量能力不裁）。
 
 ### A6 为什么 runtime-audit 降级而非删除（H2）
 
