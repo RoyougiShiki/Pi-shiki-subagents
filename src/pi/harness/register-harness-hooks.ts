@@ -6,9 +6,7 @@ import type { ToolEvidence } from "../policy/tool-evidence-types";
 import {
   applyToolResultBudget,
   applyVerifierVerdictsToEvidenceSummary,
-  compilePatterns,
   createEvidenceSessionStore,
-  DEFAULT_PATTERN_SOURCES,
   ingestVerifierVerdict,
   normalizeToolResult,
   resolveHarnessConfig,
@@ -131,6 +129,8 @@ export function registerHarnessHooks(
   let verifierVerdictsQueue: Promise<void> = Promise.resolve();
   let recoveredEvidenceSummaryState: RecoveredEvidenceSummaryState = createRecoveredEvidenceSummaryState();
   let recoveredEvidenceSummaryKey: string | undefined;
+  // H7: 连续阻止计数器（message_end handler 维护，block +1，非 block 归零）
+  let consecutiveBlocks = 0;
   let recoveredEvidenceSummaryQueue: Promise<void> = Promise.resolve();
 
   async function ensureRecoveredEvidenceSummaryLoaded(ctx: ExtensionContext): Promise<{ baseDir: string; sessionId: string }> {
@@ -356,10 +356,18 @@ export function registerHarnessHooks(
         messages: harnessConfig.messages,
         completion: {
           blockOnUnverifiedModification: harnessConfig.completionAuditor.blockOnUnverifiedModification,
-          patterns: harnessConfig.completionAuditor.patterns,
         },
+        consecutiveBlocks,
+        maxConsecutiveBlocks: harnessConfig.completionAuditor.maxConsecutiveBlocks,
       },
     );
+
+    // H7: 连续阻止计数——block 累加，非 block 归零
+    if (decision.action === "block") {
+      consecutiveBlocks += 1;
+    } else {
+      consecutiveBlocks = 0;
+    }
 
     if ((decision.action === "warn" || decision.action === "block") && decision.issues.length > 0) {
       const issueSummary = decision.issues.map(i => `• ${i.message}`).join("\n");

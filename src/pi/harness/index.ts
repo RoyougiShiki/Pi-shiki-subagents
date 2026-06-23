@@ -91,11 +91,8 @@ export {
 // Completion Auditor
 export {
   auditCompletion,
-  compilePatterns,
-  DEFAULT_PATTERN_SOURCES,
   type CompletionEvidenceKind,
   type CompletionEvidenceSummary,
-  type CompletionClaimPatterns,
   type CompletionAuditorOptions,
   type CompletionAuditInput,
 } from "./completion-auditor";

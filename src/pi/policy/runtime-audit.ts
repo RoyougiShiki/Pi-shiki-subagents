@@ -56,9 +56,9 @@ function isAuditEnabled(): boolean {
  */
 export function setAuditEnabled(_enabled: boolean): void {}
 
-// ─── Core API ─────────────────────────────────────────────────────────────
+// ─── Core API（H2 收敛点：单函数 logDecision） ────────────────────────────
 
-function logEvent(event: AuditEvent): void {
+export function logDecision(event: AuditEvent): void {
   if (!isAuditEnabled()) return;
   // 输出到 stderr（不污染聊天流）
   console.error(`[audit] ${JSON.stringify(event)}`);
@@ -72,7 +72,7 @@ export function auditToolScope(
   sourceName: string,
   tools: string[]
 ): void {
-  logEvent({ type: "tool_scope", action, source, sourceName, tools, timestamp: Date.now() });
+  logDecision({ type: "tool_scope", action, source, sourceName, tools, timestamp: Date.now() });
 }
 
 export function auditClarification(
@@ -80,7 +80,7 @@ export function auditClarification(
   toolName: string,
   reason?: string
 ): void {
-  logEvent({ type: "clarification", action, toolName, reason, timestamp: Date.now() });
+  logDecision({ type: "clarification", action, toolName, reason, timestamp: Date.now() });
 }
 
 export function auditApproval(
@@ -89,5 +89,5 @@ export function auditApproval(
   riskLevel?: string,
   reason?: string
 ): void {
-  logEvent({ type: "approval", action, toolName, riskLevel, reason, timestamp: Date.now() });
+  logDecision({ type: "approval", action, toolName, riskLevel, reason, timestamp: Date.now() });
 }

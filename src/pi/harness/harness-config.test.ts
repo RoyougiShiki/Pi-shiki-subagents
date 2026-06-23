@@ -28,7 +28,10 @@ describe("harness config", () => {
     expect(resolved.messages.verificationEvidence.toolFailedWithoutRecovery).toContain("工具失败");
   });
 
-  test("compiles custom completion patterns", () => {
+  test("H5: patterns config is accepted but ignored (single-rule auditor)", () => {
+    // completion-auditor 收敛为单规则后，patterns 配置不再编译。
+    // 旧配置仍被 schema 接受（向后兼容），但 ResolvedHarnessConfig 不再暴露 patterns 字段。
+    // 详见 proposal-v2.md §2 H5。
     const resolved = resolveHarnessConfig({
       completionAuditor: {
         patterns: {
@@ -37,13 +40,13 @@ describe("harness config", () => {
       },
     });
 
+    expect(resolved.completionAuditor.patterns).toBeUndefined();
+    // 单规则：只看 modification evidence，不看 finalText 文本
     const result = auditCompletion(
       { finalText: "CUSTOM_TEST_OK", evidence: { kinds: [] } },
-      { patterns: resolved.completionAuditor.patterns, messages: resolved.messages },
+      { messages: resolved.messages },
     );
-
-    expect(result.action).toBe("block");
-    expect(result.issues[0]?.id).toBe("test_pass_without_evidence");
+    expect(result.action).toBe("allow");
   });
 
   test("resolves tool result template", async () => {
@@ -90,5 +93,17 @@ describe("harness config", () => {
     expect(resolved.toolResultBudget.thresholds.byTool?.grep).toBe(50_000);
     // 系统默认不合并到用户配置
     expect(resolved.toolResultBudget.thresholds.byTool?.bash).toBeUndefined();
+  });
+
+  test("H7: maxConsecutiveBlocks defaults to 8", () => {
+    const resolved = resolveHarnessConfig();
+    expect(resolved.completionAuditor.maxConsecutiveBlocks).toBe(8);
+  });
+
+  test("H7: maxConsecutiveBlocks can be overridden", () => {
+    const resolved = resolveHarnessConfig({
+      completionAuditor: { maxConsecutiveBlocks: 3 },
+    });
+    expect(resolved.completionAuditor.maxConsecutiveBlocks).toBe(3);
   });
 });

@@ -35,21 +35,26 @@ describe("verifier-verdict-adapter", () => {
     expect(decision.issues.map((issue) => issue.id)).not.toContain("modification_without_verification");
   });
 
-  test("FAIL verdict warns on completion claim", () => {
+  test("H5: FAIL verdict → modification_without_verification (verifier_fail is not verification)", () => {
     const summary = applyVerifierVerdictsToEvidenceSummary(baseSummary, [verdict("FAIL")]);
     const decision = auditCompletion({ finalText: "已完成", evidence: summary });
 
     expect(summary.kinds).toContain("verifier_fail");
-    expect(decision.issues.map((issue) => issue.id)).toContain("completion_against_verifier_fail");
+    // H5 后 completion_against_verifier_fail issue 已删；
+    // verifier_fail 不算 verification，所以 modification 无验证仍触发单规则。
+    expect(decision.issues.map((issue) => issue.id)).not.toContain("completion_against_verifier_fail");
+    expect(decision.issues.map((issue) => issue.id)).toContain("modification_without_verification");
   });
 
-  test("PARTIAL verdict warns on unconditional completion claim", () => {
+  test("H5: PARTIAL verdict → allow (verifier_partial counts as verification)", () => {
     const summary = applyVerifierVerdictsToEvidenceSummary(baseSummary, [verdict("PARTIAL")]);
     const decision = auditCompletion({ finalText: "已完成", evidence: summary });
 
     expect(summary.kinds).toContain("verification");
     expect(summary.kinds).toContain("verifier_partial");
-    expect(decision.issues.map((issue) => issue.id)).toContain("completion_against_verifier_partial");
+    // H5 后 completion_against_verifier_partial issue 已删；
+    // verifier_partial 算 verification，单规则不触发。
+    expect(decision.issues.map((issue) => issue.id)).not.toContain("completion_against_verifier_partial");
     expect(decision.issues.map((issue) => issue.id)).not.toContain("modification_without_verification");
   });
 

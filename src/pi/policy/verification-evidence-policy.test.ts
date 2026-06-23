@@ -60,7 +60,7 @@ describe('VerificationEvidencePolicy', () => {
   test('does not scan natural language text', () => {
     // This policy intentionally receives only evidence state and context flags,
     // so phrases like “测试通过” cannot trigger it by themselves.
-    const result = checkVerificationEvidence(baseState, { userAskedForFinal: true });
+    const result = checkVerificationEvidence(baseState, {});
     expect(result.action).toBe('allow');
   });
 });

@@ -10,7 +10,6 @@ export interface VerificationEvidenceState {
 }
 
 export interface VerificationEvidenceContext {
-  userAskedForFinal?: boolean;
   afterToolFailure?: boolean;
   afterModification?: boolean;
   dependingOnSubagent?: boolean;
@@ -69,7 +68,7 @@ export function checkVerificationEvidence(
     );
   }
 
-  if ((context.afterModification || state.hasModify || context.userAskedForFinal) && state.hasModify && !state.hasVerification) {
+  if ((context.afterModification || state.hasModify) && state.hasModify && !state.hasVerification) {
     return warn(
       "modified_without_verification",
       "modificationWithoutVerification",
