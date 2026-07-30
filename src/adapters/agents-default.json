@@ -1,85 +1,28 @@
 {
-  "standard-dev": {
-    "type": "mode",
-    "tools": [
-      "@交互",
-      "@子代理"
-    ],
-    "delegates": [
-      "search",
-      "oracle"
-    ],
-    "pipelineMode": true,
-    "workflow": "standard-dev",
+  "main": {
+    "type": "main",
+    "tools": ["*"],
+    "delegates": ["search", "fixer", "oracle"],
     "presetPrimary": true,
-    "label": "标准开发模式（阶段门禁）"
-  },
-  "quick-fix": {
-    "type": "mode",
-    "tools": [
-      "@交互",
-      "omo_subagent"
-    ],
-    "delegates": [
-      "search",
-      "fixer",
-      "oracle"
-    ],
-    "pipelineMode": true,
-    "workflow": "quick-fix",
-    "label": "快速修复模式（阶段门禁）"
+    "label": "Main session"
   },
   "oracle": {
     "type": "subagent",
     "delegates": [],
     "label": "评审",
-    "roles": [
-      "读",
-      "搜索",
-      "检索"
-    ]
+    "roles": ["读", "搜索", "检索"]
   },
   "fixer": {
     "type": "subagent",
     "delegates": [],
     "label": "实现",
-    "roles": [
-      "读",
-      "写",
-      "执行",
-      "检索"
-    ]
-  },
-  "fallback": {
-    "type": "mode",
-    "pipelineMode": false,
-    "requiresUserCommand": true,
-    "tools": [
-      "*"
-    ],
-    "label": "兜底模式（全工具救援）",
-    "delegates": [
-      "oracle",
-      "fixer",
-      "dispatcher",
-      "search"
-    ]
+    "roles": ["读", "写", "执行", "检索"]
   },
   "_tool_groups": {
-    "读": [
-      "read"
-    ],
-    "写": [
-      "write",
-      "edit"
-    ],
-    "执行": [
-      "bash"
-    ],
-    "检索": [
-      "codebase_*",
-      "context_mode_ctx_search"
-    ],
+    "读": ["read"],
+    "写": ["write", "edit"],
+    "执行": ["bash"],
+    "检索": ["codebase_*", "context_mode_ctx_search"],
     "搜索": [
       "grep",
       "find",
@@ -89,39 +32,13 @@
       "fetch_content",
       "get_search_content"
     ],
-    "交互": [
-      "ask_user_question",
-      "switch_mode",
-      "todo"
-    ],
-    "子代理": [
-      "omo_subagent",
-      "omo_council"
-    ],
-    "流程": [],
-    "管理": [
-      "@子代理"
-    ]
-  },
-  "dispatcher": {
-    "type": "subagent",
-    "delegates": [
-      "fixer",
-      "oracle"
-    ],
-    "label": "标准实施调度",
-    "roles": [
-      "流程",
-      "管理"
-    ]
+    "交互": ["ask_user_question", "todo"],
+    "子代理": ["omo_subagent", "omo_council"]
   },
   "search": {
     "type": "subagent",
     "delegates": [],
     "label": "查阅",
-    "roles": [
-      "读",
-      "搜索"
-    ]
+    "roles": ["读", "搜索"]
   }
 }

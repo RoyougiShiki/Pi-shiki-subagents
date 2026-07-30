@@ -48,7 +48,9 @@ export interface SubagentSessionSnapshot {
   usage?: SubagentUsageSnapshot;
 }
 
-function activityPhaseForStatus(status: SubagentRunStatus): SubagentActivityPhase {
+function activityPhaseForStatus(
+  status: SubagentRunStatus,
+): SubagentActivityPhase {
   switch (status) {
     case 'starting':
       return 'starting';
@@ -100,7 +102,10 @@ function resultSummary(run: SubagentRunRecord): string | undefined {
   return undefined;
 }
 
-function sortRunIdsByStart(state: SubagentRunState, runIds: readonly string[]): string[] {
+function sortRunIdsByStart(
+  state: SubagentRunState,
+  runIds: readonly string[],
+): string[] {
   return [...runIds].sort((left, right) => {
     const leftStartedAt = state.runs[left]?.startedAt ?? 0;
     const rightStartedAt = state.runs[right]?.startedAt ?? 0;
@@ -163,9 +168,8 @@ export function createSubagentSessionSnapshots(
 ): SubagentSessionSnapshot[] {
   const snapshots: SubagentSessionSnapshot[] = [];
   const visited = new Set<string>();
-  const rootIds = state.rootRunIds.length > 0
-    ? state.rootRunIds
-    : Object.keys(state.runs);
+  const rootIds =
+    state.rootRunIds.length > 0 ? state.rootRunIds : Object.keys(state.runs);
   for (const rootRunId of sortRunIdsByStart(state, rootIds)) {
     appendRunAndChildren(state, rootRunId, visited, snapshots);
   }

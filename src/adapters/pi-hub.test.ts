@@ -1,4 +1,4 @@
-import { describe, expect, mock, test, beforeEach, afterEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 
 /**
@@ -156,7 +156,9 @@ describe('pi-hub', () => {
 
     emitAgentEnd(session1, 'Alice opinion');
 
-    expect(session2.prompt).toHaveBeenCalledWith(expect.stringContaining('Alice opinion'));
+    expect(session2.prompt).toHaveBeenCalledWith(
+      expect.stringContaining('Alice opinion'),
+    );
     expect(meeting.messages).toHaveLength(1);
   });
 
@@ -183,11 +185,16 @@ describe('pi-hub', () => {
     const hub = getHub();
     const session = createMockSession('chatty');
     const onUserMessage = mock(() => Promise.resolve({ response: 'thanks' }));
-    hub.registerChat('user-chat', 'User Chat', {
-      name: 'chatty',
-      agentType: 'search',
-      session,
-    }, onUserMessage);
+    hub.registerChat(
+      'user-chat',
+      'User Chat',
+      {
+        name: 'chatty',
+        agentType: 'search',
+        session,
+      },
+      onUserMessage,
+    );
 
     await hub.broadcast('user-chat', 'User says hi', 'You');
 

@@ -20,7 +20,9 @@ describe('runtime agent config', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-runtime-agent-config-'));
+    tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'omo-runtime-agent-config-'),
+    );
     homeDir = path.join(tempDir, 'home');
     projectDir = path.join(tempDir, 'project');
     fs.mkdirSync(projectDir, { recursive: true });
@@ -28,7 +30,6 @@ describe('runtime agent config', () => {
     process.env.HOME = homeDir;
     process.env.XDG_CONFIG_HOME = path.join(tempDir, 'xdg');
     delete process.env.OPENCODE_CONFIG_DIR;
-    delete process.env.OH_MY_OPENCODE_SLIM_PRESET;
   });
 
   afterEach(() => {
@@ -36,317 +37,98 @@ describe('runtime agent config', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test('loads agent overrides from OPENCODE_CONFIG_DIR via the shared config loader', () => {
-    const opencodeDir = path.join(tempDir, 'custom-opencode');
-    process.env.OPENCODE_CONFIG_DIR = opencodeDir;
-    writeJson(path.join(opencodeDir, 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'custom/oracle-from-opencode-config-dir',
-          tools: ['read'],
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.oracle?.model).toBe('custom/oracle-from-opencode-config-dir');
-    expect(defs.oracle?.tools).toEqual(['read']);
-  });
-
-  test('does not expose known internal config keys as runtime agents', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        _tool_groups: {
-          custom: ['read'],
-        },
-        _private_reviewer: {
-          model: 'custom/private-reviewer',
-          prompt: 'Private reviewer prompt.',
-          tools: ['read'],
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs._tool_groups).toBeUndefined();
-    expect(Object.keys(defs)).not.toContain('_tool_groups');
-    expect(defs._private_reviewer?.model).toBe('custom/private-reviewer');
-    expect(defs._private_reviewer?.prompt).toBe('Private reviewer prompt.');
-    expect(defs._private_reviewer?.tools).toEqual(['read']);
-  });
-
-  test('merges active preset agent overrides into runtime definitions', () => {
+  test('loads shared config overrides for built-in subagents', () => {
     writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      preset: 'review',
-      presets: {
-        review: {
-          oracle: {
-            model: 'preset/oracle-model',
-            tools: ['read', 'grep'],
-          },
-        },
-      },
+      agents: { oracle: { model: 'custom/oracle', tools: ['read'] } },
     });
 
     const defs = loadRuntimeAgentDefinitions(projectDir);
 
-    expect(defs.oracle?.model).toBe('preset/oracle-model');
-    expect(defs.oracle?.tools).toEqual(['read', 'grep']);
+    expect(defs.oracle?.model).toBe('custom/oracle');
+    expect(defs.oracle?.tools).toEqual(['read']);
     expect(defs.oracle?.type).toBe('subagent');
   });
 
-  test('uses root agent overrides according to shared loader merge semantics', () => {
+  test('does not merge preset model packs into role definitions', () => {
     writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
       preset: 'review',
       presets: {
-        review: {
-          oracle: {
-            model: 'preset/oracle-model',
-            options: { textVerbosity: 'low', reasoningEffort: 'medium' },
-          },
-        },
+        review: { oracle: 'preset/oracle', subagent: 'preset/sub' },
       },
       agents: {
-        oracle: {
-          model: 'root/oracle-model',
-          options: { textVerbosity: 'high' },
-        },
+        oracle: { tools: ['read'] },
       },
     });
 
     const defs = loadRuntimeAgentDefinitions(projectDir);
 
-    expect(defs.oracle?.model).toBe('root/oracle-model');
-    expect(defs.oracle?.options).toEqual({
-      textVerbosity: 'high',
-      reasoningEffort: 'medium',
-    });
+    // Presets no longer supply agent.model/tools via merge.
+    expect(defs.oracle?.model).toBeUndefined();
+    expect(defs.oracle?.tools).toEqual(['read']);
   });
 
-  test('keeps Pi native config as a fallback runtime source', () => {
+  test('keeps valid Pi-native config as a fallback source', () => {
     writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'pi-native/oracle-model',
-        },
-      },
+      agents: { fixer: { model: 'native/fixer' } },
     });
 
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.oracle?.model).toBe('pi-native/oracle-model');
-  });
-
-  test('does not revive stale managed agents from Pi native config', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        coordinator: {
-          type: 'mode',
-          pipelineMode: true,
-          workflow: 'standard-dev',
-          delegates: ['search', 'oracle'],
-        },
-        worker: {
-          type: 'subagent',
-          delegates: ['fixer', 'oracle'],
-          model: 'pi-native/old-worker-model',
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.coordinator).toBeUndefined();
-    expect(defs.worker).toBeUndefined();
-  });
-
-  test('delegation rules omit stale delegate targets that are no longer runtime agents', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        fallback: {
-          delegates: ['worker', 'oracle'],
-        },
-        worker: {
-          type: 'subagent',
-          delegates: ['fixer', 'oracle'],
-        },
-      },
-    });
-
-    const rules = getDelegationRulesFromConfig(projectDir);
-
-    expect(rules.fallback).toContain('oracle');
-    expect(rules.fallback).not.toContain('worker');
-    expect(rules.worker).toBeUndefined();
-  });
-
-  test('delegation rules omit hidden delegate targets', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        fallback: {
-          delegates: ['worker', 'oracle'],
-        },
-        worker: {
-          type: 'subagent',
-          model: 'pi-native/worker-model',
-          prompt: 'Hidden worker prompt.',
-          hidden: true,
-        },
-      },
-    });
-
-    const rules = getDelegationRulesFromConfig(projectDir);
-
-    expect(rules.fallback).toContain('oracle');
-    expect(rules.fallback).not.toContain('worker');
-  });
-
-  test('preserves custom runtime agent entries with explicit prompt content', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        customLead: {
-          type: 'mode',
-          pipelineMode: true,
-          workflow: 'custom-flow',
-          model: 'pi-native/custom-lead',
-          prompt: 'Custom lead runtime prompt.',
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.customLead?.model).toBe('pi-native/custom-lead');
-    expect(defs.customLead?.prompt).toBe('Custom lead runtime prompt.');
-  });
-
-  test('does not preserve custom runtime agents without a model', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      agents: {
-        customLead: {
-          type: 'mode',
-          pipelineMode: true,
-          workflow: 'custom-flow',
-          prompt: 'Custom lead runtime prompt.',
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.customLead).toBeUndefined();
-  });
-
-  test('merges active preset from Pi native config fallback', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      preset: 'native-review',
-      presets: {
-        'native-review': {
-          oracle: {
-            model: 'pi-native-preset/oracle-model',
-            tools: ['read', 'grep'],
-          },
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.oracle?.model).toBe('pi-native-preset/oracle-model');
-    expect(defs.oracle?.tools).toEqual(['read', 'grep']);
-  });
-
-  test('parses Pi native runtime .jsonc config with comments and trailing commas', () => {
-    fs.mkdirSync(path.join(homeDir, '.pi', 'agent'), { recursive: true });
-    fs.writeFileSync(
-      path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.jsonc'),
-      `{
-        // native config comment
-        "agents": {
-          "oracle": { "model": "pi-native/jsonc-model", },
-        },
-      }`,
+    expect(loadRuntimeAgentDefinitions(projectDir).fixer?.model).toBe(
+      'native/fixer',
     );
+  });
+
+  test('rejects removed mode and workflow configuration from Pi-native config', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      workflows: { list: [] },
+      agents: { legacy: { type: 'mode', pipelineMode: true } },
+    });
 
     const defs = loadRuntimeAgentDefinitions(projectDir);
 
-    expect(defs.oracle?.model).toBe('pi-native/jsonc-model');
+    expect(defs.legacy).toBeUndefined();
+    expect(defs.main?.type).toBe('main');
   });
 
-  test('loads runtime tool groups from defaults, Pi native config, and shared config', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      _tool_groups: {
-        custom: ['read'],
-        shared: ['grep'],
+  test('preserves custom subagents with an explicit prompt and model', () => {
+    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
+      agents: {
+        reviewer: {
+          type: 'subagent',
+          model: 'custom/reviewer',
+          prompt: 'Review the supplied patch.',
+          tools: ['read'],
+        },
       },
+    });
+
+    const defs = loadRuntimeAgentDefinitions(projectDir);
+
+    expect(defs.reviewer).toMatchObject({
+      type: 'subagent',
+      model: 'custom/reviewer',
+      tools: ['read'],
+    });
+  });
+
+  test('loads and overrides named tool groups from all config sources', () => {
+    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
+      _tool_groups: { shared: ['grep'], nativeOnly: ['read'] },
     });
     writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      _tool_groups: {
-        shared: ['write'],
-        projectOnly: ['edit'],
-      },
+      _tool_groups: { shared: ['write'], projectOnly: ['edit'] },
     });
 
     const groups = loadRuntimeToolGroups(projectDir);
 
-    const defaultSubagentGroupName = '子代理';
-    const subagentToolGroup = groups[defaultSubagentGroupName];
-    expect(subagentToolGroup).toContain('omo_subagent');
-    expect(groups.custom).toEqual(['read']);
     expect(groups.shared).toEqual(['write']);
+    expect(groups.nativeOnly).toEqual(['read']);
     expect(groups.projectOnly).toEqual(['edit']);
   });
 
-  test('empty runtime tool groups override lower-priority groups', () => {
-    writeJson(path.join(homeDir, '.pi', 'agent', 'oh-my-opencode-slim.json'), {
-      _tool_groups: {
-        shared: ['grep'],
-      },
-    });
-    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      _tool_groups: {
-        shared: [],
-      },
-    });
+  test('builds delegate rules from the main session definition', () => {
+    const rules = getDelegationRulesFromConfig(projectDir);
 
-    const groups = loadRuntimeToolGroups(projectDir);
-
-    expect(groups.shared).toEqual([]);
+    expect(rules.main).toEqual(['search', 'fixer', 'oracle']);
+    expect(rules.oracle).toEqual([]);
   });
-
-  test('accepts roles from shared JSON agent config', () => {
-    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      agents: {
-        customReviewer: {
-          type: 'subagent',
-          roles: ['review'],
-          model: 'custom/reviewer-model',
-          prompt: 'Custom reviewer prompt.',
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.customReviewer?.roles).toEqual(['review']);
-  });
-
-  test('accepts thinking from shared JSON agent config', () => {
-    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'runtime/oracle-model',
-          thinking: 'high',
-        },
-      },
-    });
-
-    const defs = loadRuntimeAgentDefinitions(projectDir);
-
-    expect(defs.oracle?.model).toBe('runtime/oracle-model');
-    expect(defs.oracle?.thinking).toBe('high');
-  });
-
 });

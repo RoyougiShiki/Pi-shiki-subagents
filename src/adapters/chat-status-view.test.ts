@@ -1,21 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { createChatStatusView, groupChatStatusViews } from '../pi/subagent/chat-status-view';
+import {
+  createChatStatusView,
+  groupChatStatusViews,
+} from '../pi/subagent/chat-status-view';
 
 describe('chat status view', () => {
-  test('formats a workflow agent list row and bottom line', () => {
-    const view = createChatStatusView({
-      name: 'analyst',
-      state: 'working',
-      scope: 'workflow',
-      startedAt: 1_000,
-      now: 313_000,
-    });
-
-    expect(view.listRow).toBe('analyst · working · 05:12');
-    expect(view.bottomLine).toBe('analyst · working · workflow');
-  });
-
-  test('formats pool agent status without workflow details', () => {
+  test('formats pool agent status', () => {
     const view = createChatStatusView({
       name: 'fixer-1',
       state: 'idle',
@@ -28,25 +18,20 @@ describe('chat status view', () => {
     expect(view.bottomLine).toBe('fixer-1 · idle · pool');
   });
 
-  test('adds fallback hint for failed or dead agents only in bottom line', () => {
-    const failed = createChatStatusView({ name: 'analyst', state: 'failed', scope: 'workflow' });
-    const dead = createChatStatusView({ name: 'dispatcher', state: 'dead', scope: 'workflow' });
+  test('groups pool and standalone rows without workflow state', () => {
+    const pool = createChatStatusView({
+      name: 'fixer-1',
+      state: 'idle',
+      scope: 'pool',
+    });
+    const standalone = createChatStatusView({
+      name: 'search-1',
+      state: 'idle',
+      scope: 'standalone',
+    });
 
-    expect(failed.listRow).toBe('analyst · failed');
-    expect(failed.bottomLine).toBe('analyst · failed · workflow · fallback?');
-    expect(dead.bottomLine).toBe('dispatcher · dead · workflow · fallback?');
-  });
+    const groups = groupChatStatusViews([standalone, pool]);
 
-  test('groups status rows by scope order', () => {
-    const workflow = createChatStatusView({ name: 'analyst', state: 'working', scope: 'workflow' });
-    const pool = createChatStatusView({ name: 'fixer-1', state: 'idle', scope: 'pool' });
-    const standalone = createChatStatusView({ name: 'search-1', state: 'idle', scope: 'standalone' });
-
-    const groups = groupChatStatusViews([pool, standalone, workflow]);
-
-    expect(groups.map((group) => group.title)).toEqual(['Workflow', 'Pool', 'Standalone']);
-    expect(groups[0].items[0].listRow).toBe('analyst · working');
-    expect(groups[1].items[0].listRow).toBe('fixer-1 · idle');
-    expect(groups[2].items[0].listRow).toBe('search-1 · idle');
+    expect(groups.map((group) => group.title)).toEqual(['Pool', 'Standalone']);
   });
 });

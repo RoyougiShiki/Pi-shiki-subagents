@@ -145,12 +145,21 @@ function toViewNodeFromSnapshot(
 
   const nextVisited = new Set(visited);
   nextVisited.add(snapshot.runId);
-  const childIds = sortSnapshotsByStart(snapshots, snapshot.lineage.childRunIds);
+  const childIds = sortSnapshotsByStart(
+    snapshots,
+    snapshot.lineage.childRunIds,
+  );
   const children = childIds
     .map((id) => snapshots.get(id))
     .filter((child): child is SubagentSessionSnapshot => Boolean(child))
     .map((child) =>
-      toViewNodeFromSnapshot(snapshots, child, now, maxRecentLines, nextVisited),
+      toViewNodeFromSnapshot(
+        snapshots,
+        child,
+        now,
+        maxRecentLines,
+        nextVisited,
+      ),
     );
 
   return {
@@ -186,7 +195,8 @@ function sortSnapshotsByRootOrder(
   snapshotsList: readonly SubagentSessionSnapshot[],
 ): SubagentSessionSnapshot[] {
   return [...snapshotsList].sort((left, right) => {
-    if (left.startedAt !== right.startedAt) return left.startedAt - right.startedAt;
+    if (left.startedAt !== right.startedAt)
+      return left.startedAt - right.startedAt;
     return left.runId.localeCompare(right.runId);
   });
 }
@@ -212,7 +222,11 @@ function selectRootSnapshots(
 ): SubagentSessionSnapshot[] {
   const rootCandidates = snapshotsList.filter((snapshot) => {
     const parentRunId = snapshot.lineage.parentRunId;
-    return !parentRunId || !snapshots.has(parentRunId) || !childIds.has(snapshot.runId);
+    return (
+      !parentRunId ||
+      !snapshots.has(parentRunId) ||
+      !childIds.has(snapshot.runId)
+    );
   });
   const roots = sortSnapshotsByRootOrder(rootCandidates);
   const reachable = new Set<string>();
@@ -241,11 +255,14 @@ export function createSubagentRunTreeViewFromSnapshots(
   );
   const counts = {
     total: snapshotsList.length,
-    running: snapshotsList.filter((snapshot) => isRunningStatus(snapshot.status))
+    running: snapshotsList.filter((snapshot) =>
+      isRunningStatus(snapshot.status),
+    ).length,
+    completed: snapshotsList.filter(
+      (snapshot) => snapshot.status === 'completed',
+    ).length,
+    failed: snapshotsList.filter((snapshot) => snapshot.status === 'failed')
       .length,
-    completed: snapshotsList.filter((snapshot) => snapshot.status === 'completed')
-      .length,
-    failed: snapshotsList.filter((snapshot) => snapshot.status === 'failed').length,
     dead: snapshotsList.filter((snapshot) => snapshot.status === 'dead').length,
   };
 

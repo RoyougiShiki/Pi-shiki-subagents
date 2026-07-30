@@ -1,55 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_AGENT_MCPS, parseList } from './agent-mcps';
-import { PRIMARY_MODE_AGENT_NAME } from './constants';
 
-describe('parseList', () => {
-  test('empty list returns empty array', () => {
-    expect(parseList([], ['mcp1', 'mcp2'])).toEqual([]);
+describe('agent MCP helpers', () => {
+  test('does not assign implicit MCP access to the thin runtime', () => {
+    expect(DEFAULT_AGENT_MCPS).toEqual({});
   });
 
-  test('wildcard includes all available', () => {
-    expect(parseList(['*'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([
-      'mcp1',
-      'mcp2',
-      'mcp3',
-    ]);
-  });
-
-  test('primary mode wildcard excludes context7 but includes custom mcps', () => {
-    expect(
-      parseList(DEFAULT_AGENT_MCPS[PRIMARY_MODE_AGENT_NAME] ?? [], [
-        'websearch',
-        'context7',
-        'grep_app',
-        'custom-mcp',
-      ]),
-    ).toEqual(['websearch', 'grep_app', 'custom-mcp']);
-  });
-
-  test('wildcard with exclusions', () => {
+  test('expands wildcards and exclusions against available MCPs', () => {
     expect(parseList(['*', '!mcp2'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([
       'mcp1',
       'mcp3',
     ]);
-  });
-
-  test('exclude wildcard returns empty', () => {
+    expect(parseList(['mcp1', 'mcp3'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([
+      'mcp1',
+      'mcp3',
+    ]);
     expect(parseList(['!*'], ['mcp1', 'mcp2'])).toEqual([]);
-  });
-
-  test('specific items only', () => {
-    expect(
-      parseList(['mcp1', 'mcp3'], ['mcp1', 'mcp2', 'mcp3', 'mcp4']),
-    ).toEqual(['mcp1', 'mcp3']);
-  });
-
-  test('specific items with exclusions', () => {
-    expect(
-      parseList(['mcp1', 'mcp3', '!mcp3'], ['mcp1', 'mcp2', 'mcp3']),
-    ).toEqual(['mcp1']);
-  });
-
-  test('exclusions without matching allows', () => {
-    expect(parseList(['!mcp2'], ['mcp1', 'mcp2', 'mcp3'])).toEqual([]);
   });
 });

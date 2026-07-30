@@ -5,7 +5,7 @@ import {
 
 // Agent names
 export const AGENT_ALIASES: Record<string, string> = {
-  'frontend-ui-ux-engineer': 'standard-dev',
+  'frontend-ui-ux-engineer': 'main',
 };
 
 const CONFIG_ONLY_AGENT_NAMES = ['council'] as const;
@@ -17,49 +17,57 @@ export const ALL_AGENT_NAMES = [
 
 export const MODEL_PLACEHOLDER = '<YOUR_MODEL>' as const;
 
-function getPrimaryModeAgentName(): string {
+function getPrimaryAgentName(): string {
   const defaults = readDefaultAgentDefinitions();
-  const primaryModes = Object.entries(defaults)
+  const primaryAgents = Object.entries(defaults)
     .filter(([, definition]) => {
       const typed = definition as { type?: unknown; presetPrimary?: unknown };
-      return (
-        typed.presetPrimary === true &&
-        (typed.type === 'mode' || typed.type === 'both')
-      );
+      return typed.presetPrimary === true && typed.type === 'main';
     })
     .map(([name]) => name);
-  if (primaryModes.length !== 1) {
+  if (primaryAgents.length !== 1) {
     throw new Error(
-      `[oh-my-opencode-slim] agents-default.json must define exactly one presetPrimary mode; found ${primaryModes.length}`,
+      `[oh-my-opencode-slim] agents-default.json must define exactly one presetPrimary main session; found ${primaryAgents.length}`,
     );
   }
-  return primaryModes[0]!;
+  return primaryAgents[0]!;
 }
 
-export const PRIMARY_MODE_AGENT_NAME = getPrimaryModeAgentName();
+export const PRIMARY_AGENT_NAME = getPrimaryAgentName();
 
-function getPresetConfigurableAgentNames(): string[] {
+function getBuiltInRoleSubagentNames(): string[] {
   const defaults = readDefaultAgentDefinitions();
-  const names = new Set<string>([PRIMARY_MODE_AGENT_NAME]);
-  for (const [name, definition] of Object.entries(defaults)) {
-    const type = (definition as { type?: unknown } | undefined)?.type;
-    if (type === 'subagent' || type === 'both') names.add(name);
-  }
-  for (const name of CONFIG_ONLY_AGENT_NAMES) names.add(name);
-  return [...names].filter((name) =>
-    (ALL_AGENT_NAMES as readonly string[]).includes(name),
-  );
+  return Object.entries(defaults)
+    .filter(([, definition]) => {
+      const type = (definition as { type?: unknown } | undefined)?.type;
+      return type === 'subagent';
+    })
+    .map(([name]) => name)
+    .filter((name) => (ALL_AGENT_NAMES as readonly string[]).includes(name));
 }
 
-export const PRESET_CONFIGURABLE_AGENT_NAMES =
-  getPresetConfigurableAgentNames();
+/** Built-in leaf role subagent names (search/fixer/oracle, etc.). */
+export const BUILT_IN_ROLE_SUBAGENT_NAMES = getBuiltInRoleSubagentNames();
+
+/**
+ * Preset model override slots: shared subagent default + per-role overrides.
+ * Main session and council are intentionally excluded.
+ */
+export const PRESET_MODEL_SLOT_NAMES = [
+  'subagent',
+  ...BUILT_IN_ROLE_SUBAGENT_NAMES,
+] as const;
 
 export type AgentName = string;
 
 // Subagent delegation rules: which agents can spawn which subagents.
 // These are only fallback rules. Runtime prefers agents-default.json / user config.
-export const ORCHESTRATABLE_AGENTS = ['search', 'oracle', 'fixer', 'council'] as const;
-
+export const ORCHESTRATABLE_AGENTS = [
+  'search',
+  'oracle',
+  'fixer',
+  'council',
+] as const;
 
 /**
  * Get the list of orchestratable agents, excluding any disabled agents.
@@ -71,15 +79,14 @@ export function getOrchestratableAgents(
   return ORCHESTRATABLE_AGENTS.filter((name) => !disabledAgents?.has(name));
 }
 
-export const SUBAGENT_DELEGATION_RULES: Partial<Record<AgentName, readonly string[]>> = {
-  'standard-dev': ['search', 'oracle'],
-  'quick-fix': ['search', 'fixer', 'oracle'],
+export const SUBAGENT_DELEGATION_RULES: Partial<
+  Record<AgentName, readonly string[]>
+> = {
+  main: ['search', 'fixer', 'oracle'],
   oracle: [],
   fixer: [],
-  dispatcher: [],
   search: [],
   council: [],
-  fallback: [],
 };
 
 // Default models are intentionally not defined here.
@@ -97,10 +104,6 @@ export const FALLBACK_FAILOVER_TIMEOUT_MS = 15_000;
 
 // Subagent depth limits
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
-
-// Workflow reminders
-export const PHASE_REMINDER_TEXT = `!IMPORTANT! Understand → choose path → execute → verify.
-If delegating, do it in the same turn. !END!`;
 
 // Polling stability
 export const STABLE_POLLS_THRESHOLD = 3;

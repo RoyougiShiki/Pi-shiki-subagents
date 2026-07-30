@@ -1,4 +1,4 @@
-import type { ToolEvidence } from "../policy/tool-evidence-types";
+import type { ToolEvidence } from '../policy/tool-evidence-types';
 
 export interface CompletionAuditScope {
   sessionId: string;
@@ -6,7 +6,7 @@ export interface CompletionAuditScope {
   taskId?: string;
   currentTurnModified: boolean;
   hasCurrentWorkingTreeDiff?: boolean;
-  evidenceWindow: "current_turn" | "current_task" | "current_session";
+  evidenceWindow: 'current_turn' | 'current_task' | 'current_session';
   forceSessionWindow?: boolean;
 }
 
@@ -25,10 +25,14 @@ export interface SelectCompletionAuditEvidenceResult {
   evidences: readonly ToolEvidence[];
 }
 
-const MODIFICATION_TOOLS = new Set(["write", "edit"]);
+const MODIFICATION_TOOLS = new Set(['write', 'edit']);
 
-export function hasModificationEvidence(evidences: readonly ToolEvidence[]): boolean {
-  return evidences.some((evidence) => evidence.success && MODIFICATION_TOOLS.has(evidence.toolName));
+export function hasModificationEvidence(
+  evidences: readonly ToolEvidence[],
+): boolean {
+  return evidences.some(
+    (evidence) => evidence.success && MODIFICATION_TOOLS.has(evidence.toolName),
+  );
 }
 
 /**
@@ -46,7 +50,9 @@ export function hasModificationEvidence(evidences: readonly ToolEvidence[]): boo
 export function selectCompletionAuditEvidence(
   input: SelectCompletionAuditEvidenceInput,
 ): SelectCompletionAuditEvidenceResult {
-  const currentTurnModified = input.currentTurnModified ?? hasModificationEvidence(input.currentTurnEvidences);
+  const currentTurnModified =
+    input.currentTurnModified ??
+    hasModificationEvidence(input.currentTurnEvidences);
 
   if (input.forceSessionWindow) {
     return {
@@ -54,7 +60,7 @@ export function selectCompletionAuditEvidence(
         sessionId: input.sessionId,
         currentTurnModified,
         hasCurrentWorkingTreeDiff: input.hasCurrentWorkingTreeDiff,
-        evidenceWindow: "current_session",
+        evidenceWindow: 'current_session',
         forceSessionWindow: true,
       },
       evidences: input.sessionEvidences,
@@ -67,7 +73,7 @@ export function selectCompletionAuditEvidence(
         sessionId: input.sessionId,
         currentTurnModified,
         hasCurrentWorkingTreeDiff: input.hasCurrentWorkingTreeDiff,
-        evidenceWindow: "current_turn",
+        evidenceWindow: 'current_turn',
       },
       evidences: input.currentTurnEvidences,
     };
@@ -78,7 +84,7 @@ export function selectCompletionAuditEvidence(
       sessionId: input.sessionId,
       currentTurnModified,
       hasCurrentWorkingTreeDiff: input.hasCurrentWorkingTreeDiff,
-      evidenceWindow: "current_session",
+      evidenceWindow: 'current_session',
     },
     evidences: input.sessionEvidences,
   };

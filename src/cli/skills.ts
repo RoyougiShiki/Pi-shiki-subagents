@@ -27,7 +27,7 @@ export const RECOMMENDED_SKILLS: RecommendedSkill[] = [
     name: 'agent-browser',
     repo: 'https://github.com/vercel-labs/agent-browser',
     skillName: 'agent-browser',
-    allowedAgents: ['standard-dev'],
+    allowedAgents: ['main'],
     description: 'High-performance browser automation',
     postInstallCommands: [
       'npm install -g agent-browser',

@@ -1,95 +1,58 @@
 # Configuration Reference
 
-Complete reference for the maintained Pi adapter and shared configuration surface.
+Configuration applies to the maintained Pi runtime and its shared agent definitions.
 
 ## Config Files
 
 | File | Purpose |
 |------|---------|
-| `~/.pi/agent/oh-my-opencode-slim.jsonc` | Pi adapter runtime settings; JSONC variant; takes precedence over `.json` |
-| `~/.pi/agent/oh-my-opencode-slim.json` | Pi adapter runtime settings — agents, modes, tool groups, workflow definitions, council |
-| `~/.config/opencode/oh-my-opencode-slim.jsonc` | Legacy-compatible user config JSONC path still read by the shared loader; takes precedence over `.json` |
-| `~/.config/opencode/oh-my-opencode-slim.json` | Legacy-compatible user config path still read by the shared loader |
-| `.opencode/oh-my-opencode-slim.jsonc` | Project-local JSONC overrides; takes precedence over `.json` |
-| `.opencode/oh-my-opencode-slim.json` | Project-local overrides |
+| `~/.pi/agent/oh-my-opencode-slim.jsonc` | Pi-native JSONC settings; preferred over `.json` |
+| `~/.pi/agent/oh-my-opencode-slim.json` | Pi-native settings for presets, agents, tool groups, council, and harness |
+| `~/.config/opencode/oh-my-opencode-slim.jsonc` | Shared user JSONC settings |
+| `~/.config/opencode/oh-my-opencode-slim.json` | Shared user settings |
+| `.opencode/oh-my-opencode-slim.jsonc` | Project JSONC overrides |
+| `.opencode/oh-my-opencode-slim.json` | Project overrides |
 
-JSONC supports comments and trailing commas.
+JSONC supports comments and trailing commas. All configuration sources use the same strict schema. Removed workflow and mode fields are errors; they are not silently ignored. The optional `$schema` URL is supported for editor validation.
 
-## Minimal Preset Example
+## Minimal Preset
 
 ```jsonc
 {
   "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json",
-  "preset": "default",
+  "preset": "省钱模式",
   "presets": {
-    "default": {
-      "standard-dev": { "model": "provider/model" },
-      "oracle": { "model": "provider/model", "variant": "high" },
-      "search": { "model": "provider/model" },
-      "fixer": { "model": "provider/model" },
-      "dispatcher": { "model": "provider/model" },
-      "council": { "model": "provider/model" }
+    "省钱模式": {},
+    "性能模式": {
+      "subagent": "provider/model",
+      "oracle": "provider/other-model"
     }
   }
 }
 ```
 
-## Agent Model Overrides
+A **Preset** is an optional Role Subagent model-override pack. It does **not** set the Main Model (use Pi `/model` or the model picker). Empty packs mean role subagents follow the current Main Model.
+
+Allowed preset keys: `subagent` (default for all role subagents) and built-in roles such as `search`, `fixer`, `oracle`. Values are `provider/model` strings. `main` and `council` are invalid inside presets.
+
+Use `/preset` with no arguments to switch or edit packs via selection dialogs (TUI and PiWeb).
+
+## Agent Overrides
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `preset` | string | Active preset name |
-| `presets.<name>.<agent>.model` | string \| array | Model ID or ordered fallback model list |
-| `presets.<name>.<agent>.temperature` | number | Temperature, when provider supports it |
-| `presets.<name>.<agent>.variant` | string | Reasoning effort such as `low`, `medium`, `high` |
-| `presets.<name>.<agent>.displayName` | string | User-facing alias for an agent |
-| `presets.<name>.<agent>.options` | object | Provider-specific options |
-| `agents.<agent>.model` | string \| array | Root-level agent override |
+| `presets.<name>.subagent` | string | Default model for role subagents under this preset |
+| `presets.<name>.<role>` | string | Optional per-role model override (`search` / `fixer` / `oracle`) |
+| `agents.<agent>.model` | string or array | Root-level agent definition model (custom agents; not the preset pack) |
 | `agents.<agent>.displayName` | string | Root-level display name override |
-| `disabled_agents` | string[] | Agent names to disable |
+| `disabled_agents` | string[] | Hide agent names from runtime discovery |
 
-Current built-in agents include:
+Built-in agent definitions live in `src/adapters/agents-default.json`; prompt files live in `src/adapters/agents/*.md`. Pi synchronizes managed prompt files into `~/.pi/agents/`. Tool access and delegation remain in JSON configuration, not prompt frontmatter.
 
-```text
-standard-dev, quick-fix, search, oracle, fixer, dispatcher, council, fallback
-```
+## Tool Groups and Custom Roles
 
-The user-facing pipeline modes are `standard-dev` and `quick-fix`.
-`fallback` is the explicit rescue mode. New configs should bind the foreground
-preset model to `standard-dev`; switch behavior with modes, not with preset
-model entries for every mode.
-The foreground preset target is the single built-in mode marked
-`presetPrimary: true`.
-
-`quick-fix` is the shortest write-capable path: the main agent scopes the
-small fix itself, asks for work-package approval, then delegates through the
-configured short workflow. The built-in workflow does not use the fuller
-analysis/planning implementation path; runtime behavior still comes from the
-structured workflow and agent definitions, not duplicated markdown prose.
-
-For read-only research, use `standard-dev` for analysis/plan and stop before
-approving implementation, or define a custom read-only workflow. The old
-`research-only` built-in mode is no longer part of the default agent set.
-
-## Agent Definitions and Prompts
-
-Built-in agent definitions live in:
-
-```text
-src/adapters/agents-default.json
-src/adapters/agents/*.md
-```
-
-At runtime, Pi syncs managed markdown prompts into `~/.pi/agents/`.
-
-Prompt files should describe role boundaries and behavior. Tool access and delegates should remain in `agents-default.json` / runtime config, not duplicated in markdown.
-
-## Tool Groups
-
-Tool permissions are configured on agent definitions with `roles` and `tools`.
-Named groups live in the root-level `_tool_groups` map and are shared by modes
-and subagents. Resolution order is built-in defaults, then Pi native config,
-then shared OpenCode user/project config.
+`roles` and `tools` define the concrete tool allowlist passed to each subagent Pi session. Named groups are declared under `_tool_groups`. Resolution order is built-in defaults, Pi-native config, then shared user/project config.
 
 ```jsonc
 {
@@ -100,126 +63,44 @@ then shared OpenCode user/project config.
   "agents": {
     "custom-reviewer": {
       "type": "subagent",
+      "model": "provider/model",
+      "prompt": "Review the supplied change.",
       "roles": ["review"]
     },
     "custom-fixer": {
       "type": "subagent",
+      "model": "provider/model",
+      "prompt": "Implement and verify the requested change.",
       "tools": ["@implementation"]
     }
   }
 }
 ```
 
-Markdown prompt files should not duplicate these permissions. They can describe
-how an agent should behave, but the active tool allowlist comes from runtime
-config and the tool-scope snapshot.
+A custom subagent needs both a `model` and a non-empty `prompt`. Custom agents without both are not discovered. Use `delegates` on an agent definition to narrow which roles it can create; the built-in `main` session delegates to `search`, `fixer`, and `oracle`, while built-in roles are leaves.
 
-## Workflow Config
+## Pool Sessions
 
-Mode is the user-facing entry point. A pipeline mode binds one workflow internally with
-`agents.<mode>.workflow`; runtime does not read `workflows.default` and there is no runtime
-workflow switch command.
-
-`pipelineMode: true` modes must set `workflow` to a known workflow definition. Built-in
-workflow names are managed by the package and remain canonical even if an old local
-config still contains stale definitions with the same names. Custom definitions live in
-`workflows.list`; use a custom workflow name for intentional overrides. Non-pipeline modes
-do not need a workflow and bypass workflow stage gates.
-
-Modes with `requiresUserCommand: true` can only be activated by user-driven mode changes
-such as `/mode` or restored session state. Model-initiated `switch_mode` requests to those
-modes are rejected before the approval prompt.
-Use this for explicit rescue modes that should not be entered by model initiative.
-
-```jsonc
-{
-  "agents": {
-    "standard-dev": {
-      "type": "mode",
-      "pipelineMode": true,
-      "workflow": "standard-dev",
-      "presetPrimary": true
-    },
-    "quick-fix": {
-      "type": "mode",
-      "pipelineMode": true,
-      "workflow": "quick-fix"
-    },
-    "fallback": {
-      "type": "mode",
-      "pipelineMode": false,
-      "requiresUserCommand": true
-    }
-  },
-  "workflows": {
-    "list": [
-      {
-        "name": "standard-dev",
-        "description": "标准受控开发流程：分析 → 计划 → 调度实现与审查",
-        "stages": [
-          {
-            "id": "analysis",
-            "agent": "standard-dev",
-            "description": "分析需求边界、影响范围、证据缺口和风险",
-            "allowedSubagents": ["search"]
-          },
-          {
-            "id": "plan",
-            "agent": "standard-dev",
-            "description": "生成实施计划、TDD/验证路径和分步任务",
-            "allowedSubagents": ["search", "oracle"]
-          },
-          {
-            "id": "implement",
-            "agent": "dispatcher",
-            "description": "按已确认计划调度实现和审查；不通过则继续同一实现会话返工",
-            "allowedSubagents": ["fixer", "oracle"]
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`workflows.default` is a deprecated compatibility field. It may still be accepted by the
-schema for older configs, but the Pi runtime ignores it and startup normalization removes
-it from managed Pi-native config.
-
-Pipeline notices and the injected `<ModeWorkflows>` prompt summarize the active
-mode's bound workflow. Treat that summary as runtime guidance; the gate itself
-still reads the structured config.
-
-## Subagent Pool Sessions
-
-Pool subagents use Pi SDK sessions that are separate from the main agent session tree.
+Pool subagents run in Pi SDK sessions separate from the main session tree.
 
 | Path | Purpose |
 |------|---------|
-| `~/.pi/agent/sessions/subagents/` | File-backed Pi sessions for pool subagents |
-| `~/.pi/agent/sessions/subagents/pool-registry.json` | Pool registry metadata for saved subagent runs |
+| `~/.pi/agent/sessions/subagents/` | File-backed child sessions |
+| `~/.pi/agent/sessions/subagents/pool-registry.json` | Recovery metadata for saved pool runs |
 
-The registry stores bounded recovery metadata such as:
+The registry records pool id, agent name, task, model, cwd, parent agent, depth, tool-delegation limits, session file, state, last response, error, completion time, and message count.
 
-- pool id, agent name, task, model, cwd, parent agent, depth, and allowed subagents;
-- `sessionFile`, when the Pi SDK provides a persisted child session file;
-- `status`, `lastResponse`, `errorMessage`, `completedAt`, and `messageCount`.
+- `spawn` starts asynchronous work and returns immediately.
+- Completion messages include only a compact preview. Use `pool=result` for the full result.
+- `resume` opens an existing `sessionFile`; if unavailable, it restarts from the saved task context.
+- `result` uses the live entry when available and falls back to the registry after restart.
+- Failed resume/open attempts preserve the prior non-empty result and record a failed state.
 
-Pool recovery behavior:
+## Council and Harness
 
-- `resume` opens the saved `sessionFile` when it exists, then sends the optional resume message into that saved session context.
-- If the saved session file is missing, `resume` falls back to restarting from the saved task context and says so in the tool result.
-- `result` returns the latest available result. A live pool entry is treated as the freshest source; the registry is the fallback after restart.
-- Failed resume/open attempts keep the previous non-empty result and mark the registry entry as failed instead of leaving stale running state.
+`omo_council` is an explicit tool. Its participant models are configured only under `council.presets.<name>.<participant>.model`. Presets do not configure council.
 
-## Council
-
-Council configuration is split between:
-
-- `presets.<name>.council.model` — model for the council agent entry.
-- `council.presets.<name>.<councillor>.model` — models for individual councillors.
-
-Deprecated `council.master*` fields should not be used in new configs.
+Harness options, including `toolResultBudget`, remain independent of subagent workflow. The completion-auditor path has been removed; do not enable legacy `harness.completionAuditor` fields (they are ignored).
 
 ## Fallback Models
 
@@ -236,34 +117,9 @@ Deprecated `council.master*` fields should not be used in new configs.
 }
 ```
 
-## Startup and Update Options
+## Startup Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `showStartupToast` | boolean | `true` | Show startup activation toast |
 | `autoUpdate` | boolean | `true` | Automatically install updates when supported |
-
-## Custom Agents
-
-Unknown keys under `agents` are treated as custom subagents when they provide a model and prompt.
-
-```jsonc
-{
-  "agents": {
-    "janitor": {
-      "model": "provider/model",
-      "prompt": "You are Janitor. Audit codebase entropy, dead code, docs drift, naming inconsistencies, and unnecessary complexity."
-    }
-  }
-}
-```
-
-Notes:
-
-- Custom agent names must be safe identifiers such as `janitor` or `security-reviewer`.
-- Custom agents without a `model` are skipped with a warning.
-- Disabled custom agents are not registered.
-
-## Deprecated / Compatibility Fields
-
-Some schema fields remain for compatibility with older configs and may be ignored by the current Pi runtime. Prefer current agent names and Pi adapter behavior for new configuration.

@@ -1,6 +1,9 @@
-import type { SubagentPoolAction } from './subagent-tool-actions';
 import type { SubagentRunStatus } from './subagent-run-state';
-import type { SubagentRunTreeView, SubagentRunViewNode } from './subagent-run-view';
+import type {
+  SubagentRunTreeView,
+  SubagentRunViewNode,
+} from './subagent-run-view';
+import type { SubagentPoolAction } from './subagent-tool-actions';
 
 export type SubagentToolAction = SubagentPoolAction;
 
@@ -89,7 +92,10 @@ function truncateField(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars - 1)}~`;
 }
 
-function sanitizeField(value: string | undefined, maxChars: number): string | undefined {
+function sanitizeField(
+  value: string | undefined,
+  maxChars: number,
+): string | undefined {
   const normalized = redactSensitiveMarkers(value ?? '')
     .replace(/[^\x20-\x7e]/g, '?')
     .replace(/\s+/g, ' ')
@@ -98,7 +104,11 @@ function sanitizeField(value: string | undefined, maxChars: number): string | un
   return truncateField(normalized, maxChars);
 }
 
-function requiredField(value: string | undefined, maxChars: number, fallback: string): string {
+function requiredField(
+  value: string | undefined,
+  maxChars: number,
+  fallback: string,
+): string {
   return sanitizeField(value, maxChars) ?? fallback;
 }
 
@@ -163,7 +173,11 @@ function toSummaryNode(
     title: requiredField(node.title, FIELD_LIMITS.title, 'unknown'),
     agentName: requiredField(node.agentName, FIELD_LIMITS.agentName, 'unknown'),
     status: node.status,
-    elapsedText: requiredField(node.elapsedText, FIELD_LIMITS.elapsedText, '00:00'),
+    elapsedText: requiredField(
+      node.elapsedText,
+      FIELD_LIMITS.elapsedText,
+      '00:00',
+    ),
     usageText: sanitizeField(node.usageText, FIELD_LIMITS.usageText),
     toolCount: node.toolCount,
     children,
@@ -201,7 +215,11 @@ export function createSubagentRunDetailView(
     agentName: requiredField(node.agentName, FIELD_LIMITS.agentName, 'unknown'),
     status: node.status,
     model: sanitizeField(node.model, FIELD_LIMITS.model),
-    elapsedText: requiredField(node.elapsedText, FIELD_LIMITS.elapsedText, '00:00'),
+    elapsedText: requiredField(
+      node.elapsedText,
+      FIELD_LIMITS.elapsedText,
+      '00:00',
+    ),
     usageText: sanitizeField(node.usageText, FIELD_LIMITS.usageText),
     toolCount: node.toolCount,
     latestEvents: events.events,

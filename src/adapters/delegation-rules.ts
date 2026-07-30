@@ -1,11 +1,9 @@
-import { getDelegationRulesFromConfig } from "./agent-runtime-config";
+import { getDelegationRulesFromConfig } from './agent-runtime-config';
 
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 2;
 
 export const FALLBACK_PI_DELEGATION_RULES: Record<string, readonly string[]> = {
-  "standard-dev": ["search", "oracle"],
-  "quick-fix": ["search", "fixer", "oracle"],
-  dispatcher: ["fixer", "oracle"],
+  main: ['search', 'fixer', 'oracle'],
   oracle: [],
   fixer: [],
   search: [],
@@ -19,7 +17,10 @@ export interface DelegationDecision {
 
 export function parseAllowedSubagentsEnv(value?: string): string[] | undefined {
   if (value === undefined) return undefined;
-  return value.split(",").map((part) => part.trim()).filter(Boolean);
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 export function checkDelegationAllowed(args: {
@@ -30,7 +31,6 @@ export function checkDelegationAllowed(args: {
   rules?: Record<string, readonly string[]>;
   cwd?: string;
   allowedSubagents?: readonly string[];
-  allowMissingCaller?: boolean;
 }): DelegationDecision {
   const depth = args.depth ?? 0;
   const maxDepth = args.maxDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
@@ -44,17 +44,19 @@ export function checkDelegationAllowed(args: {
 
   const caller = args.caller?.trim();
   if (!caller) {
-    return args.allowMissingCaller
-      ? { allowed: true }
-      : {
-          allowed: false,
-          reason: "Missing delegation caller",
-          allowedAgents: [],
-        };
+    return {
+      allowed: false,
+      reason: 'Missing delegation caller',
+      allowedAgents: [],
+    };
   }
 
   const configuredRules = getDelegationRulesFromConfig(args.cwd);
-  const rules = args.rules ?? (Object.keys(configuredRules).length > 0 ? configuredRules : FALLBACK_PI_DELEGATION_RULES);
+  const rules =
+    args.rules ??
+    (Object.keys(configuredRules).length > 0
+      ? configuredRules
+      : FALLBACK_PI_DELEGATION_RULES);
   const allowedAgents = rules[caller];
   if (!allowedAgents) {
     return {
@@ -63,11 +65,13 @@ export function checkDelegationAllowed(args: {
       allowedAgents: [],
     };
   }
-  const effectiveAllowedAgents = args.allowedSubagents !== undefined
-    ? allowedAgents.filter((agent) => args.allowedSubagents!.includes(agent))
-    : allowedAgents;
+  const effectiveAllowedAgents =
+    args.allowedSubagents !== undefined
+      ? allowedAgents.filter((agent) => args.allowedSubagents!.includes(agent))
+      : allowedAgents;
 
-  if (effectiveAllowedAgents.includes(args.target)) return { allowed: true, allowedAgents: effectiveAllowedAgents };
+  if (effectiveAllowedAgents.includes(args.target))
+    return { allowed: true, allowedAgents: effectiveAllowedAgents };
 
   return {
     allowed: false,

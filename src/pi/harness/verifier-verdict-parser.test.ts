@@ -1,9 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from 'bun:test';
 import {
-  parseVerifierVerdict,
-  hasVerifierVerdict,
   getVerdictStatus,
-} from "./verifier-verdict-parser";
+  hasVerifierVerdict,
+  parseVerifierVerdict,
+} from './verifier-verdict-parser';
 
 const PASS_OUTPUT = `
 ### Check: POST /api/register rejects short password
@@ -49,81 +49,83 @@ const NO_VERDICT_OUTPUT = `
 I checked the code and it looks correct.
 `;
 
-const EMPTY_OUTPUT = "";
+const EMPTY_OUTPUT = '';
 
-describe("verifier verdict parser", () => {
-  test("parses PASS verdict with check blocks", () => {
+describe('verifier verdict parser', () => {
+  test('parses PASS verdict with check blocks', () => {
     const result = parseVerifierVerdict(PASS_OUTPUT);
     expect(result.success).toBe(true);
-    expect(result.verdict?.verdict).toBe("PASS");
+    expect(result.verdict?.verdict).toBe('PASS');
     expect(result.verdict?.checkBlocks.length).toBeGreaterThan(0);
     expect(result.verdict?.hasCommandRun).toBe(true);
     expect(result.verdict?.hasOutputObserved).toBe(true);
   });
 
-  test("parses FAIL verdict with failDetails", () => {
+  test('parses FAIL verdict with failDetails', () => {
     const result = parseVerifierVerdict(FAIL_OUTPUT);
     expect(result.success).toBe(true);
-    expect(result.verdict?.verdict).toBe("FAIL");
+    expect(result.verdict?.verdict).toBe('FAIL');
     expect(result.verdict?.failDetails).toBeDefined();
     expect(result.verdict?.checkBlocks.length).toBeGreaterThan(0);
   });
 
-  test("parses PARTIAL verdict with partialDetails", () => {
+  test('parses PARTIAL verdict with partialDetails', () => {
     const result = parseVerifierVerdict(PARTIAL_OUTPUT);
     expect(result.success).toBe(true);
-    expect(result.verdict?.verdict).toBe("PARTIAL");
+    expect(result.verdict?.verdict).toBe('PARTIAL');
     expect(result.verdict?.partialDetails).toBeDefined();
   });
 
-  test("extracts check block fields correctly", () => {
+  test('extracts check block fields correctly', () => {
     const result = parseVerifierVerdict(PASS_OUTPUT);
     expect(result.success).toBe(true);
     const block = result.verdict?.checkBlocks[0];
-    expect(block?.checkDescription).toContain("POST /api/register");
-    expect(block?.commandRun).toContain("curl");
-    expect(block?.outputObserved).toContain("password must be at least 8 characters");
-    expect(block?.result).toBe("PASS");
-    expect(block?.expectedVsActual).toContain("Expected 400");
+    expect(block?.checkDescription).toContain('POST /api/register');
+    expect(block?.commandRun).toContain('curl');
+    expect(block?.outputObserved).toContain(
+      'password must be at least 8 characters',
+    );
+    expect(block?.result).toBe('PASS');
+    expect(block?.expectedVsActual).toContain('Expected 400');
   });
 
-  test("returns error for empty text", () => {
+  test('returns error for empty text', () => {
     const result = parseVerifierVerdict(EMPTY_OUTPUT);
     expect(result.success).toBe(false);
-    expect(result.error).toBe("Empty text");
+    expect(result.error).toBe('Empty text');
   });
 
-  test("returns error for missing VERDICT line", () => {
+  test('returns error for missing VERDICT line', () => {
     const result = parseVerifierVerdict(NO_VERDICT_OUTPUT);
     expect(result.success).toBe(false);
-    expect(result.error).toContain("No VERDICT");
+    expect(result.error).toContain('No VERDICT');
   });
 
-  test("hasVerifierVerdict returns true for PASS output", () => {
+  test('hasVerifierVerdict returns true for PASS output', () => {
     expect(hasVerifierVerdict(PASS_OUTPUT)).toBe(true);
   });
 
-  test("hasVerifierVerdict returns true for FAIL output", () => {
+  test('hasVerifierVerdict returns true for FAIL output', () => {
     expect(hasVerifierVerdict(FAIL_OUTPUT)).toBe(true);
   });
 
-  test("hasVerifierVerdict returns false for no verdict", () => {
+  test('hasVerifierVerdict returns false for no verdict', () => {
     expect(hasVerifierVerdict(NO_VERDICT_OUTPUT)).toBe(false);
   });
 
-  test("getVerdictStatus returns PASS", () => {
-    expect(getVerdictStatus(PASS_OUTPUT)).toBe("PASS");
+  test('getVerdictStatus returns PASS', () => {
+    expect(getVerdictStatus(PASS_OUTPUT)).toBe('PASS');
   });
 
-  test("getVerdictStatus returns FAIL", () => {
-    expect(getVerdictStatus(FAIL_OUTPUT)).toBe("FAIL");
+  test('getVerdictStatus returns FAIL', () => {
+    expect(getVerdictStatus(FAIL_OUTPUT)).toBe('FAIL');
   });
 
-  test("getVerdictStatus returns null for no verdict", () => {
+  test('getVerdictStatus returns null for no verdict', () => {
     expect(getVerdictStatus(NO_VERDICT_OUTPUT)).toBeNull();
   });
 
-  test("handles multiple check blocks", () => {
+  test('handles multiple check blocks', () => {
     const multipleBlocks = `
 ### Check: Build succeeds
 **Command run:**
@@ -146,11 +148,11 @@ VERDICT: PASS
     expect(result.verdict?.checkBlocks.length).toBe(2);
   });
 
-  test("handles verdict without check blocks", () => {
-    const simpleVerdict = "VERDICT: PASS";
+  test('handles verdict without check blocks', () => {
+    const simpleVerdict = 'VERDICT: PASS';
     const result = parseVerifierVerdict(simpleVerdict);
     expect(result.success).toBe(true);
-    expect(result.verdict?.verdict).toBe("PASS");
+    expect(result.verdict?.verdict).toBe('PASS');
     expect(result.verdict?.checkBlocks.length).toBe(0);
     expect(result.verdict?.hasCommandRun).toBe(false);
   });

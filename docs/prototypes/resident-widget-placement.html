@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — Resident Widget placement</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --border: #2a3140;
+      --text: #e8ecf4;
+      --dim: #8b93a7;
+      --accent: #6ea8fe;
+      --ok: #3ecf8e;
+      --warn: #f0b429;
+      --err: #f07178;
+      --tui-bg: #0b0d10;
+      --tui-fg: #c6d0e0;
+      --tui-dim: #6b7385;
+      --web-bg: #12141a;
+      --web-panel: #1a1e27;
+      --web-border: #2c3342;
+      --web-input: #0e1016;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 13px/1.45 ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px 16px 88px;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+    .meta { color: var(--dim); font-size: 12px; margin-bottom: 14px; max-width: 1100px; }
+    .meta code { color: var(--accent); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      max-width: 1280px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .shell {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow: hidden;
+      min-height: 560px;
+      display: flex;
+      flex-direction: column;
+    }
+    .shell-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--dim);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+    }
+    .shell-head strong { color: var(--text); font-weight: 600; }
+    .stage { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+    /* ---- TUI ---- */
+    .tui {
+      background: var(--tui-bg);
+      color: var(--tui-fg);
+      font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 10px 12px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      white-space: pre-wrap;
+    }
+    .tui .dim { color: var(--tui-dim); }
+    .tui .ok { color: var(--ok); }
+    .tui .warn { color: var(--warn); }
+    .tui .err { color: var(--err); }
+    .tui-scroll {
+      flex: 1;
+      overflow: auto;
+      border-bottom: 1px dashed #222833;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+    }
+    .tui-widgets { margin: 6px 0; }
+    .tui-widget-block { margin: 4px 0 8px; }
+    .tui-editor {
+      border-top: 1px solid #222833;
+      padding-top: 8px;
+      color: var(--tui-dim);
+    }
+    .tui-editor .prompt { color: var(--accent); }
+
+    /* ---- piweb ---- */
+    .web {
+      background: var(--web-bg);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .web-scroll {
+      flex: 1;
+      overflow: auto;
+      padding: 12px 14px 8px;
+    }
+    .web-inner { max-width: 820px; margin: 0 auto; }
+    .msg {
+      margin: 0 0 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--web-border);
+      background: #151922;
+    }
+    .msg.user { background: #182033; }
+    .msg .role {
+      font-size: 11px;
+      color: var(--dim);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      margin-bottom: 4px;
+    }
+    .widget-stack { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .widget-card {
+      border: 1px solid var(--web-border);
+      border-radius: 7px;
+      background: var(--web-panel);
+      overflow: hidden;
+    }
+    .widget-card .key {
+      padding: 5px 9px;
+      border-bottom: 1px solid var(--web-border);
+      color: var(--dim);
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .widget-card pre {
+      margin: 0;
+      padding: 8px 9px;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap;
+      color: var(--text);
+    }
+    .web-input-dock {
+      border-top: 1px solid var(--web-border);
+      padding: 10px 14px 12px;
+      background: #10131a;
+    }
+    .web-input-box {
+      max-width: 820px;
+      margin: 0 auto;
+      border: 1px solid var(--web-border);
+      border-radius: 10px;
+      background: var(--web-input);
+      min-height: 44px;
+      padding: 10px 12px;
+      color: var(--dim);
+      font-size: 13px;
+    }
+    .web-below { max-width: 820px; margin: 0 auto 8px; }
+
+    /* switcher */
+    .switcher {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      background: #f4f6fb;
+      color: #111;
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+      font-size: 13px;
+      user-select: none;
+    }
+    .switcher button {
+      border: 0;
+      background: #111;
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .switcher .label { min-width: 280px; text-align: center; font-weight: 600; }
+    .switcher .sub { display: block; font-weight: 400; color: #445; font-size: 11px; margin-top: 2px; }
+    .actions {
+      max-width: 1280px;
+      margin: 0 0 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .actions button {
+      background: #222836;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .actions button:hover { border-color: var(--accent); }
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-size: 11px;
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    PROTOTYPE (throwaway): Resident Widget placement across TUI vs piweb.
+    Question: with two independent Widget Producers (todo + subagent), which
+    placement stack feels resident enough on BOTH shells without editing piweb?
+    Open: docs/prototypes/resident-widget-placement.html
+    Switch: bottom bar or ← →
+  -->
+  <h1>PROTOTYPE — Resident Widget placement <span class="badge">throwaway</span></h1>
+  <p class="meta">
+    问题：两个<strong>互不依赖</strong>的 Widget Producer（<code>rpiv-todos</code> /
+    <code>omo-subagents</code>）只发有界 <code>string[]</code> 时，在 TUI 与 piweb
+    上哪种 placement 堆叠更像「常驻工作状态」？不改 piweb 源码；左=TUI 示意，右=piweb 现有 widget 卡片语义。
+  </p>
+  <div class="actions">
+    <button type="button" id="tick">模拟一次状态更新</button>
+    <button type="button" id="busy">切到双忙场景</button>
+    <button type="button" id="idle">切到将清空场景</button>
+  </div>
+  <div class="grid">
+    <section class="shell">
+      <div class="shell-head"><strong>TUI</strong><span id="tui-variant-tag">—</span></div>
+      <div class="stage" id="tui-stage"></div>
+    </section>
+    <section class="shell">
+      <div class="shell-head"><strong>piweb</strong><span id="web-variant-tag">—</span></div>
+      <div class="stage" id="web-stage"></div>
+    </section>
+  </div>
+
+  <div class="switcher" id="switcher">
+    <button type="button" id="prev" aria-label="prev">←</button>
+    <div class="label" id="switcher-label">A</div>
+    <button type="button" id="next" aria-label="next">→</button>
+  </div>
+
+  <script>
+    const VARIANTS = [
+      {
+        id: 'A',
+        name: 'Both above · Todo then Subagent',
+        blurb: '默认 aboveEditor 叠两张；接近 pi 现状',
+        todo: 'above',
+        sub: 'above',
+        order: ['todo', 'sub'],
+      },
+      {
+        id: 'B',
+        name: 'Both above · Subagent then Todo',
+        blurb: '同样 above，只换 Producer 视觉叠序',
+        todo: 'above',
+        sub: 'above',
+        order: ['sub', 'todo'],
+      },
+      {
+        id: 'C',
+        name: 'Both below · near input',
+        blurb: '都 belowEditor，贴输入区',
+        todo: 'below',
+        sub: 'below',
+        order: ['todo', 'sub'],
+      },
+      {
+        id: 'D',
+        name: 'Split · Subagent above / Todo below',
+        blurb: '运行态贴会话流，清单贴输入',
+        todo: 'below',
+        sub: 'above',
+        order: ['sub', 'todo'],
+      },
+    ];
+
+    const state = {
+      variant: 'A',
+      tick: 0,
+      scene: 'busy', // busy | clearing
+    };
+
+    function todoLines() {
+      if (state.scene === 'clearing') {
+        return [
+          'Todos: 1 running | 3 done',
+          '* wire setWidget string[] path',
+          `  > waiting review (t=${state.tick})`,
+        ];
+      }
+      return [
+        'Todos: 2 running | 1 pending | 2 done',
+        `* ${state.tick % 2 ? 'in_progress' : 'running'} dual-shell widget contract`,
+        '  > drafting bounded lines',
+        '* pending verify piweb card density',
+        '+ capture CONTEXT terms',
+        '+ reject unified chrome',
+        '+1 more',
+      ];
+    }
+
+    function subLines() {
+      if (state.scene === 'clearing') {
+        return [
+          'Subagents: 1 completed',
+          '+ search · completed · 4 tools · 12s',
+          '  > found setWidget handler in piweb',
+        ];
+      }
+      return [
+        `Subagents: 2 running | 1 completed`,
+        `* search · streaming · 3 tools · ${8 + state.tick}s`,
+        '  > scanning widgetLines path',
+        `* fixer · starting · 0 tools · ${1 + (state.tick % 3)}s`,
+        '+ oracle · completed · 2 tools · 41s',
+      ];
+    }
+
+    function widgetBlocks(placement) {
+      const v = VARIANTS.find((x) => x.id === state.variant);
+      const blocks = [];
+      for (const key of v.order) {
+        const place = key === 'todo' ? v.todo : v.sub;
+        if (place !== placement) continue;
+        blocks.push({
+          key: key === 'todo' ? 'rpiv-todos' : 'omo-subagents',
+          lines: key === 'todo' ? todoLines() : subLines(),
+        });
+      }
+      return blocks;
+    }
+
+    function esc(s) {
+      return String(s)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    function renderTuiWidgets(blocks) {
+      if (!blocks.length) return '';
+      return `<div class="tui-widgets">${blocks
+        .map(
+          (b) => `<div class="tui-widget-block"><span class="dim">[${esc(b.key)}]</span>
+${b.lines.map((l) => esc(l)).join('\n')}</div>`
+        )
+        .join('')}</div>`;
+    }
+
+    function renderWebWidgets(blocks) {
+      if (!blocks.length) return '';
+      return `<div class="widget-stack">${blocks
+        .map(
+          (b) => `<div class="widget-card"><div class="key">${esc(b.key)}</div><pre>${b.lines
+            .map(esc)
+            .join('\n')}</pre></div>`
+        )
+        .join('')}</div>`;
+    }
+
+    function renderTui() {
+      const above = widgetBlocks('above');
+      const below = widgetBlocks('below');
+      const transcript = `<span class="dim">session ~/oh-my-opencode-slim</span>
+<span class="dim">────────────────────────────────────────</span>
+<span class="ok">you</span>
+先做 subagent / todo 双壳常驻显示
+
+<span class="ok">assistant</span>
+主线是 per-capability Resident Widget；先看 placement。
+<span class="dim">● thinking · tool omo_subagent</span>
+`;
+      return `<div class="tui">
+  <div class="tui-scroll">${transcript}${renderTuiWidgets(above)}</div>
+  ${renderTuiWidgets(below)}
+  <div class="tui-editor"><span class="prompt">›</span> 输入消息…    <span class="dim">ctrl+c exit</span></div>
+</div>`;
+    }
+
+    function renderWeb() {
+      const above = widgetBlocks('above');
+      const below = widgetBlocks('below');
+      return `<div class="web">
+  <div class="web-scroll"><div class="web-inner">
+    ${renderWebWidgets(above)}
+    <div class="msg user"><div class="role">user</div>先做 subagent / todo 双壳常驻显示</div>
+    <div class="msg"><div class="role">assistant</div>主线是 per-capability Resident Widget；先看 placement。piweb 已按 key 渲染 widgetLines 卡片。</div>
+    <div class="msg"><div class="role">tool · omo_subagent</div>spawn search · streaming…</div>
+  </div></div>
+  <div class="web-input-dock">
+    <div class="web-below">${renderWebWidgets(below)}</div>
+    <div class="web-input-box">Message agent…</div>
+  </div>
+</div>`;
+    }
+
+    function paint() {
+      const v = VARIANTS.find((x) => x.id === state.variant);
+      document.getElementById('tui-stage').innerHTML = renderTui();
+      document.getElementById('web-stage').innerHTML = renderWeb();
+      document.getElementById('tui-variant-tag').textContent = `${v.id} · ${v.todo}/${v.sub}`;
+      document.getElementById('web-variant-tag').textContent = `${v.id} · ${v.todo}/${v.sub}`;
+      document.getElementById('switcher-label').innerHTML =
+        `${v.id} — ${esc(v.name)}<span class="sub">${esc(v.blurb)}</span>`;
+      const url = new URL(location.href);
+      url.searchParams.set('variant', v.id);
+      history.replaceState(null, '', url);
+    }
+
+    function cycle(delta) {
+      const idx = VARIANTS.findIndex((x) => x.id === state.variant);
+      const next = (idx + delta + VARIANTS.length) % VARIANTS.length;
+      state.variant = VARIANTS[next].id;
+      paint();
+    }
+
+    document.getElementById('prev').onclick = () => cycle(-1);
+    document.getElementById('next').onclick = () => cycle(1);
+    document.getElementById('tick').onclick = () => {
+      state.tick += 1;
+      paint();
+    };
+    document.getElementById('busy').onclick = () => {
+      state.scene = 'busy';
+      paint();
+    };
+    document.getElementById('idle').onclick = () => {
+      state.scene = 'clearing';
+      paint();
+    };
+
+    window.addEventListener('keydown', (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+      if (e.key === 'ArrowLeft') cycle(-1);
+      if (e.key === 'ArrowRight') cycle(1);
+    });
+
+    const initial = new URL(location.href).searchParams.get('variant');
+    if (VARIANTS.some((v) => v.id === initial)) state.variant = initial;
+    paint();
+  </script>
+</body>
+</html>

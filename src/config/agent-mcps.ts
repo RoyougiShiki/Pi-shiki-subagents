@@ -4,16 +4,10 @@ import {
   McpNameSchema,
   type PluginConfig,
 } from '.';
-import { readDefaultAgentDefinitions } from '../adapters/default-agent-assets';
 
 /** Default MCPs per agent - "*" means all MCPs, "!item" excludes specific MCPs */
 
-export const DEFAULT_AGENT_MCPS: Partial<Record<AgentName, string[]>> =
-  Object.fromEntries(
-    Object.entries(readDefaultAgentDefinitions())
-      .filter(([, def]) => def?.pipelineMode === true)
-      .map(([name]) => [name, ['*', '!context7']]),
-  );
+export const DEFAULT_AGENT_MCPS: Partial<Record<AgentName, string[]>> = {};
 
 /**
  * Parse a list with wildcard and exclusion syntax.

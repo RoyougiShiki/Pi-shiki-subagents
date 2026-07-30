@@ -319,8 +319,10 @@ describe('CouncilConfigSchema', () => {
 
     expect(sessionResult.success).toBe(true);
     expect(collaboratingResult.success).toBe(true);
-    if (sessionResult.success) expect(sessionResult.data.meeting_backend).toBe('session');
-    if (collaboratingResult.success) expect(collaboratingResult.data.meeting_backend).toBe('collaborating');
+    if (sessionResult.success)
+      expect(sessionResult.data.meeting_backend).toBe('session');
+    if (collaboratingResult.success)
+      expect(collaboratingResult.data.meeting_backend).toBe('collaborating');
   });
 
   test('rejects unknown meeting backend values', () => {

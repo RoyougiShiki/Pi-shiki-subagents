@@ -2,6 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri"
+    },
     "preset": {
       "type": "string"
     },
@@ -71,125 +75,8 @@
           "type": "string"
         },
         "additionalProperties": {
-          "type": "object",
-          "properties": {
-            "model": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "minItems": 1,
-                  "type": "array",
-                  "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "variant": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              ]
-            },
-            "temperature": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 2
-            },
-            "variant": {
-              "type": "string"
-            },
-            "thinking": {
-              "type": "string"
-            },
-            "skills": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "mcps": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "mode",
-                "subagent",
-                "both"
-              ]
-            },
-            "roles": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "tools": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "delegates": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "pipelineMode": {
-              "type": "boolean"
-            },
-            "workflow": {
-              "type": "string",
-              "minLength": 1
-            },
-            "presetPrimary": {
-              "type": "boolean"
-            },
-            "requiresUserCommand": {
-              "type": "boolean"
-            },
-            "hidden": {
-              "type": "boolean"
-            },
-            "label": {
-              "type": "string"
-            },
-            "prompt": {
-              "type": "string",
-              "minLength": 1
-            },
-            "options": {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {}
-            },
-            "displayName": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "additionalProperties": false
+          "type": "string",
+          "pattern": "^[^/\\s]+\\/[^\\s]+$"
         }
       }
     },
@@ -259,9 +146,8 @@
           "type": {
             "type": "string",
             "enum": [
-              "mode",
-              "subagent",
-              "both"
+              "main",
+              "subagent"
             ]
           },
           "roles": {
@@ -281,19 +167,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "pipelineMode": {
-            "type": "boolean"
-          },
-          "workflow": {
-            "type": "string",
-            "minLength": 1
-          },
-          "presetPrimary": {
-            "type": "boolean"
-          },
-          "requiresUserCommand": {
-            "type": "boolean"
           },
           "hidden": {
             "type": "boolean"
@@ -334,7 +207,7 @@
       }
     },
     "disabled_agents": {
-      "description": "Agent names to omit from generated AvailableAgents and delegation hints. Agents listed here are not advertised for delegation or mode switching. Use this for optional agents you do not want surfaced in runtime prompts.",
+      "description": "Agent names to omit from generated AvailableAgents and delegation hints. Agents listed here are not advertised for delegation hints. Use this for optional agents you do not want surfaced in runtime prompts.",
       "type": "array",
       "items": {
         "type": "string"
@@ -397,154 +270,6 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 50
-        }
-      }
-    },
-    "workflows": {
-      "type": "object",
-      "properties": {
-        "default": {
-          "type": "string"
-        },
-        "list": {
-          "default": [
-            {
-              "name": "standard-dev",
-              "description": "标准受控开发流程：分析 → 计划 → 调度实现与审查",
-              "stages": [
-                {
-                  "id": "analysis",
-                  "agent": "standard-dev",
-                  "description": "分析需求边界、影响范围、证据缺口和风险；必要时委托查证类辅助补证",
-                  "outputSchema": "analysis",
-                  "allowedSubagents": [
-                    "search"
-                  ]
-                },
-                {
-                  "id": "plan",
-                  "agent": "standard-dev",
-                  "description": "基于已确认分析生成实施计划、TDD/验证路径和分步任务；必要时委托只读辅助确认",
-                  "outputSchema": "plan",
-                  "allowedSubagents": [
-                    "search",
-                    "oracle"
-                  ]
-                },
-                {
-                  "id": "implement",
-                  "agent": "dispatcher",
-                  "description": "按已确认计划调度实现和审查；审查不通过则继续同一实现会话返工",
-                  "outputSchema": "implementation",
-                  "allowedSubagents": [
-                    "fixer",
-                    "oracle"
-                  ],
-                  "maxReviewRounds": 3
-                }
-              ]
-            },
-            {
-              "name": "quick-fix",
-              "description": "轻量快速修复流程：主 agent 澄清边界 → 用户确认工作包 → 最小实现 → 审查",
-              "stages": [
-                {
-                  "id": "analysis",
-                  "agent": "quick-fix",
-                  "description": "澄清修复边界、影响范围和验证方式；必要时委托查证类辅助补证",
-                  "outputSchema": "analysis",
-                  "allowedSubagents": [
-                    "search"
-                  ]
-                },
-                {
-                  "id": "fix",
-                  "agent": "fixer",
-                  "description": "主 agent 自行收束范围并经用户确认工作包后，委托当前实现阶段主子代理做最小修复；必要时补证并审查；不通过则继续同一实现会话返工",
-                  "outputSchema": "implementation",
-                  "allowedSubagents": [
-                    "search",
-                    "oracle"
-                  ],
-                  "requiresApproval": true,
-                  "maxReviewRounds": 1
-                }
-              ]
-            }
-          ],
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "stages": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "agent": {
-                      "type": "string"
-                    },
-                    "description": {
-                      "type": "string"
-                    },
-                    "task": {
-                      "type": "string"
-                    },
-                    "outputSchema": {
-                      "type": "string"
-                    },
-                    "allowedSubagents": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "requiresApproval": {
-                      "type": "boolean"
-                    },
-                    "review": {
-                      "type": "object",
-                      "properties": {
-                        "agent": {
-                          "type": "string"
-                        },
-                        "maxRetries": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 9007199254740991
-                        }
-                      },
-                      "required": [
-                        "agent"
-                      ]
-                    },
-                    "maxReviewRounds": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    }
-                  },
-                  "required": [
-                    "agent"
-                  ]
-                }
-              }
-            },
-            "required": [
-              "name",
-              "description",
-              "stages"
-            ]
-          }
         }
       }
     },
@@ -620,60 +345,7 @@
     "harness": {
       "type": "object",
       "properties": {
-        "completionAuditor": {
-          "type": "object",
-          "properties": {
-            "enabled": {
-              "type": "boolean"
-            },
-            "blockOnUnverifiedModification": {
-              "type": "boolean"
-            },
-            "patterns": {
-              "type": "object",
-              "properties": {
-                "completion": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "testPass": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "lintPass": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "typecheckPass": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "acknowledgesFailure": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "acknowledgesUnverified": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        },
+        "completionAuditor": {},
         "toolResultBudget": {
           "type": "object",
           "properties": {
@@ -732,42 +404,7 @@
               },
               "additionalProperties": false
             },
-            "completionAuditor": {
-              "type": "object",
-              "properties": {
-                "testPassWithoutEvidence": {
-                  "type": "string"
-                },
-                "lintPassWithoutEvidence": {
-                  "type": "string"
-                },
-                "typecheckPassWithoutEvidence": {
-                  "type": "string"
-                },
-                "completionWithPendingSubagent": {
-                  "type": "string"
-                },
-                "completionWithPendingTasks": {
-                  "type": "string"
-                },
-                "completionAfterFailureWithoutAcknowledgement": {
-                  "type": "string"
-                },
-                "completionAgainstVerifierFail": {
-                  "type": "string"
-                },
-                "completionAgainstVerifierPartial": {
-                  "type": "string"
-                },
-                "modificationWithoutVerification": {
-                  "type": "string"
-                },
-                "injectedHeader": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false
-            },
+            "completionAuditor": {},
             "toolResultBudget": {
               "type": "object",
               "properties": {
@@ -861,6 +498,7 @@
       "type": "string"
     }
   },
+  "additionalProperties": false,
   "title": "oh-my-opencode-slim",
   "description": "Configuration schema for oh-my-opencode-slim plugin for OpenCode"
 }

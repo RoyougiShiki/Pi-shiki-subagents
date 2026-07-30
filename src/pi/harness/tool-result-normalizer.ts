@@ -12,7 +12,10 @@
  * - 输出 model-facing message（返回给模型）
  */
 
-import { interpretCommandSemantic, type CommandSemanticResult } from "../policy/command-semantics";
+import {
+  type CommandSemanticResult,
+  interpretCommandSemantic,
+} from '../policy/command-semantics';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -20,7 +23,7 @@ import { interpretCommandSemantic, type CommandSemanticResult } from "../policy/
  * Session artifact 引用（替代 cc-haha 的 transcript_path）
  */
 export interface SessionArtifactRef {
-  kind: "session_file" | "session_entries";
+  kind: 'session_file' | 'session_entries';
   sessionId: string;
   path?: string;
 }
@@ -53,7 +56,7 @@ export interface StructuredToolResult {
   success: boolean;
   exitCode?: number;
   /** 语义化标记；普通 success 不额外记录 */
-  semantic?: CommandSemanticResult["semantic"];
+  semantic?: CommandSemanticResult['semantic'];
   /** session artifact 引用 */
   sessionArtifactRef?: SessionArtifactRef;
 }
@@ -78,23 +81,38 @@ export interface ToolResultNormalizeOutput {
  * @param input 来自 tool_result hook 的原始数据
  * @returns 标准化结果（evidence + model-facing message）
  */
-export function normalizeToolResult(input: ToolResultNormalizeInput): ToolResultNormalizeOutput {
+export function normalizeToolResult(
+  input: ToolResultNormalizeInput,
+): ToolResultNormalizeOutput {
   const timestamp = Date.now();
   let modelFacingMessage = input.modelFacingContent;
   let messageModified = false;
-  let semantic: StructuredToolResult["semantic"] | undefined;
+  let semantic: StructuredToolResult['semantic'] | undefined;
   let success = !input.isError;
 
   // ── Bash 命令语义化 ─────────────────────────────────────────────────────
-  if (input.toolName === "bash" && input.exitCode !== undefined && typeof input.rawInput.command === "string") {
-    const commandSemantic = interpretCommandSemantic(input.rawInput.command, input.exitCode);
+  if (
+    input.toolName === 'bash' &&
+    input.exitCode !== undefined &&
+    typeof input.rawInput.command === 'string'
+  ) {
+    const commandSemantic = interpretCommandSemantic(
+      input.rawInput.command,
+      input.exitCode,
+    );
 
     // 普通 success 对 evidence 没有额外信息量；特殊语义和 error 才记录。
-    semantic = commandSemantic.semantic === "success" ? undefined : commandSemantic.semantic;
+    semantic =
+      commandSemantic.semantic === 'success'
+        ? undefined
+        : commandSemantic.semantic;
     success = !commandSemantic.isError;
 
     if (!commandSemantic.isError && commandSemantic.message) {
-      modelFacingMessage = buildSemanticModelFacingMessage(commandSemantic, input.modelFacingContent);
+      modelFacingMessage = buildSemanticModelFacingMessage(
+        commandSemantic,
+        input.modelFacingContent,
+      );
       messageModified = true;
     }
   }
@@ -123,34 +141,37 @@ export function normalizeToolResult(input: ToolResultNormalizeInput): ToolResult
 function buildSemanticModelFacingMessage(
   semantic: CommandSemanticResult,
   originalContent: unknown,
-): { type: "text"; text: string } {
-  const message = semantic.message ?? "";
-  if (semantic.semantic === "files_differ") {
+): { type: 'text'; text: string } {
+  const message = semantic.message ?? '';
+  if (semantic.semantic === 'files_differ') {
     const originalText = extractTextFromContent(originalContent).trim();
-    return { type: "text", text: originalText ? `${message}\n\n${originalText}` : message };
+    return {
+      type: 'text',
+      text: originalText ? `${message}\n\n${originalText}` : message,
+    };
   }
-  return { type: "text", text: message };
+  return { type: 'text', text: message };
 }
 /**
  * 从 content 提取文本
  */
 function extractTextFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
+  if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     const texts: string[] = [];
     for (const part of content) {
-      if (part?.type === "text" && typeof part.text === "string") {
+      if (part?.type === 'text' && typeof part.text === 'string') {
         texts.push(part.text);
       }
     }
-    return texts.join("\n");
+    return texts.join('\n');
   }
   // 单个 TextContent object
-  if (content && typeof content === "object") {
+  if (content && typeof content === 'object') {
     const obj = content as Record<string, unknown>;
-    if (obj.type === "text" && typeof obj.text === "string") {
+    if (obj.type === 'text' && typeof obj.text === 'string') {
       return obj.text;
     }
   }
-  return "";
+  return '';
 }

@@ -1,13 +1,7 @@
 import { z } from 'zod';
-import { AGENT_ALIASES, ALL_AGENT_NAMES } from './constants';
 import { TOOL_GROUPS_CONFIG_KEY } from './config-keys';
+import { AGENT_ALIASES, ALL_AGENT_NAMES, BUILT_IN_ROLE_SUBAGENT_NAMES } from './constants';
 import { CouncilConfigSchema } from './council-schema';
-import type {
-  WorkflowNode,
-  WorkflowsConfig as WorkflowTypesConfig,
-} from './workflow-types';
-import { DEFAULT_WORKFLOWS } from './workflow-defaults';
-export { DEFAULT_WORKFLOWS, resolveWorkflowList } from './workflow-defaults';
 
 export const ProviderModelIdSchema = z
   .string()
@@ -74,14 +68,10 @@ export const AgentOverrideConfigSchema = z
     thinking: z.string().optional(),
     skills: z.array(z.string()).optional(), // skills this agent can use ("*" = all, "!item" = exclude)
     mcps: z.array(z.string()).optional(), // MCPs this agent can use ("*" = all, "!item" = exclude)
-    type: z.enum(['mode', 'subagent', 'both']).optional(),
+    type: z.enum(['main', 'subagent']).optional(),
     roles: z.array(z.string()).optional(),
     tools: z.array(z.string()).optional(),
     delegates: z.array(z.string()).optional(),
-    pipelineMode: z.boolean().optional(),
-    workflow: z.string().min(1).optional(),
-    presetPrimary: z.boolean().optional(),
-    requiresUserCommand: z.boolean().optional(),
     hidden: z.boolean().optional(),
     label: z.string().optional(),
     prompt: z.string().min(1).optional(),
@@ -95,7 +85,32 @@ export type AgentOverrideConfig = z.infer<typeof AgentOverrideConfigSchema>;
 /** Normalized model entry with optional per-model variant. */
 export type ModelEntry = { id: string; variant?: string };
 
-export const PresetSchema = z.record(z.string(), AgentOverrideConfigSchema);
+const PresetModelIdSchema = ProviderModelIdSchema;
+
+/**
+ * Preset = optional role-subagent model override pack.
+ * Allowed keys: subagent + built-in role names. Values are model id strings.
+ */
+export const PresetSchema = z
+  .record(z.string(), PresetModelIdSchema)
+  .superRefine((preset, ctx) => {
+    const allowed = new Set<string>([
+      'subagent',
+      ...BUILT_IN_ROLE_SUBAGENT_NAMES,
+]);
+    for (const key of Object.keys(preset)) {
+      if (!allowed.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message:
+            key === 'main' || key === 'council'
+              ? `presets no longer configure "${key}"; use Pi model controls / council.presets instead`
+              : `unknown preset slot "${key}"; allowed: ${[...allowed].join(', ')}`,
+        });
+      }
+    }
+  });
 
 export type Preset = z.infer<typeof PresetSchema>;
 
@@ -185,17 +200,6 @@ export const FailoverConfigSchema = z.object({
 
 export type FailoverConfig = z.infer<typeof FailoverConfigSchema>;
 
-export const HarnessPatternConfigSchema = z
-  .object({
-    completion: z.array(z.string()).optional(),
-    testPass: z.array(z.string()).optional(),
-    lintPass: z.array(z.string()).optional(),
-    typecheckPass: z.array(z.string()).optional(),
-    acknowledgesFailure: z.array(z.string()).optional(),
-    acknowledgesUnverified: z.array(z.string()).optional(),
-  })
-  .strict();
-
 export const HarnessMessageConfigSchema = z
   .object({
     verificationEvidence: z
@@ -206,21 +210,8 @@ export const HarnessMessageConfigSchema = z
       })
       .strict()
       .optional(),
-    completionAuditor: z
-      .object({
-        testPassWithoutEvidence: z.string().optional(),
-        lintPassWithoutEvidence: z.string().optional(),
-        typecheckPassWithoutEvidence: z.string().optional(),
-        completionWithPendingSubagent: z.string().optional(),
-        completionWithPendingTasks: z.string().optional(),
-        completionAfterFailureWithoutAcknowledgement: z.string().optional(),
-        completionAgainstVerifierFail: z.string().optional(),
-        completionAgainstVerifierPartial: z.string().optional(),
-        modificationWithoutVerification: z.string().optional(),
-        injectedHeader: z.string().optional(),
-      })
-      .strict()
-      .optional(),
+    // Legacy message keys are ignored after completion-auditor removal.
+    completionAuditor: z.unknown().optional(),
     toolResultBudget: z
       .object({
         persistedOutputTemplate: z.string().optional(),
@@ -233,14 +224,8 @@ export const HarnessMessageConfigSchema = z
 
 export const HarnessConfigSchema = z
   .object({
-    completionAuditor: z
-      .object({
-        enabled: z.boolean().optional(),
-        blockOnUnverifiedModification: z.boolean().optional(),
-        patterns: HarnessPatternConfigSchema.optional(),
-      })
-      .strict()
-      .optional(),
+    // Legacy field accepted and ignored so old configs still load.
+    completionAuditor: z.unknown().optional(),
     toolResultBudget: z
       .object({
         enabled: z.boolean().optional(),
@@ -263,38 +248,6 @@ export const HarnessConfigSchema = z
   .strict();
 
 export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
-
-const ReviewConfigSchema = z.object({
-  agent: z.string(),
-  maxRetries: z.number().int().min(1).optional(),
-});
-
-export const StageNodeSchema = z.object({
-  id: z.string().optional(),
-  agent: z.string(),
-  description: z.string().optional(),
-  task: z.string().optional(),
-  outputSchema: z.string().optional(),
-  allowedSubagents: z.array(z.string()).optional(),
-  requiresApproval: z.boolean().optional(),
-  review: ReviewConfigSchema.optional(),
-  maxReviewRounds: z.number().int().min(1).optional(),
-});
-
-export const WorkflowNodeSchema: z.ZodType<WorkflowNode> = StageNodeSchema;
-
-export const WorkflowDefinitionSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  stages: z.array(WorkflowNodeSchema),
-});
-
-export const WorkflowsConfigSchema = z.object({
-  default: z.string().optional(),
-  list: z.array(WorkflowDefinitionSchema).default(DEFAULT_WORKFLOWS),
-});
-
-export type WorkflowsConfig = WorkflowTypesConfig;
 
 function validateCustomOnlyPromptFields(
   overrides: Record<string, z.infer<typeof AgentOverrideConfigSchema>>,
@@ -322,6 +275,7 @@ function validateCustomOnlyPromptFields(
 
 export const PluginConfigSchema = z
   .object({
+    $schema: z.string().url().optional(),
     preset: z.string().optional(),
     setDefaultAgent: z.boolean().optional(),
     scoringEngineVersion: z.enum(['v1', 'v2-shadow', 'v2']).optional(),
@@ -349,14 +303,13 @@ export const PluginConfigSchema = z
       .optional()
       .describe(
         'Agent names to omit from generated AvailableAgents and delegation hints. ' +
-          'Agents listed here are not advertised for delegation or mode switching. ' +
+          'Agents listed here are not advertised for delegation hints. ' +
           'Use this for optional agents you do not want surfaced in runtime prompts.',
       ),
     disabled_mcps: z.array(z.string()).optional(),
 
     interview: InterviewConfigSchema.optional(),
     sessionManager: SessionManagerConfigSchema.optional(),
-    workflows: WorkflowsConfigSchema.optional(),
     todoContinuation: TodoContinuationConfigSchema.optional(),
     fallback: FailoverConfigSchema.optional(),
     harness: HarnessConfigSchema.optional(),
@@ -370,16 +323,12 @@ export const PluginConfigSchema = z
           'Defaults to "dmxapi/glm-4.1v-thinking-flash" if not set.',
       ),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (value.agents) {
       validateCustomOnlyPromptFields(value.agents, ctx, ['agents']);
     }
 
-    if (value.presets) {
-      for (const [presetName, preset] of Object.entries(value.presets)) {
-        validateCustomOnlyPromptFields(preset, ctx, ['presets', presetName]);
-      }
-    }
   });
 
 export type PluginConfig = z.infer<typeof PluginConfigSchema>;

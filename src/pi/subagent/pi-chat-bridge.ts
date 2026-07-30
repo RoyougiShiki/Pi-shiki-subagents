@@ -7,11 +7,11 @@
  * top-clipped scrolling for long message history.
  */
 
-import { Input, Key, matchesKey, Spacer, Text } from "@earendil-works/pi-tui";
-import { DynamicBorder } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createChatStatusView } from "./chat-status-view";
-import { getHub, type ChatMessage } from "../meeting/pi-hub";
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { DynamicBorder } from '@earendil-works/pi-coding-agent';
+import { Input, Key, matchesKey, Spacer, Text } from '@earendil-works/pi-tui';
+import { type ChatMessage, getHub } from '../meeting/pi-hub';
+import { createChatStatusView } from './chat-status-view';
 
 const OVERLAY_HEIGHT_RATIO = 0.8;
 
@@ -21,33 +21,44 @@ let _currentOverlayMeeting: string | null = null;
 
 function cleanContent(text: string): string {
   return text
-    .replace(/<\/?(?:results|result|answer|item|tool_use|thinking|status)[^>]*>/gi, "")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(
+      /<\/?(?:results|result|answer|item|tool_use|thinking|status)[^>]*>/gi,
+      '',
+    )
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 export async function runPrivateChat(
-  meetingId: string, agentName: string, ctx: ExtensionContext,
+  meetingId: string,
+  agentName: string,
+  ctx: ExtensionContext,
 ): Promise<void> {
   _activeManualMeeting = meetingId;
-  await showChatOverlay(meetingId, agentName, "chat", ctx, true);
+  await showChatOverlay(meetingId, agentName, 'chat', ctx, true);
 }
 
 export async function runGroupChat(
-  meetingId: string, meetingName: string, ctx: ExtensionContext,
+  meetingId: string,
+  meetingName: string,
+  ctx: ExtensionContext,
 ): Promise<void> {
   _activeManualMeeting = meetingId;
-  await showChatOverlay(meetingId, meetingName, "group", ctx, true);
+  await showChatOverlay(meetingId, meetingName, 'group', ctx, true);
 }
 
 async function showChatOverlay(
-  meetingId: string, displayName: string, mode: "chat" | "group", ctx: ExtensionContext, manual: boolean,
+  meetingId: string,
+  displayName: string,
+  mode: 'chat' | 'group',
+  ctx: ExtensionContext,
+  manual: boolean,
 ): Promise<void> {
   const hub = getHub();
 
   const meeting = hub.getMeeting(meetingId);
-  if (!meeting || meeting.status === "ended") {
-    ctx.ui.notify("会话不存在或已结束", "error");
+  if (!meeting || meeting.status === 'ended') {
+    ctx.ui.notify('会话不存在或已结束', 'error');
     return;
   }
 
@@ -57,26 +68,25 @@ async function showChatOverlay(
     (tui, theme, _kb, done) => {
       const messages: ChatMessage[] = meeting.messages;
       const input = new Input();
-      const borderColor = (s: string) => theme.fg("accent", s);
+      const borderColor = (s: string) => theme.fg('accent', s);
 
-      const header = mode === "group"
-        ? `群聊: ${displayName}`
-        : `私聊: ${displayName}`;
+      const header =
+        mode === 'group' ? `群聊: ${displayName}` : `私聊: ${displayName}`;
 
       let scrollOffset = 0; // 从底部往上滚的行数，0 = 显示最新内容
 
       // 复用组件
       const topBorder = new DynamicBorder(borderColor);
-      const titleText = new Text(theme.fg("accent", theme.bold(header)), 1, 0);
+      const titleText = new Text(theme.fg('accent', theme.bold(header)), 1, 0);
       const sepBorder = new DynamicBorder(borderColor);
       const footerSpacer = new Spacer(1);
-      const helpText = new Text("", 1, 0);
+      const helpText = new Text('', 1, 0);
       const botBorder = new DynamicBorder(borderColor);
 
       input.onSubmit = (value: string) => {
         if (value.trim()) {
           hub.broadcast(meetingId, value.trim());
-          input.setValue("");
+          input.setValue('');
           scrollOffset = 0;
           tui.requestRender();
         }
@@ -99,11 +109,18 @@ async function showChatOverlay(
       });
 
       return {
-        get focused() { return input.focused; },
-        set focused(v: boolean) { input.focused = v; },
+        get focused() {
+          return input.focused;
+        },
+        set focused(v: boolean) {
+          input.focused = v;
+        },
         render(w: number) {
           const termRows = (tui.terminal as { rows?: number }).rows ?? 24;
-          const maxRows = Math.max(4, Math.floor(termRows * OVERLAY_HEIGHT_RATIO));
+          const maxRows = Math.max(
+            4,
+            Math.floor(termRows * OVERLAY_HEIGHT_RATIO),
+          );
 
           // Header
           const headerLines = [
@@ -124,12 +141,13 @@ async function showChatOverlay(
           const budget = maxRows - fixedLines; // 留给消息的最大行数
 
           // 渲染全部消息
-          let msgLines: string[] = [];
+          const msgLines: string[] = [];
           for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i];
-            const fromStyled = msg.from === "You"
-              ? theme.fg("accent", "You")
-              : theme.fg("userMessageText", msg.from);
+            const fromStyled =
+              msg.from === 'You'
+                ? theme.fg('accent', 'You')
+                : theme.fg('userMessageText', msg.from);
             const cleaned = cleanContent(msg.content);
             if (!cleaned) continue;
             const textComp = new Text(`${fromStyled}: ${cleaned}`, 1, 0);
@@ -145,22 +163,26 @@ async function showChatOverlay(
           const visibleMsgs = msgLines.slice(msgStart, msgStart + msgBudget);
 
           // 状态指示
-          const scrollInfo = msgLines.length > msgBudget
-            ? `[${scrollOffset}/${msgExcess}] ↑↓ 滚动 · `
-            : ``;
+          const scrollInfo =
+            msgLines.length > msgBudget
+              ? `[${scrollOffset}/${msgExcess}] ↑↓ 滚动 · `
+              : ``;
           const status = createChatStatusView({
             name: meeting.name,
-            state: meeting.chatStatus?.state ?? "idle",
-            scope: meeting.chatStatus?.scope ?? "standalone",
+            state: meeting.chatStatus?.state ?? 'idle',
+            scope: meeting.chatStatus?.scope ?? 'standalone',
             startedAt: meeting.chatStatus?.startedAt ?? meeting.startedAt,
             fallbackRecommended: meeting.chatStatus?.fallbackRecommended,
           });
-          helpText.setText(theme.fg("dim",
-            `${scrollInfo}${status.bottomLine} · Enter 发送 · Esc 退出`,
-          ));
+          helpText.setText(
+            theme.fg(
+              'dim',
+              `${scrollInfo}${status.bottomLine} · Enter 发送 · Esc 退出`,
+            ),
+          );
 
           const result = [...headerLines, ...visibleMsgs, ...footerLines];
-          while (result.length < maxRows) result.push("");
+          while (result.length < maxRows) result.push('');
           return result;
         },
         invalidate() {
@@ -184,15 +206,17 @@ async function showChatOverlay(
             tui.requestRender();
           }
         },
-        dispose() { safeClose(); },
+        dispose() {
+          safeClose();
+        },
       };
     },
     {
       overlay: true,
       overlayOptions: {
-        width: "100%",
-        maxHeight: "80%",
-        anchor: "bottom-center",
+        width: '100%',
+        maxHeight: '80%',
+        anchor: 'bottom-center',
         margin: 0,
       },
     },
@@ -211,5 +235,5 @@ export function autoOpenChat(
   if (_activeManualMeeting && _activeManualMeeting !== meetingId) return;
   if (_currentOverlayMeeting === meetingId) return;
   _currentOverlayMeeting = meetingId;
-  showChatOverlay(meetingId, displayName, "chat", ctx, false).catch(() => {});
+  showChatOverlay(meetingId, displayName, 'chat', ctx, false).catch(() => {});
 }

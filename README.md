@@ -1,61 +1,40 @@
 # oh-my-opencode-slim
 
-A lightweight agent orchestration package focused on the Pi coding agent runtime.
+A thin subagent runtime for the Pi coding agent.
 
-The maintained runtime is the Pi adapter declared in `package.json`:
+The maintained runtime is the Pi extension declared in `package.json`:
 
 ```json
 {
   "pi": {
-    "extensions": [
-      "./src/pi/core/pi.ts"
-    ]
+    "extensions": ["./src/pi/core/pi.ts"]
   }
 }
 ```
 
-## Current Architecture
+## Runtime Model
 
-The repository is split into two maintained layers:
+The main Pi session has the complete available tool set and remains responsible for deciding how to work. The runtime supplies mechanical boundaries rather than a workflow engine:
 
-- **Platform adapter**: `src/pi/**`
-  - mode switching
-  - tool-scope enforcement
-  - subagent pool integration
-  - council / meeting helpers
-  - Pi runtime event wiring
+- role-scoped pool subagents via `omo_subagent`;
+- a bounded delegation matrix and nesting depth;
+- per-session tool allowlists for subagents;
+- dangerous Bash command blocking;
+- bounded tool-result budgeting and pool cleanup;
+- compact pool completion notices, with full output retrieved through `pool=result`;
+- explicit `omo_council`, `/preset`, `/pool-status`, and `/pi-sync` utilities.
 
-- **Shared layer**:
-  - `src/adapters/**` — agent prompts, agent definitions, discovery, delegation rules
-  - `src/config/**` — config schema, loader, presets, council schema, workflow config types
-  - `src/cli/**` — installer and generated config helpers
+There are no modes, stage gates, workflow state machines, or work-package approval chains. Use skills and direct user instructions when a task needs a particular process.
 
-Legacy OpenCode adapter code has been removed. The package keeps a lightweight `src/index.ts` only so the npm `main` entry remains importable while the maintained runtime is loaded through Pi extensions.
+## Built-in Roles
 
-## Built-in Agent Boundaries
+- `main` is the single foreground session and can delegate to `search`, `fixer`, or `oracle`.
+- `search` gathers evidence with read and search tools.
+- `fixer` implements and verifies changes with read, write, edit, Bash, and code-search tools.
+- `oracle` performs independent read-only review and research.
 
-- `standard-dev` — primary workflow-bound mode for clarified development: analysis, plan, user confirmation, implementation dispatch, and oracle review.
-- `quick-fix` — lighter workflow-bound mode where the main agent scopes the fix, gets the work package approved, and delegates through the configured short workflow.
-- `research-only` — workflow-bound read-only mode for evidence gathering, analysis, and conclusion boundaries.
-- `analyst` — non-questioning analysis support; analyzes known materials, identifies unknowns, risks, and options.
-- `oracle` — evidence-driven adversarial reviewer; reviews human text, AI output, implementation plans, code, docs, config, and test expectations.
-- `search` — read/search fact gathering.
-- `designer` — technical design after requirements are clear.
-- `fixer` / `dispatcher` — implementation paths with scoped responsibilities; active workflow config decides which implementation path is available.
-- `fallback` — explicit user-driven rescue mode with broad tools.
+Custom subagents must provide a model and prompt. Their tool access is defined in configuration, never in markdown frontmatter.
 
-## Control Model
-
-The current runtime relies on:
-
-- tool-scope allowlists;
-- mode switching boundaries;
-- mode-bound workflow stage gates;
-- main-mode subagent delegation and pool reuse;
-- prompt-defined role boundaries;
-- informational mode/session notifications.
-
-It does **not** use per-edit/per-write/per-command approval gates. Those were removed because low-level repeated approvals made normal implementation work inefficient. High-level control remains at the mode/tool-scope, workflow stage, and subagent delegation layers.
 
 ## Development
 
@@ -69,17 +48,6 @@ bun run verify:release
 
 ## Package Contents
 
-The npm package is expected to include:
+The npm package includes `src/pi`, `src/adapters`, `src/config`, `src/cli`, `dist`, the generated JSON schema, and this README.
 
-- `src/pi/**`
-- `src/adapters/**`
-- `src/config/**`
-- `src/cli/**`
-- `dist/**`
-- `oh-my-opencode-slim.schema.json`
-
-## Notes
-
-- Shared code is intentionally not moved under `src/pi`; future platform adapters may reuse it.
-- Old OpenCode-specific implementation and tests were removed as legacy code.
-- Historical cleanup rationale is documented in `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md`.
+Shared code stays outside `src/pi` so future platform adapters can reuse agent discovery, configuration, and delegation logic.

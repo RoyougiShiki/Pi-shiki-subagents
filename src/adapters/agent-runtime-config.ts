@@ -1,23 +1,19 @@
-import * as fs from "node:fs";
-import { deepMerge, loadPluginConfig } from "../config/loader";
-import { TOOL_GROUPS_CONFIG_KEY } from "../config/config-keys";
-import { parseJsonc } from "../config/jsonc";
+import * as fs from 'node:fs';
+import { TOOL_GROUPS_CONFIG_KEY } from '../config/config-keys';
+import { parseJsonc } from '../config/jsonc';
+import { deepMerge, loadPluginConfig } from '../config/loader';
 import {
   getPiNativeConfigPath,
   readPiNativeConfigObject,
-} from "../config/pi-native";
-import { getDefaultAgentsPath } from "./default-agent-assets";
+} from '../config/pi-native';
+import { getDefaultAgentsPath } from './default-agent-assets';
 
 export interface RuntimeAgentDefinition {
-  type?: "mode" | "subagent" | "both";
+  type?: 'main' | 'subagent';
   label?: string;
   tools?: string[];
   roles?: string[];
   delegates?: string[];
-  pipelineMode?: boolean;
-  workflow?: string;
-  presetPrimary?: boolean;
-  requiresUserCommand?: boolean;
   hidden?: boolean;
   instructions?: string;
   prompt?: string;
@@ -34,24 +30,21 @@ export interface ToolExpressionResolveOptions {
 
 export type RuntimeToolGroups = Record<string, string[]>;
 
-const CUSTOM_RUNTIME_AGENT_FIELDS = [
-  "prompt",
-  "instructions",
-] as const;
+const CUSTOM_RUNTIME_AGENT_FIELDS = ['prompt', 'instructions'] as const;
 
 const MANAGED_RUNTIME_AGENT_OVERRIDE_FIELDS = [
-  "model",
-  "variant",
-  "thinking",
-  "options",
-  "displayName",
-  "temperature",
-  "skills",
-  "mcps",
+  'model',
+  'variant',
+  'thinking',
+  'options',
+  'displayName',
+  'temperature',
+  'skills',
+  'mcps',
 ] as const;
 
 function escapeRegexLiteral(value: string): string {
-  return value.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function normalizeStringList(items: readonly string[] | undefined): string[] {
@@ -87,7 +80,7 @@ export function isCustomRuntimeAgentDefinition(
 
   for (const field of CUSTOM_RUNTIME_AGENT_FIELDS) {
     const value = (definition as Record<string, unknown>)[field];
-    if (typeof value === "string" && value.trim()) return true;
+    if (typeof value === 'string' && value.trim()) return true;
   }
 
   return false;
@@ -112,12 +105,16 @@ export function mergeRuntimeAgentDefinitions(
 ): Record<string, RuntimeAgentDefinition> {
   const merged: Record<string, RuntimeAgentDefinition> = { ...defaults };
   for (const [name, override] of Object.entries(runtimeAgents)) {
-    if (!defaults[name] && !isCustomRuntimeAgentDefinition(name, override, defaults)) {
+    if (
+      !defaults[name] &&
+      !isCustomRuntimeAgentDefinition(name, override, defaults)
+    ) {
       continue;
     }
     const base = (merged[name] ?? {}) as Record<string, unknown>;
     const overrideRecord = override as Record<string, unknown>;
-    merged[name] = (deepMerge(base, overrideRecord) ?? overrideRecord) as RuntimeAgentDefinition;
+    merged[name] = (deepMerge(base, overrideRecord) ??
+      overrideRecord) as RuntimeAgentDefinition;
   }
   return merged;
 }
@@ -160,24 +157,26 @@ export function resolveToolExpressions(
     const item = raw.trim();
     if (!item) return;
 
-    if (item === "*") {
+    if (item === '*') {
       for (const tool of allTools) result.add(tool);
       return;
     }
 
-    if (item.startsWith("@")) {
+    if (item.startsWith('@')) {
       if (depth >= maxDepth) return;
       const groupName = item.slice(1).trim();
       const group = groupName ? groups[groupName] : undefined;
       if (!Array.isArray(group)) return;
       for (const groupItem of group) {
-        if (typeof groupItem === "string") visit(groupItem, depth + 1);
+        if (typeof groupItem === 'string') visit(groupItem, depth + 1);
       }
       return;
     }
 
-    if (item.includes("*")) {
-      const regex = new RegExp(`^${escapeRegexLiteral(item).replace(/\*/g, ".*")}$`);
+    if (item.includes('*')) {
+      const regex = new RegExp(
+        `^${escapeRegexLiteral(item).replace(/\*/g, '.*')}$`,
+      );
       for (const tool of allTools) {
         if (regex.test(tool)) result.add(tool);
       }
@@ -188,7 +187,7 @@ export function resolveToolExpressions(
   };
 
   for (const expression of expressions ?? []) {
-    if (typeof expression === "string") visit(expression, 0);
+    if (typeof expression === 'string') visit(expression, 0);
   }
 
   return [...result];
@@ -199,7 +198,7 @@ function toRoleToolExpressions(roles: readonly string[]): string[] {
     .map((role) => role.trim())
     .filter(Boolean)
     .map((role) =>
-      role === "*" || role.startsWith("@") || role.includes("*")
+      role === '*' || role.startsWith('@') || role.includes('*')
         ? role
         : `@${role}`,
     );
@@ -230,7 +229,9 @@ export function resolveAgentToolNames(
 
 function readJsonFile(filePath: string): Record<string, unknown> {
   try {
-    return parseJsonc<Record<string, unknown>>(fs.readFileSync(filePath, "utf-8"));
+    return parseJsonc<Record<string, unknown>>(
+      fs.readFileSync(filePath, 'utf-8'),
+    );
   } catch {
     return {};
   }
@@ -240,37 +241,28 @@ export function getUserConfigPath(): string {
   return getPiNativeConfigPath();
 }
 
-export function resolveRuntimeConfigAgents(config: Record<string, unknown>): Record<string, RuntimeAgentDefinition> {
-  let agents = config.agents && typeof config.agents === "object"
-    ? config.agents as Record<string, RuntimeAgentDefinition>
-    : {};
+export function resolveRuntimeConfigAgents(
+  config: Record<string, unknown>,
+): Record<string, RuntimeAgentDefinition> {
+  const agents =
+    config.agents && typeof config.agents === 'object'
+      ? (config.agents as Record<string, RuntimeAgentDefinition>)
+      : {};
 
-  const envPreset = process.env.OH_MY_OPENCODE_SLIM_PRESET;
-  const configPreset = typeof config.preset === "string"
-    ? config.preset
-    : undefined;
-  const presetName = envPreset || configPreset;
-  const presets = config.presets && typeof config.presets === "object"
-    ? config.presets as Record<string, unknown>
-    : undefined;
-  const preset = presetName && presets
-    ? presets[presetName]
-    : undefined;
-  if (preset && typeof preset === "object") {
-    agents = (deepMerge(
-      preset as Record<string, RuntimeAgentDefinition>,
-      agents,
-    ) ?? agents) as Record<string, RuntimeAgentDefinition>;
-  }
-
+  // Presets are model-override packs only; they must not merge into agent
+  // definitions (tools/prompt/type/etc).
   return filterRuntimeAgentDefinitions(agents);
 }
 
-function getRuntimeConfigAgents(cwd: string): Record<string, RuntimeAgentDefinition> {
+function getRuntimeConfigAgents(
+  cwd: string,
+): Record<string, RuntimeAgentDefinition> {
   const piNativeAgents = resolveRuntimeConfigAgents(readPiNativeConfigObject());
 
   const sharedConfig = loadPluginConfig(cwd, { quiet: true });
-  const sharedAgents = resolveRuntimeConfigAgents(sharedConfig as Record<string, unknown>);
+  const sharedAgents = resolveRuntimeConfigAgents(
+    sharedConfig as Record<string, unknown>,
+  );
 
   return deepMerge(piNativeAgents, sharedAgents) ?? {};
 }
@@ -285,7 +277,7 @@ export function getHiddenRuntimeAgentNames(cwd = process.cwd()): Set<string> {
 
 function normalizeToolGroups(groups: unknown): RuntimeToolGroups {
   const normalized: RuntimeToolGroups = {};
-  if (!groups || typeof groups !== "object") return normalized;
+  if (!groups || typeof groups !== 'object') return normalized;
 
   for (const [name, tools] of Object.entries(
     groups as Record<string, unknown>,
@@ -293,7 +285,7 @@ function normalizeToolGroups(groups: unknown): RuntimeToolGroups {
     const groupName = name.trim();
     if (!groupName || !Array.isArray(tools)) continue;
     const entries = normalizeStringList(
-      tools.filter((tool): tool is string => typeof tool === "string"),
+      tools.filter((tool): tool is string => typeof tool === 'string'),
     );
     normalized[groupName] = entries;
   }
@@ -301,9 +293,7 @@ function normalizeToolGroups(groups: unknown): RuntimeToolGroups {
   return normalized;
 }
 
-function mergeToolGroups(
-  ...sources: readonly unknown[]
-): RuntimeToolGroups {
+function mergeToolGroups(...sources: readonly unknown[]): RuntimeToolGroups {
   const merged: RuntimeToolGroups = {};
   for (const source of sources) {
     for (const [name, tools] of Object.entries(normalizeToolGroups(source))) {
@@ -325,34 +315,47 @@ export function loadRuntimeToolGroups(cwd = process.cwd()): RuntimeToolGroups {
   );
 }
 
-export function normalizeRuntimeModel(model: RuntimeAgentDefinition["model"]): string | undefined {
-  if (typeof model === "string") return model;
+export function normalizeRuntimeModel(
+  model: RuntimeAgentDefinition['model'],
+): string | undefined {
+  if (typeof model === 'string') return model;
   if (!Array.isArray(model)) return undefined;
   const first = model[0];
-  if (typeof first === "string") return first;
+  if (typeof first === 'string') return first;
   return first?.id;
 }
 
-export function loadRuntimeAgentDefinitions(cwd = process.cwd()): Record<string, RuntimeAgentDefinition> {
+export function loadRuntimeAgentDefinitions(
+  cwd = process.cwd(),
+): Record<string, RuntimeAgentDefinition> {
   const defaults = filterRuntimeAgentDefinitions(
-    readJsonFile(getDefaultAgentsPath()) as Record<string, RuntimeAgentDefinition>,
+    readJsonFile(getDefaultAgentsPath()) as Record<
+      string,
+      RuntimeAgentDefinition
+    >,
   );
   const runtimeAgents = getRuntimeConfigAgents(cwd);
 
   return mergeRuntimeAgentDefinitions(defaults, runtimeAgents);
 }
 
-export function getRuntimeAgentDefinition(name: string, cwd = process.cwd()): RuntimeAgentDefinition | undefined {
+export function getRuntimeAgentDefinition(
+  name: string,
+  cwd = process.cwd(),
+): RuntimeAgentDefinition | undefined {
   return loadRuntimeAgentDefinitions(cwd)[name];
 }
 
-export function getDelegationRulesFromConfig(cwd = process.cwd()): Record<string, readonly string[]> {
+export function getDelegationRulesFromConfig(
+  cwd = process.cwd(),
+): Record<string, readonly string[]> {
   const defs = loadRuntimeAgentDefinitions(cwd);
   const rules: Record<string, readonly string[]> = {};
   for (const [name, def] of Object.entries(defs)) {
     if (Array.isArray(def.delegates)) {
-      rules[name] = def.delegates.filter((delegate) =>
-        defs[delegate] !== undefined && defs[delegate]?.hidden !== true
+      rules[name] = def.delegates.filter(
+        (delegate) =>
+          defs[delegate] !== undefined && defs[delegate]?.hidden !== true,
       );
     }
   }

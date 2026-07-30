@@ -1,4 +1,7 @@
-import { createSubagentRunTreeViewFromSnapshots, type SubagentRunTreeView } from './subagent-run-view';
+import {
+  createSubagentRunTreeViewFromSnapshots,
+  type SubagentRunTreeView,
+} from './subagent-run-view';
 import {
   renderSubagentRunWidgetLines,
   type SubagentRunWidgetLineOptions,
@@ -6,8 +9,13 @@ import {
 import type { SubagentSessionSnapshot } from './subagent-session-contract';
 
 export interface SubagentRunWidgetContext {
+  mode?: 'tui' | 'rpc' | 'json' | 'print';
   ui: {
-    setWidget(id: string, lines: string[] | undefined): void;
+    setWidget(
+      id: string,
+      lines: string[] | undefined,
+      options?: { placement?: 'aboveEditor' | 'belowEditor' },
+    ): void;
   };
 }
 
@@ -20,6 +28,7 @@ export interface SubagentRunWidgetPool {
 export interface SubagentRunWidgetOptions
   extends Omit<SubagentRunWidgetLineOptions, 'now'> {
   widgetId?: string;
+  placement?: 'aboveEditor' | 'belowEditor';
   now?: () => number;
   refreshMs?: number | false;
 }
@@ -44,7 +53,9 @@ export function registerSubagentRunWidget(
   pool: SubagentRunWidgetPool,
   options: SubagentRunWidgetOptions = {},
 ): RegisteredSubagentRunWidget {
-  const widgetId = options.widgetId ?? 'omo-subagents';
+  const widgetId = options.widgetId ?? 'Subagents';
+  const placement = options.placement ?? 'belowEditor';
+  const includeTitle = options.includeTitle ?? ctx.mode !== 'rpc';
   const now = options.now ?? (() => Date.now());
   let disposed = false;
   let lastLines: string[] | undefined;
@@ -70,7 +81,9 @@ export function registerSubagentRunWidget(
   const getView = (timestamp: number): SubagentRunTreeView => {
     const snapshots = pool.getSubagentSessionSnapshots?.();
     if (snapshots)
-      return createSubagentRunTreeViewFromSnapshots(snapshots, { now: timestamp });
+      return createSubagentRunTreeViewFromSnapshots(snapshots, {
+        now: timestamp,
+      });
     return pool.getRunTreeView({ now: timestamp });
   };
   const render = () => {
@@ -80,12 +93,13 @@ export function registerSubagentRunWidget(
     const lines = renderSubagentRunWidgetLines(view, {
       ...options,
       now: timestamp,
+      includeTitle,
     });
     const nextLines = lines.length > 0 ? lines : undefined;
     const changed = !sameLines(lastLines, nextLines);
     if (changed) {
       lastLines = nextLines ? [...nextLines] : undefined;
-      ctx.ui.setWidget(widgetId, nextLines);
+      ctx.ui.setWidget(widgetId, nextLines, { placement });
     }
     scheduleTimer(Boolean(nextLines));
   };
@@ -100,7 +114,7 @@ export function registerSubagentRunWidget(
       disposed = true;
       unsubscribe();
       clearTimer();
-      if (lastLines) ctx.ui.setWidget(widgetId, undefined);
+      if (lastLines) ctx.ui.setWidget(widgetId, undefined, { placement });
       lastLines = undefined;
     },
   };

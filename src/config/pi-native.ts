@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { parseJsonc } from './jsonc';
+import { PluginConfigSchema } from './schema';
 
 const CONFIG_BASENAME = 'oh-my-opencode-slim';
 
@@ -34,7 +35,15 @@ export function readPiNativeConfigObject(
 ): Record<string, any> {
   for (const configPath of getPiNativeConfigCandidates(configDir)) {
     try {
-      return parseJsonc<Record<string, any>>(fs.readFileSync(configPath, 'utf-8'));
+      const parsed = PluginConfigSchema.safeParse(
+        parseJsonc<Record<string, unknown>>(
+          fs.readFileSync(configPath, 'utf-8'),
+        ),
+      );
+      if (parsed.success) return parsed.data;
+      console.warn(
+        `[oh-my-opencode-slim] Invalid Pi-native config at ${configPath}; ignoring it.`,
+      );
     } catch {}
   }
   return {};

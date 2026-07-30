@@ -13,7 +13,7 @@
  */
 
 export interface ToolResultReplacementRecord {
-  kind: "tool-result";
+  kind: 'tool-result';
   toolUseId: string;
   toolName: string;
   originalSize: number;
@@ -51,21 +51,30 @@ export function createToolResultBudgetState(): ToolResultBudgetState {
 /**
  * 检查 tool_use_id 是否已发送给模型
  */
-export function isSeenId(state: ToolResultBudgetState, toolUseId: string): boolean {
+export function isSeenId(
+  state: ToolResultBudgetState,
+  toolUseId: string,
+): boolean {
   return state.seenIds.has(toolUseId);
 }
 
 /**
  * 标记 tool_use_id 为已发送
  */
-export function markSeenId(state: ToolResultBudgetState, toolUseId: string): void {
+export function markSeenId(
+  state: ToolResultBudgetState,
+  toolUseId: string,
+): void {
   state.seenIds.add(toolUseId);
 }
 
 /**
  * 获取已替换的内容
  */
-export function getReplacement(state: ToolResultBudgetState, toolUseId: string): string | undefined {
+export function getReplacement(
+  state: ToolResultBudgetState,
+  toolUseId: string,
+): string | undefined {
   return state.replacements.get(toolUseId);
 }
 
@@ -84,7 +93,10 @@ export function recordReplacement(
 /**
  * 批量标记已发送
  */
-export function markSeenIds(state: ToolResultBudgetState, toolUseIds: readonly string[]): void {
+export function markSeenIds(
+  state: ToolResultBudgetState,
+  toolUseIds: readonly string[],
+): void {
   for (const id of toolUseIds) {
     state.seenIds.add(id);
   }
@@ -92,7 +104,7 @@ export function markSeenIds(state: ToolResultBudgetState, toolUseIds: readonly s
 
 /**
  * 分区：根据 prior decision 划分候选
- * 
+ *
  * - mustReapply: 已有替换记录，需要重新应用
  * - frozen: 已发送但未替换，保持原样
  * - fresh: 新的候选，需要评估
@@ -117,7 +129,7 @@ export function partitionCandidates(
   candidates: readonly ToolResultCandidate[],
   state: ToolResultBudgetState,
 ): PartitionedCandidates {
-  const mustReapply: PartitionedCandidates["mustReapply"] = [];
+  const mustReapply: PartitionedCandidates['mustReapply'] = [];
   const frozen: ToolResultCandidate[] = [];
   const fresh: ToolResultCandidate[] = [];
 
@@ -186,16 +198,27 @@ export function toToolResultBudgetPersistenceJson(
 export function fromToolResultBudgetPersistenceJson(
   json: unknown,
 ): ToolResultBudgetState | null {
-  if (!json || typeof json !== "object") return null;
+  if (!json || typeof json !== 'object') return null;
   const record = json as Record<string, unknown>;
   if (record.version !== 1) return null;
-  if (!Array.isArray(record.seenIds) || !record.seenIds.every((id) => typeof id === "string")) return null;
-  if (!record.replacements || typeof record.replacements !== "object" || Array.isArray(record.replacements)) return null;
+  if (
+    !Array.isArray(record.seenIds) ||
+    !record.seenIds.every((id) => typeof id === 'string')
+  )
+    return null;
+  if (
+    !record.replacements ||
+    typeof record.replacements !== 'object' ||
+    Array.isArray(record.replacements)
+  )
+    return null;
 
   const state = createToolResultBudgetState();
   for (const id of record.seenIds) state.seenIds.add(id);
-  for (const [id, replacement] of Object.entries(record.replacements as Record<string, unknown>)) {
-    if (typeof replacement !== "string") return null;
+  for (const [id, replacement] of Object.entries(
+    record.replacements as Record<string, unknown>,
+  )) {
+    if (typeof replacement !== 'string') return null;
     state.seenIds.add(id);
     state.replacements.set(id, replacement);
   }

@@ -1,8 +1,8 @@
-export type HarnessDecisionAction = "allow" | "warn" | "block";
+export type HarnessDecisionAction = 'allow' | 'warn' | 'block';
 
 export interface HarnessIssue {
   id: string;
-  action: Exclude<HarnessDecisionAction, "allow">;
+  action: Exclude<HarnessDecisionAction, 'allow'>;
   messageKey: string;
   message: string;
   details?: Record<string, unknown>;

@@ -1,7 +1,10 @@
-import type { VerifierVerdict, VerifierVerdictStatus } from "./verifier-verdict-parser";
-import { parseVerifierVerdict } from "./verifier-verdict-parser";
+import type {
+  VerifierVerdict,
+  VerifierVerdictStatus,
+} from './verifier-verdict-parser';
+import { parseVerifierVerdict } from './verifier-verdict-parser';
 
-export type VerifierVerdictEvidenceSource = "subagent" | "tool" | "flue_workflow" | "manual";
+export type VerifierVerdictEvidenceSource = 'subagent' | 'tool' | 'manual';
 
 export interface VerifierVerdictEvidence {
   source: VerifierVerdictEvidenceSource;
@@ -27,7 +30,12 @@ export interface VerifierVerdictIngestionResult {
 }
 
 function firstNonEmptyLine(text: string): string {
-  return text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  return (
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 function summarizeVerdict(text: string, verdict: VerifierVerdict): string {
@@ -42,7 +50,10 @@ export function ingestVerifierVerdict(
 ): VerifierVerdictIngestionResult {
   const parsed = parseVerifierVerdict(input.text);
   if (!parsed.success || !parsed.verdict) {
-    return { ingested: false, reason: parsed.error ?? "No verifier verdict found" };
+    return {
+      ingested: false,
+      reason: parsed.error ?? 'No verifier verdict found',
+    };
   }
 
   return {

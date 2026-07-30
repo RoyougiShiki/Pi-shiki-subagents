@@ -3,7 +3,6 @@ export type {
   AgentOverrideConfig,
   McpName,
   PluginConfig,
-  WorkflowsConfig,
 } from './config';
 
 /**

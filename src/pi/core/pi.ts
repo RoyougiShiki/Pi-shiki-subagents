@@ -1,209 +1,109 @@
 /**
- * Pi Agent Adapter for oh-my-opencode-slim
+ * Thin Pi runtime for oh-my-opencode-slim.
  *
- * Transforms OMO's agent orchestration system into a pi extension.
- *
- * Architecture:
- *   - Agent markdown files are generated in ~/.pi/agents/ on first load
- *   - Constitution and active mode prompt are injected via before_agent_start
- *   - Non-blocking behavior reminders and optional compliance_check remain as adapter quality guidance
- *   - OMO's custom tools (delegate, council) are registered
- *     as pi tools (webfetch omitted - pi-web-access provides better ones)
- *   - /preset command switches model presets at runtime
- *
- * Dependencies:
- *   - pi-agents (optional but recommended): provides agent/workflow tools
- *   - pi-mcp-adapter: provides MCP gateway
+ * The runtime owns subagent sessions, mechanical tool boundaries, result
+ * budgeting, and a small set of explicit utilities. Task workflows live in
+ * skills and user instructions rather than a mode or stage state machine.
  */
 
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
-import {
-  DynamicBorder,
-  getAgentDir,
-} from '@earendil-works/pi-coding-agent';
-import { Input, SelectList, Spacer, Text } from '@earendil-works/pi-tui';
-import type {
-  AutocompleteItem,
-  SelectItem,
-  SelectListTheme,
-} from '@earendil-works/pi-tui';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import {
-  loadActiveMode,
-  getModeInstructions,
-  setOnModeChange,
-  setOnBeforeModeChange,
-  validateModeAllowlist,
-  validateActiveModeWorkflow,
-  getFirstModeAgent,
-  isCurrentModePipeline,
-  emitModeSwitched,
-  getAgent,
-  getActiveModeWorkflow,
-  getModeWorkflow,
-  rehydrateActiveModeTools,
-  registerModeCommands,
-  registerModeHooks,
-  registerSwitchModeTool,
-} from './pi-modes';
+  PRESET_MODEL_SLOT_NAMES,
+  PRIMARY_AGENT_NAME,
+} from '../../config/constants';
+import { stripJsonComments } from '../../config/jsonc';
+import { deepMerge, loadPluginConfig } from '../../config/loader';
 import {
-  setToolScope,
-  isToolAllowed,
-  getToolScope,
-  auditPayloadTools,
-} from '../policy/tool-scope-manager';
-import { checkClarification } from '../policy/clarification-policy';
+  readPiNativeConfigObject,
+  getPiNativeConfigPath as resolvePiNativeConfigPath,
+} from '../../config/pi-native';
 import {
-  setAuditEnabled,
-  auditClarification,
-  auditApproval,
-  auditToolScope,
-} from '../policy/runtime-audit';
-import {
-  recordDeniedToolCall,
-  isDeniedToolCall,
-  buildDeniedToolGuardMessage,
-} from '../policy/denied-tool-memory';
-// pipeline-state 已从执行决策链路移除
-
+  ensureAgentFiles,
+  getPiAgentsDirForSync,
+} from '../agents/managed-agent-files';
+import type { OmniMoConfig, PiCouncilParticipantConfig } from '../config-types';
+import { registerHarnessHooks } from '../harness/register-harness-hooks';
 import { AGENT_PROMPTS } from '../meeting/pi-agents';
 import {
   formatPiCouncilResults,
-  resolvePiCouncilParticipants,
-  runPiCouncilParticipant,
   type PiCouncilParticipant,
   type PiCouncilRunResult,
+  resolvePiCouncilParticipants,
+  runPiCouncilParticipant,
 } from '../meeting/pi-council';
+import { formatPiMeetingResult, runPiMeeting } from '../meeting/pi-meeting';
 import {
-  formatPiMeetingResult,
-  runPiMeeting,
-  type PiMeetingParticipantResult,
-} from '../meeting/pi-meeting';
+  getToolScope,
+  isToolAllowed,
+  resetToolScope,
+  setToolScope,
+} from '../policy/tool-scope-manager';
+import {
+  findStalePresetSlots,
+  getActivePresetName,
+  getPresetPack,
+  listPresetNames,
+  parseModelRef,
+  setPresetSlot,
+  summarizePresetPack,
+  type AvailableModelRef,
+} from '../preset/preset-model-resolution';
+import {
+  isModelPlaceholder,
+  parsePiModelId,
+} from '../preset/preset-switch';
+import {
+  getPool,
+  initPoolAllToolNamesResolver,
+  initPoolModelResolver,
+  type PoolAgentInfo,
+  resetPool,
+} from '../subagent/subagent-pool';
+import { registerPoolNoticeBridge } from '../subagent/subagent-pool-notice-bridge';
+import { ensureSubagentRunWidgetRegistered } from '../subagent/subagent-run-widget';
+import { registerSubagentTool } from '../subagent/subagent-tool';
+
+export {
+  ensureAgentFiles,
+  getPiAgentsDirForSync,
+} from '../agents/managed-agent-files';
+export type {
+  OmniMoConfig,
+  PiCouncilConfig,
+  PiCouncilParticipantConfig,
+} from '../config-types';
 export { AGENT_PROMPTS } from '../meeting/pi-agents';
 export {
   formatPiCouncilResults,
   resolvePiCouncilParticipants,
 } from '../meeting/pi-council';
-
 export {
   formatPiMeetingResult,
   normalizePiMeetingBackend,
   normalizePiMeetingMaxRounds,
   normalizePiMeetingObjective,
 } from '../meeting/pi-meeting';
-import {
-  getPool,
-  initPoolAllToolNamesResolver,
-  initPoolModelResolver,
-  resolveDelegationCaller,
-  resolveSubagentToolNamesForAgent,
-  type PoolAgentInfo,
-} from '../subagent/subagent-pool';
-import { registerSubagentTool } from '../subagent/subagent-tool';
-import { ensureSubagentRunWidgetRegistered } from '../subagent/subagent-run-widget';
-import {
-  registerPoolNoticeBridge,
-  type PoolNoticeEvent,
-} from '../subagent/subagent-pool-notice-bridge';
-import {
-  createComplianceState,
-  recordViolation,
-  type ComplianceState,
-  type ViolationRecord,
-} from '../compliance';
-
-
-import type {
-  OmniMoConfig,
-  PiCouncilParticipantConfig,
-} from '../config-types';
-import { deepMerge, loadPluginConfig } from '../../config/loader';
-import { stripJsonComments } from '../../config/jsonc';
-import {
-  getPiNativeConfigPath as resolvePiNativeConfigPath,
-  readPiNativeConfigObject,
-} from '../../config/pi-native';
-import {
-  loadRuntimeAgentDefinitions,
-  mergeRuntimeAgentDefinitions,
-  resolveRuntimeConfigAgents,
-  type RuntimeAgentDefinition,
-} from '../../adapters/agent-runtime-config';
-import {
-  PRESET_CONFIGURABLE_AGENT_NAMES,
-  PRIMARY_MODE_AGENT_NAME,
-} from '../../config/constants';
-import { resolveWorkflowList } from '../../config/workflow-defaults';
-import {
-  createToolCallGates,
-  createWorkflowStageGateHelpers,
-  shouldRequestPipelineSubagentApproval,
-} from '../policy/tool-call-gates';
-import type { WorkflowStageRecoveryCandidate } from '../policy/workflow-stage-runtime';
-import {
-  createWorkflowStageResumeNotice,
-  parseWorkflowStageMarkersFromEntries,
-} from '../policy/workflow-stage-marker';
-import type { WorkflowStageNotice } from '../policy/workflow-stage-marker';
-import {
-  ensureAgentFiles,
-  getPiAgentsDirForSync,
-  updateAgentModels,
-} from '../agents/managed-agent-files';
-import {
-  getPresetCompletions,
-  getPresetModelForPrimaryMode,
-  isModelPlaceholder,
-  parsePiModelId,
-  resolvePresetSwitchPlan,
-} from '../preset/preset-switch';
-import { registerHarnessHooks } from '../harness/register-harness-hooks';
-import { getVerdictStatus } from '../harness/verifier-verdict-parser';
-
-export {
-  createWorkflowStageGateHelpers,
-  shouldRequestPipelineSubagentApproval,
-} from '../policy/tool-call-gates';
-export {
-  ensureAgentFiles,
-  getPiAgentsDirForSync,
-} from '../agents/managed-agent-files';
 export {
   parsePiModelId,
-  resolvePresetSwitchPlan,
 } from '../preset/preset-switch';
 
-export type {
-  OmniMoConfig,
-  PiCouncilConfig,
-  PiCouncilParticipantConfig,
-} from '../config-types';
-// ─── Config helpers ────────────────────────────────────────────────────────
-
-const BASIC_TOOLS: readonly string[] = [
-  'read',
-  'write',
-  'edit',
-  'bash',
-  'grep',
-  'find',
-  'ls',
-];
 const PRESET_MODEL_SUBCOMMAND = 'model';
-const PRESET_MODEL_SELECTOR_MAX_VISIBLE = 12;
-
-
-export interface PiDelegationCapabilities {
-  hasPiAgents: boolean;
-  hasSubagent: boolean;
-  hasAgentMessage: boolean;
-}
+const DANGEROUS_BASH_PATTERNS = [
+  /^sudo\s/i,
+  /^rm\s+-rf\s+\/\s*$/i,
+  /^rm\s+-rf\s+\/\*/i,
+  /^rm\s+-rf\s+~\s*$/i,
+  /^rm\s+-rf\s+~\/*/i,
+  /^:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/i,
+] as const;
 
 export function stripJsonCommentsSafely(raw: string): string {
   return stripJsonComments(raw);
@@ -241,90 +141,7 @@ export function persistPresetSelectionToPiNativeConfig(
     nativeConfig.presets ??= {};
     nativeConfig.presets[presetName] = effectiveConfig.presets[presetName];
   }
-  writePiNativeConfig(nativeConfig as OmniMoConfig);
-}
-
-function getConfigPresetNames(config: OmniMoConfig | null): string[] {
-  return Object.keys(config?.presets ?? {});
-}
-
-function getConfigAgentNames(
-  config: OmniMoConfig | null,
-  presetName: string,
-): string[] {
-  const names = new Set<string>(Object.keys(AGENT_PROMPTS));
-  for (const name of Object.keys(config?.agents ?? {})) names.add(name);
-  for (const name of Object.keys(config?.presets?.[presetName] ?? {}))
-    names.add(name);
-  return [...names]
-    .filter((name) => PRESET_CONFIGURABLE_AGENT_NAMES.includes(name as any))
-    .sort();
-}
-
-function normalizeModelReference(model: string): string | undefined {
-  const parsed = parsePiModelId(model);
-  return parsed ? `${parsed.provider}/${parsed.model}` : undefined;
-}
-
-function getConfiguredAgentModel(
-  config: OmniMoConfig,
-  presetName: string,
-  agentName: string,
-): string | undefined {
-  const presetOverride = config.presets?.[presetName]?.[agentName];
-  const globalOverride = config.agents?.[agentName];
-  const presetModel =
-    typeof presetOverride === 'object' && presetOverride !== null
-      ? (presetOverride as { model?: unknown }).model
-      : undefined;
-  const globalModel =
-    typeof globalOverride === 'object' && globalOverride !== null
-      ? (globalOverride as { model?: unknown }).model
-      : undefined;
-  return typeof presetModel === 'string'
-    ? presetModel
-    : typeof globalModel === 'string'
-      ? globalModel
-      : undefined;
-}
-
-function getAvailableModels(
-  ctx: ExtensionContext,
-): Array<{ provider: string; id: string }> {
-  const registry = ctx.modelRegistry as any;
-  try {
-    registry.refresh?.();
-  } catch {}
-  const models =
-    typeof registry.getAvailable === 'function'
-      ? registry.getAvailable()
-      : (registry.getAll?.() ?? []);
-  return (models as Array<{ provider?: unknown; id?: unknown }>).filter(
-    (model): model is { provider: string; id: string } =>
-      typeof model.provider === 'string' && typeof model.id === 'string',
-  );
-}
-
-function getModelCompletionItems(
-  ctx: ExtensionContext,
-  prefix: string,
-): AutocompleteItem[] | null {
-  const normalizedPrefix = prefix.trim().toLowerCase();
-  const models = getAvailableModels(ctx);
-  const filtered = models.filter((model) => {
-    const ref = `${model.provider}/${model.id}`;
-    return (
-      !normalizedPrefix ||
-      ref.toLowerCase().includes(normalizedPrefix) ||
-      model.id.toLowerCase().includes(normalizedPrefix)
-    );
-  });
-  if (filtered.length === 0) return null;
-  return filtered.map((model) => ({
-    value: `${model.provider}/${model.id}`,
-    label: model.id,
-    description: model.provider,
-  }));
+  writePiNativeConfig(nativeConfig);
 }
 
 export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
@@ -339,401 +156,239 @@ export function loadOmniMoConfig(cwd = process.cwd()): OmniMoConfig | null {
   return config && Object.keys(config).length > 0 ? config : null;
 }
 
-// ─── Orchestrator System Prompt Builder ────────────────────────────────────
-
-function buildPromptAgentDefinitions(
-  config: OmniMoConfig | null,
-): Record<string, RuntimeAgentDefinition> {
-  if (!config) return loadRuntimeAgentDefinitions(process.cwd());
-
-  const defaults = loadRuntimeAgentDefinitions(process.cwd());
-  const overrides = resolveRuntimeConfigAgents(config as Record<string, unknown>);
-  return mergeRuntimeAgentDefinitions(defaults, overrides);
+function normalizeModelReference(model: string): string | undefined {
+  const parsed = parsePiModelId(model) ?? parseModelRef(model);
+  return parsed ? `${parsed.provider}/${parsed.model}` : undefined;
 }
 
-function getKnownAgentNames(
-  agentDefs: Record<string, RuntimeAgentDefinition>,
-  disabledAgents: readonly string[] = [],
-): string[] {
-  const disabledSet = new Set(disabledAgents);
-  return Object.entries(agentDefs)
-    .filter(([name, def]) => !def.hidden && !disabledSet.has(name))
-    .map(([name]) => name);
-}
-
-function formatWorkflowStageForPrompt(
-  stage: { id?: string; agent: string; allowedSubagents?: string[] },
-  index: number,
-  disabledSet: Set<string>,
-  agentDefs: Record<string, RuntimeAgentDefinition>,
-): string {
-  const id = stage.id?.trim() || String(index + 1);
-  const stageAgent = stage.agent.trim();
-  if (!stageAgent || disabledSet.has(stageAgent) || agentDefs[stageAgent]?.hidden) return '';
-  const allowed = (stage.allowedSubagents ?? [])
-    .map((agent) => agent.trim())
-    .filter((agent) => agent && !disabledSet.has(agent) && !agentDefs[agent]?.hidden);
-  const helpers = allowed.length > 0 ? ` (+${allowed.join(', ')})` : '';
-  return `${index + 1}.${id}:${stageAgent}${helpers}`;
-}
-
-function buildModeWorkflowLines(
-  agentDefs: Record<string, RuntimeAgentDefinition>,
-  config: OmniMoConfig | null,
-  disabledSet: Set<string>,
-): string[] {
-  const workflows = resolveWorkflowList(config?.workflows);
-  const workflowByName = new Map(
-    workflows.map((workflow) => [workflow.name, workflow]),
-  );
-  const lines: string[] = [];
-
-  for (const [name, def] of Object.entries(agentDefs)) {
-    if (def.hidden || disabledSet.has(name) || def.pipelineMode !== true) continue;
-    const workflowName = def.workflow?.trim();
-    if (!workflowName) continue;
-
-    const workflow = workflowByName.get(workflowName);
-    const stageSummary = workflow
-      ? workflow.stages
-          .map((stage, index) =>
-            formatWorkflowStageForPrompt(stage, index, disabledSet, agentDefs)
-          )
-          .filter(Boolean)
-          .join(' -> ')
-      : '(missing workflow definition)';
-    if (workflow && !stageSummary) continue;
-    lines.push(`  @${name} -> ${workflowName}: ${stageSummary}`);
+function asPresetPack(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === 'string' && raw.trim()) out[key] = raw.trim();
   }
-
-  return lines.sort();
+  return out;
 }
 
-function getModeWorkflowContinuationAgents(
-  modeName: string,
-  agentDefs: Record<string, RuntimeAgentDefinition>,
-  config: OmniMoConfig | null,
-): string[] | undefined {
-  const workflowName = agentDefs[modeName]?.workflow?.trim();
-  if (!workflowName) return undefined;
-  const workflow = resolveWorkflowList(config?.workflows)
-    .find((candidate) => candidate.name === workflowName);
-  if (!workflow) return undefined;
+async function listAvailableModelRefs(
+  ctx: ExtensionContext,
+): Promise<AvailableModelRef[]> {
+  try {
+    const available = await (ctx.modelRegistry as any).getAvailable?.();
+    if (!Array.isArray(available)) return [];
+    return available
+      .map((model: any) => ({
+        provider: String(model?.provider ?? ''),
+        id: String(model?.id ?? ''),
+      }))
+      .filter((model: AvailableModelRef) => model.provider && model.id);
+  } catch {
+    return [];
+  }
+}
 
-  const agents = new Set<string>();
-  for (const stage of workflow.stages) {
-    const stageAgent = stage.agent.trim();
-    if (stageAgent) agents.add(stageAgent);
-    for (const helper of stage.allowedSubagents ?? []) {
-      const helperAgent = helper.trim();
-      if (helperAgent) agents.add(helperAgent);
+function groupModelsByProvider(
+  models: readonly AvailableModelRef[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const model of models) {
+    const list = map.get(model.provider) ?? [];
+    list.push(model.id);
+    map.set(model.provider, list);
+  }
+  for (const [provider, ids] of map) {
+    map.set(
+      provider,
+      [...new Set(ids)].sort((a, b) => a.localeCompare(b)),
+    );
+  }
+  return map;
+}
+
+function ensureNativePresetsShell(
+  native: OmniMoConfig,
+  names: string[],
+): OmniMoConfig {
+  native.presets ??= {};
+  for (const name of names) {
+    if (!native.presets[name] || typeof native.presets[name] !== 'object') {
+      native.presets[name] = {};
+    } else {
+      // Coerce values to string slots only
+      native.presets[name] = asPresetPack(native.presets[name]);
     }
   }
-  return [...agents];
+  return native;
 }
 
-export function buildPiOrchestratorPrompt(
-  disabledAgents: string[],
-  config: OmniMoConfig | null,
-  capabilities: PiDelegationCapabilities,
-  agentDefinitions?: Record<string, RuntimeAgentDefinition>,
-): string {
-  const constPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
-  let constText = '';
+function getAllToolNames(pi: ExtensionAPI): string[] {
   try {
-    if (fs.existsSync(constPath))
-      constText = fs.readFileSync(constPath, 'utf-8').trim();
-  } catch {}
-
-  const agentDefs = agentDefinitions ?? buildPromptAgentDefinitions(config);
-  const disabledSet = new Set(disabledAgents);
-
-  // Build available-agents section from the same runtime definitions used by
-  // tool scopes and delegation gates.
-  const agentLines: string[] = [];
-  for (const [name, def] of Object.entries(agentDefs)) {
-    if (def.hidden) continue;
-    if (disabledSet.has(name)) continue;
-    const typeLabel =
-      def.type === 'mode'
-        ? '(模式)'
-        : def.type === 'subagent'
-          ? '(子代理)'
-          : def.type === 'both'
-            ? '(模式/子代理)'
-          : '';
-    const label = def.label || AGENT_PROMPTS[name]?.description || name;
-    agentLines.push(`  @${name} ${typeLabel} — ${label}`);
+    return pi
+      .getAllTools()
+      .map((tool: any) => tool?.name)
+      .filter((name: unknown): name is string => typeof name === 'string');
+  } catch {
+    return [];
   }
-  const workflowLines = buildModeWorkflowLines(agentDefs, config, disabledSet);
-
-  const capabilitiesNotes: string[] = [];
-  if (capabilities.hasPiAgents)
-    capabilitiesNotes.push('- pi-agents 可用: 支持 task/agent tool');
-  if (capabilities.hasSubagent)
-    capabilitiesNotes.push('- omo_subagent 可用: 支持 pool 模式子代理');
-  if (capabilities.hasAgentMessage)
-    capabilitiesNotes.push('- agent_message 可用: 支持后台 agent 通信');
-
-  const parts: string[] = constText ? [constText] : [];
-
-  if (agentLines.length > 0) {
-    parts.push(
-      `\n<AvailableAgents>\n${agentLines.join('\n')}\n</AvailableAgents>`,
-    );
-  }
-
-  if (workflowLines.length > 0) {
-    parts.push(
-      [
-        '\n<ModeWorkflows>',
-        ...workflowLines,
-        '  规则: 当前阶段主子代理由 workflow stage gate 放行；进入下一阶段需要用户审批；同一话题继续用 pool send/resume。',
-        '  优先级: 用户决定 WHAT（目标/范围/约束），workflow 决定 HOW（阶段/门禁/验证）。用户要求做 X 不等于可以跳过当前 workflow、审批或验证。',
-        '</ModeWorkflows>',
-      ].join('\n'),
-    );
-  }
-
-  if (disabledSet.size > 0) {
-    parts.push(
-      `\n<DisabledAgents>\n  以下 agents 已被禁用: ${[...disabledSet].join(', ')}. 不要尝试委托或引用它们。\n</DisabledAgents>`,
-    );
-  }
-
-  if (capabilitiesNotes.length > 0) {
-    parts.push(
-      `\n<Capabilities>\n${capabilitiesNotes.join('\n')}\n</Capabilities>`,
-    );
-  }
-
-  return parts.join('\n\n');
 }
 
-// ─── Tool implementations ──────────────────────────────────────────────────
+function applyMainToolScope(pi: ExtensionAPI): void {
+  const tools = getAllToolNames(pi);
+  pi.setActiveTools(tools);
+  setToolScope(tools, 'main', PRIMARY_AGENT_NAME, {
+    tools: ['*'],
+  });
+}
 
-function createToolImplementations(config: OmniMoConfig | null) {
+function createCouncilTool(config: OmniMoConfig | null) {
   return {
-    council: {
-      name: 'omo_council',
-      label: 'OMO Council',
-      description:
-        'Run multiple models on the same question and synthesize their answers. meeting mode uses a hidden round-based debate and returns only a compressed report; collaborating backend uses persistent participants for raw-message discussion.',
-      promptSnippet:
-        'Multi-model consensus: run multiple models on the same question and synthesize',
-      parameters: Type.Object({
-        question: Type.String({
-          description: 'The question or task for all models to analyze',
-        }),
-        mode: Type.Optional(
-          Type.String({
-            description: 'Council mode: isolated (default) | meeting',
+    name: 'omo_council',
+    label: 'OMO Council',
+    description: 'Run independent model perspectives for an explicit question.',
+    parameters: Type.Object({
+      question: Type.String({ description: 'Question or task to analyze' }),
+      mode: Type.Optional(
+        Type.String({ description: 'isolated (default) | meeting' }),
+      ),
+      preset: Type.Optional(
+        Type.String({ description: 'Council preset name' }),
+      ),
+      objective: Type.Optional(
+        Type.String({ description: 'Meeting objective' }),
+      ),
+      maxRounds: Type.Optional(
+        Type.Integer({ description: 'Meeting rounds, 1..5' }),
+      ),
+      maxDurationMs: Type.Optional(
+        Type.Number({ description: 'Meeting timeout in milliseconds' }),
+      ),
+      includeTranscript: Type.Optional(
+        Type.Boolean({ description: 'Include meeting transcript' }),
+      ),
+      backend: Type.Optional(Type.String({ description: 'session | pool' })),
+      participants: Type.Optional(
+        Type.Array(
+          Type.Object({
+            name: Type.Optional(Type.String()),
+            agent: Type.Optional(Type.String()),
+            model: Type.Optional(Type.String()),
+            prompt: Type.Optional(Type.String()),
           }),
         ),
-        preset: Type.Optional(
-          Type.String({ description: 'Council preset name from config' }),
-        ),
-        objective: Type.Optional(
-          Type.String({
-            description:
-              'Meeting objective: brainstorm | review | design | debug | decision',
-          }),
-        ),
-        maxRounds: Type.Optional(
-          Type.Integer({
-            description: 'Meeting discussion rounds, clamped to 1..5',
-          }),
-        ),
-        maxDurationMs: Type.Optional(
-          Type.Number({
-            description: 'Meeting timeout budget in milliseconds',
-          }),
-        ),
-        includeTranscript: Type.Optional(
-          Type.Boolean({
-            description:
-              'Debug only: include raw hidden meeting transcript in the tool result',
-          }),
-        ),
-        backend: Type.Optional(
-          Type.String({
-            description:
-              'Meeting backend: session (轮次讨论) | pool (实时讨论)',
-          }),
-        ),
-        participants: Type.Optional(
-          Type.Array(
-            Type.Object({
-              name: Type.Optional(
-                Type.String({ description: 'Participant display name' }),
-              ),
-              agent: Type.Optional(
-                Type.String({
-                  description:
-                    'OMO agent prompt to use, e.g. oracle/search/fixer',
-                }),
-              ),
-              model: Type.Optional(
-                Type.String({
-                  description: 'Optional provider/model override',
-                }),
-              ),
-              prompt: Type.Optional(
-                Type.String({
-                  description: 'Optional participant-specific guidance',
-                }),
-              ),
-            }),
-            { description: 'Explicit council/meeting participants' },
-          ),
-        ),
-      }),
-      async execute(
-        _toolCallId: string,
-        params: {
-          question: string;
-          mode?: string;
-          preset?: string;
-          objective?: string;
-          maxRounds?: number;
-          maxDurationMs?: number;
-          includeTranscript?: boolean;
-          backend?: string;
-          participants?: PiCouncilParticipantConfig[];
-        },
-        _signal: AbortSignal | undefined,
-        _onUpdate: any,
-        ctx: ExtensionContext,
-      ) {
-        const mode = params.mode ?? 'isolated';
-        if (mode === 'meeting') {
-          const meeting = await runPiMeeting({
-            question: params.question,
-            preset: params.preset,
-            participants: params.participants,
-            objective: params.objective,
-            maxRounds: params.maxRounds,
-            maxDurationMs: params.maxDurationMs,
-            includeTranscript: params.includeTranscript,
-            backend: params.backend,
-            ctx,
-            config,
-          });
-
-          if (meeting.error || !meeting.result) {
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: meeting.error ?? 'Meeting failed without a result.',
-                },
-              ],
-              details: { mode, question: params.question },
-              isError: true,
-            };
-          }
-
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: formatPiMeetingResult(meeting.result),
-              },
-            ],
-            details: { mode, question: params.question, result: meeting.result },
-            isError: meeting.result.status === 'failed',
-          };
-        }
-
-        if (mode !== 'isolated') {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Unsupported council mode "${mode}". Use mode="isolated" or mode="meeting".`,
-              },
-            ],
-            details: { mode, question: params.question },
-            isError: true,
-          };
-        }
-
-        const resolved = resolvePiCouncilParticipants({
-          config,
+      ),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: {
+        question: string;
+        mode?: string;
+        preset?: string;
+        objective?: string;
+        maxRounds?: number;
+        maxDurationMs?: number;
+        includeTranscript?: boolean;
+        backend?: string;
+        participants?: PiCouncilParticipantConfig[];
+      },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ExtensionContext,
+    ) {
+      const mode = params.mode ?? 'isolated';
+      if (mode === 'meeting') {
+        const meeting = await runPiMeeting({
+          question: params.question,
           preset: params.preset,
           participants: params.participants,
+          objective: params.objective,
+          maxRounds: params.maxRounds,
+          maxDurationMs: params.maxDurationMs,
+          includeTranscript: params.includeTranscript,
+          backend: params.backend,
+          ctx,
+          config,
         });
-        if (resolved.error) {
+        if (meeting.error || !meeting.result) {
           return {
-            content: [{ type: 'text' as const, text: resolved.error }],
+            content: [
+              {
+                type: 'text' as const,
+                text: meeting.error ?? 'Meeting failed without a result.',
+              },
+            ],
             details: { mode, question: params.question },
             isError: true,
           };
         }
-
-        const timeoutMs = config?.council?.timeout ?? 180000;
-        const executionMode =
-          config?.council?.councillor_execution_mode ?? 'parallel';
-        const runOne = (participant: PiCouncilParticipant) =>
-          runPiCouncilParticipant({
-            participant,
-            question: params.question,
-            ctx,
-            timeoutMs,
-          });
-
-        const results =
-          executionMode === 'serial'
-            ? ([] as PiCouncilRunResult[])
-            : await Promise.all(resolved.participants.map(runOne));
-
-        if (executionMode === 'serial') {
-          for (const participant of resolved.participants) {
-            results.push(await runOne(participant));
-          }
-        }
-
         return {
           content: [
             {
               type: 'text' as const,
-              text: formatPiCouncilResults(params.question, results),
+              text: formatPiMeetingResult(meeting.result),
             },
           ],
-          details: { mode, question: params.question, results },
-          isError: results.every((r) => r.status !== 'completed'),
+          details: { mode, question: params.question, result: meeting.result },
+          isError: meeting.result.status === 'failed',
         };
-      },
+      }
+      if (mode !== 'isolated') {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Unsupported council mode "${mode}".`,
+            },
+          ],
+          details: { mode, question: params.question },
+          isError: true,
+        };
+      }
+
+      const resolved = resolvePiCouncilParticipants({
+        config,
+        preset: params.preset,
+        participants: params.participants,
+      });
+      if (resolved.error) {
+        return {
+          content: [{ type: 'text' as const, text: resolved.error }],
+          details: { mode, question: params.question },
+          isError: true,
+        };
+      }
+      const timeoutMs = config?.council?.timeout ?? 180000;
+      const runOne = (participant: PiCouncilParticipant) =>
+        runPiCouncilParticipant({
+          participant,
+          question: params.question,
+          ctx,
+          timeoutMs,
+        });
+      const results: PiCouncilRunResult[] =
+        config?.council?.councillor_execution_mode === 'serial'
+          ? []
+          : await Promise.all(resolved.participants.map(runOne));
+      if (results.length === 0) {
+        for (const participant of resolved.participants)
+          results.push(await runOne(participant));
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: formatPiCouncilResults(params.question, results),
+          },
+        ],
+        details: { mode, question: params.question, results },
+        isError: results.every((result) => result.status !== 'completed'),
+      };
     },
   };
 }
 
-// ─── Pi extension entry point ──────────────────────────────────────────────
-
-function sessionStartTimestamp(ctx: any): number | undefined {
-  const headerTimestamp = ctx?.sessionManager?.getHeader?.()?.timestamp;
-  const parsedHeader =
-    typeof headerTimestamp === 'string' || typeof headerTimestamp === 'number'
-      ? Date.parse(String(headerTimestamp))
-      : NaN;
-  if (Number.isFinite(parsedHeader)) return parsedHeader;
-
-  const entries = ctx?.sessionManager?.getEntries?.() ?? [];
-  const firstTimestamp = Array.isArray(entries)
-    ? entries[0]?.timestamp
-    : undefined;
-  const parsedEntry =
-    typeof firstTimestamp === 'string' || typeof firstTimestamp === 'number'
-      ? Date.parse(String(firstTimestamp))
-      : NaN;
-  return Number.isFinite(parsedEntry) ? parsedEntry : undefined;
-}
-
 function parsePiSyncArgs(args: string): string[] | null {
   const tokens = args.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return [];
   const result: string[] = [];
-
   for (const token of tokens) {
     if (token === 'check') result.push('--check');
     else if (token === 'write') result.push('--write');
@@ -745,7 +400,6 @@ function parsePiSyncArgs(args: string): string[] | null {
     else if (token.startsWith('--')) result.push(token);
     else return null;
   }
-
   return result;
 }
 
@@ -758,7 +412,6 @@ function runPiSyncCommand(args: string): { ok: boolean; output: string } {
         'Usage: /pi-sync [check|write|typecheck|test|build|skip-schema|restart-hint]',
     };
   }
-
   const scriptPath = path.join(process.cwd(), 'scripts', 'pi-dev-sync.ts');
   const result = spawnSync('bun', ['run', scriptPath, ...parsedArgs], {
     cwd: process.cwd(),
@@ -776,1171 +429,328 @@ function runPiSyncCommand(args: string): { ok: boolean; output: string } {
 }
 
 export default function omniMoPiExtension(pi: ExtensionAPI) {
-  // Clean up sub-agent env vars to prevent stale values from a previous
-  // session leaking through extension reload. These are set by subagent-pool
-  // during spawn() and normally restored in the finally block, but a reload
-  // can interrupt that, leaving them dangling.
-  const OMO_ENV_VARS = [
+  const envKeys = [
     'OMO_SUB_AGENT',
     'OMO_AGENT_NAME',
     'OMO_PARENT_AGENT_NAME',
     'OMO_SUBAGENT_DEPTH',
-    'OMO_STAGE_RESULT_PATH',
     'OMO_ALLOWED_SUBAGENTS',
     'OMO_AGENT_ID',
   ];
-  for (const v of OMO_ENV_VARS) delete process.env[v];
+  for (const key of envKeys) delete process.env[key];
 
-  // ── Mode / agent lifecycle （从 pi-modes.ts 集中注册）─────────────────
-  registerModeCommands(pi);
-  registerModeHooks(pi);
-  registerSwitchModeTool(pi);
-
-  const config = loadOmniMoConfig();
+  let config = loadOmniMoConfig();
   let currentPreset = config?.preset ?? 'default';
-  const runtimeAgentDefinitions = buildPromptAgentDefinitions(config);
-  const disabledAgents = config?.disabled_agents ?? [];
-
-  // ── Harness hooks (completion auditor + tool result budget + verifier/nudge) ──
   const harnessRuntime = registerHarnessHooks(pi, { config: config?.harness });
 
-  // ── Compliance state (session-level, in-memory) ──────────────────────
-  let complianceState: ComplianceState = createComplianceState();
-  let toolExecutedThisTurn = false; // reset per tool_execution_start
-
-  // ── Pipeline state (session-level, 替代 WorkflowManager) ─────────────
-  const workflowSessionRecoveryState: {
-    sessionWasResumed: boolean;
-    recoveryCandidate: WorkflowStageRecoveryCandidate | null;
-  } = { sessionWasResumed: false, recoveryCandidate: null };
-
-  const workflowGateHelpers = createWorkflowStageGateHelpers({
-    workflows: {
-      list: resolveWorkflowList(config?.workflows),
-    },
-    knownAgents: getKnownAgentNames(runtimeAgentDefinitions, disabledAgents),
-    getActiveWorkflowName: getActiveModeWorkflow,
-    getSessionRecoveryState: () => workflowSessionRecoveryState,
-    clearSessionRecoveryState: () => {
-      workflowSessionRecoveryState.sessionWasResumed = false;
-      workflowSessionRecoveryState.recoveryCandidate = null;
-    },
-  });
-  const getWorkflowStageGateContext =
-    workflowGateHelpers.getWorkflowStageGateContext;
-
-  const notifyWorkflowStageGateSkipped = (ctx?: any): void => {
-    const message =
-      'Workflow stage gate blocked: active pipeline mode has no valid workflow binding. Configure agents.<mode>.workflow and workflows.list before running staged delegation.';
-    console.warn(`[oh-my-opencode-slim] ${message}`);
-    try {
-      ctx?.ui?.notify?.(message, 'warning');
-    } catch {}
-  };
-
-  // ── Detect delegation capabilities ─────────────────────────────────
-  function getToolNames(): Set<string> {
-    try {
-      const tools =
-        typeof pi.getAllTools === 'function' ? pi.getAllTools() : [];
-      return new Set(
-        tools
-          .map((tool: any) => tool?.name)
-          .filter((name: any): name is string => typeof name === 'string'),
-      );
-    } catch {
-      return new Set();
-    }
-  }
-
-  function detectPiAgentsFromSettings(): boolean {
-    try {
-      const settingsPath = path.join(getAgentDir(), 'settings.json');
-      if (fs.existsSync(settingsPath)) {
-        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-        const packages: unknown[] = settings.packages ?? [];
-        return packages.some((entry) => {
-          const p =
-            typeof entry === 'string'
-              ? entry
-              : typeof (entry as any)?.source === 'string'
-                ? (entry as any).source
-                : '';
-          return (
-            p === 'npm:pi-agents' ||
-            p === 'pi-agents' ||
-            p.includes('/pi-agents')
-          );
-        });
-      }
-    } catch {
-      // ignore
-    }
-    return false;
-  }
-
-  let runtimeCapabilities: PiDelegationCapabilities = {
-    hasPiAgents: detectPiAgentsFromSettings(),
-    hasSubagent: false,
-    hasAgentMessage: false,
-  };
-
-  function refreshDelegationCapabilities(
-    systemPrompt?: string,
-  ): PiDelegationCapabilities {
-    const toolNames = getToolNames();
-    runtimeCapabilities = {
-      hasPiAgents:
-        runtimeCapabilities.hasPiAgents ||
-        toolNames.has('agent') ||
-        toolNames.has('workflow') ||
-        !!systemPrompt?.includes('<agents scope='),
-      hasSubagent: toolNames.has('subagent'),
-      hasAgentMessage: toolNames.has('agent_message'),
-    };
-    return runtimeCapabilities;
-  }
-
-  // ── Mapping file path (user-local, not in repo) ──────────────────────
-  // ── Generate agent files on first load ──────────────────────────────
-  pi.on('session_start', async (event, ctx) => {
-    // 启用审计（可通过环境变量控制）
-    if (process.env.OMO_AUDIT === '1' || process.env.OMO_DEBUG_TOOLS === '1') {
-      setAuditEnabled(true);
-    }
-
-    try {
-      rehydrateActiveModeTools(
-        pi,
-        (ctx as any)?.sessionManager?.getSessionFile?.(),
-      );
-    } catch {}
-
-    const isResume = (event as any)?.reason === 'resume';
-    workflowSessionRecoveryState.sessionWasResumed = isResume;
-    try {
-      const entries =
-        (ctx as any)?.sessionManager?.getEntries?.() ??
-        (ctx as any)?.sessionManager?.getBranch?.() ??
-        [];
-      workflowSessionRecoveryState.recoveryCandidate =
-        parseWorkflowStageMarkersFromEntries(entries, {
-          minTimestamp: sessionStartTimestamp(ctx),
-        });
-    } catch {
-      workflowSessionRecoveryState.recoveryCandidate = null;
-    }
-    if (workflowSessionRecoveryState.recoveryCandidate) {
-      workflowSessionRecoveryState.sessionWasResumed = true;
-    }
-    if (isResume || workflowSessionRecoveryState.recoveryCandidate) {
-      try {
-        const notice = createWorkflowStageResumeNotice({
-          candidate: workflowSessionRecoveryState.recoveryCandidate,
-        });
-        pi.sendMessage(
-          {
-            customType: 'workflow_stage_resume',
-            content: notice.content,
-            display: true,
-            details: notice.details,
-          },
-          { deliverAs: 'followUp', triggerTurn: false },
-        );
-      } catch {}
-    }
-
-    // 注意：pipeline checkpoint 恢复已从执行决策链路移除。
-
-    // Wire model resolver so pool sub-agents get preset models
-    initPoolModelResolver((modelId) => {
-      const slash = modelId.indexOf('/');
-      if (slash <= 0) return undefined;
-      return ctx.modelRegistry.find(
-        modelId.slice(0, slash),
-        modelId.slice(slash + 1),
-      );
-    });
-    initPoolAllToolNamesResolver(() =>
-      pi
-        .getAllTools()
-        .map((tool: any) => tool.name)
-        .filter(Boolean),
-    );
-
+  pi.on('session_start', async (_event, ctx) => {
+    config = loadOmniMoConfig();
+    currentPreset = config?.preset ?? currentPreset;
     ensureAgentFiles();
-
+    applyMainToolScope(pi);
+    initPoolModelResolver((modelId) => {
+      const parsed = parsePiModelId(modelId);
+      return parsed
+        ? ctx.modelRegistry.find(parsed.provider, parsed.model)
+        : undefined;
+    });
+    initPoolAllToolNamesResolver(() => getAllToolNames(pi));
     try {
       ensureSubagentRunWidgetRegistered(ctx, getPool(), { force: true });
     } catch {}
-
     registerPoolNoticeBridge({
       pool: getPool(),
       pi,
       ctx,
       harnessRuntime,
-      reviewLoopRuntime: {
-        recordPoolCompletedReview(event: PoolNoticeEvent) {
-          if (event.agentName !== 'oracle' || !event.response) return undefined;
-          const verdict = getVerdictStatus(event.response);
-          if (!verdict) return undefined;
-          const snapshot = workflowGateHelpers.getWorkflowStageRuntimeSnapshot();
-          const attempt = [...snapshot.history].reverse().find((entry) =>
-            entry.type === 'attempt_started' &&
-            entry.poolId === event.poolId &&
-            entry.targetAgent === event.agentName
-          );
-          if (!attempt || attempt.type !== 'attempt_started') return undefined;
-          const stageContext = workflowGateHelpers.getWorkflowStageGateContext();
-          if (!stageContext) return undefined;
-          if (
-            stageContext.workflowName !== attempt.workflowName ||
-            stageContext.stageIndex !== attempt.stageIndex ||
-            stageContext.stage.id !== attempt.stageId
-          ) {
-            return undefined;
-          }
-          const maxReviewRounds = stageContext.stage.maxReviewRounds;
-          if (typeof maxReviewRounds !== 'number' || !Number.isInteger(maxReviewRounds) || maxReviewRounds < 1) {
-            return undefined;
-          }
-          const recorded = workflowGateHelpers.recordReviewVerdict({
-            workflowName: attempt.workflowName,
-            stageIndex: attempt.stageIndex,
-            stageId: attempt.stageId,
-            poolId: event.poolId,
-            verifierAgent: event.agentName,
-            verdict,
-            maxReviewRounds,
-          });
-          if (!recorded.ok) return undefined;
-          return {
-            verdict: recorded.lastVerdict,
-            round: recorded.rounds,
-            maxReviewRounds: recorded.maxReviewRounds,
-            exhausted: recorded.exhausted,
-          };
-        },
-      },
     });
-
-    // Wire mode change → status bar + immediate switch notification
-    try {
-      const initialMode = loadActiveMode();
-      let currentMode = initialMode;
-      ctx.ui.setStatus('mode', `Mode: ${initialMode}`);
-      setOnBeforeModeChange(() => {
-        toolExecutedThisTurn = false;
-      });
-      setOnModeChange((event) => {
-        const prevMode = currentMode;
-        currentMode = event.mode;
-        workflowGateHelpers.resetWorkflowStageRuntime(getModeWorkflow(event.mode));
-        ctx.ui.setStatus('mode', `Mode: ${event.mode}`);
-        try {
-          emitModeSwitched(
-            pi,
-            prevMode,
-            event.mode,
-            event.origin === 'tool_call',
-          );
-        } catch {}
-      });
-    } catch {}
-
-    // 首轮健康检查：验证 allowlist 合法性
-    try {
-      const allTools = pi
-        .getAllTools()
-        .map((t: any) => t.name)
-        .filter(Boolean);
-      const err = validateModeAllowlist(allTools);
-      if (err) {
-        ctx.ui.notify(`[mode] 健康检查失败: ${err}`, 'error');
-        console.error(`[omo-modes] health-check: ${err}`);
-      }
-      const workflowErr = validateActiveModeWorkflow({
-        list: resolveWorkflowList(config?.workflows),
-      });
-      if (workflowErr) {
-        ctx.ui.notify(`[workflow] 健康检查失败: ${workflowErr}`, 'error');
-        console.error(`[omo-workflows] health-check: ${workflowErr}`);
-      }
-    } catch (e) {
-      console.warn('[omo-modes] health-check error:', e);
-    }
   });
 
-  // ── Compliance: track whether a tool was actually executed this turn ──
-  pi.on('tool_execution_start', async (_event) => {
-    toolExecutedThisTurn = true;
-  });
-
-  pi.on('turn_start', async (_event) => {
-    toolExecutedThisTurn = false;
-  });
-
-  // ── Inject orchestrator system prompt ──────────────────────────────
-  pi.on('before_agent_start', async (event, _ctx) => {
-    // Sub-agent detection: skip constitution/mode injection for sub-agent sessions
-    // Sub-agents (council participants) have appendSystemPrompt set as a marker
-    if (
-      event.systemPromptOptions?.appendSystemPrompt === '__OMO_SUB_AGENT__' ||
-      process.env.OMO_SUB_AGENT === '1'
-    ) {
-      // Filter tools per agent roles before returning
-      if (process.env.OMO_AGENT_NAME) {
-        try {
-          const agentName = process.env.OMO_AGENT_NAME;
-          const agentCfg = getAgent(agentName);
-          const allTools = pi.getAllTools();
-          const allToolNames = allTools.map((t: any) => t.name).filter(Boolean);
-          const resolvedToolNames = resolveSubagentToolNamesForAgent(
-            agentName,
-            process.cwd(),
-            allToolNames,
-          );
-          const allowed = new Set(resolvedToolNames ?? []);
-
-          const active = allTools
-            .filter((t: any) => allowed.has(t.name))
-            .map((t: any) => t.name);
-          // Sub-agent sessions must never inherit parent tool scope.
-          pi.setActiveTools(active);
-
-          // ── 写入工具真值快照（单一决策源）──────────────────────────────────
-          setToolScope(active, 'subagent', agentName, {
-            roles: (agentCfg as any)?.roles,
-            tools: (agentCfg as any)?.tools,
-          });
-
-          const activeSet = new Set(active);
-          const toolPreview = active.slice(0, 20).join(', ');
-          const more = active.length > 20 ? ` ...(+${active.length - 20})` : '';
-          const boundary = `\n\n[ToolBoundary]\n当前可用工具(${active.length}): ${toolPreview}${more}\n[/ToolBoundary]`;
-
-          // 审计：记录子代理工具范围（受 OMO_AUDIT 环境变量控制）
-          auditToolScope('set', 'subagent', agentName, active);
-
-          return {
-            systemPromptOptions: {
-              ...(event.systemPromptOptions ?? {}),
-              selectedTools: active,
-            },
-            systemPrompt: `${event.systemPrompt}${boundary}`,
-          };
-        } catch {}
-      }
-      return { systemPrompt: event.systemPrompt };
-    }
-
-    const capabilities = refreshDelegationCapabilities(event.systemPrompt);
-    const omniPrompt = buildPiOrchestratorPrompt(
-      disabledAgents,
-      config,
-      capabilities,
-      runtimeAgentDefinitions,
-    );
-
-    const activeMode = loadActiveMode();
-    const modeInstructions = getModeInstructions(activeMode) ?? '';
-    const modePrompt = modeInstructions
-      ? `<MODE name="${activeMode}">\n${modeInstructions}\n</MODE>`
-      : '';
-
-    return {
-      systemPrompt: [omniPrompt, modePrompt, event.systemPrompt]
-        .filter(Boolean)
-        .join('\n\n---\n\n'),
-    };
-  });
-
-  // ── 审计：payload.tools vs snapshot（仅观测，不参与决策）──────────
-  pi.on('before_provider_request', (event, _ctx) => {
-    // ── 审计：payload.tools vs snapshot（仅观测，不参与决策）──────────
-    try {
-      const payload = event.payload as Record<string, any>;
-      const names = new Set<string>();
-      const tools = Array.isArray((payload as any).tools)
-        ? (payload as any).tools
-        : [];
-      for (const t of tools) {
-        const n1 = (t as any)?.function?.name;
-        const n2 = (t as any)?.name;
-        if (typeof n1 === 'string' && n1) names.add(n1);
-        if (typeof n2 === 'string' && n2) names.add(n2);
-        const fds = (t as any)?.functionDeclarations;
-        if (Array.isArray(fds)) {
-          for (const fd of fds) {
-            const n3 = (fd as any)?.name;
-            if (typeof n3 === 'string' && n3) names.add(n3);
-          }
-        }
-      }
-
-      const payloadTools = [...names];
-      const audit = auditPayloadTools(payloadTools);
-      const snapshot = getToolScope();
-      const snapshotCount = snapshot ? snapshot.tools.size : 0;
-      const payloadCount = payloadTools.length;
-
-      // 某些 provider 会在 payload.tools 中携带全量 schema（而非 runtime allowlist）。
-      // 这会导致 extraInPayload 大量出现，但不代表执行权限失效。
-      // 判定规则：payload 远大于 snapshot 且 extra 占比很高 → 视为 schema_mode，仅审计不报警。
-      const extraRatio =
-        payloadCount > 0 ? audit.extraInPayload.length / payloadCount : 0;
-      const schemaMode =
-        !!snapshot &&
-        payloadCount >= Math.max(snapshotCount + 8, snapshotCount * 2) &&
-        extraRatio > 0.6;
-
-      if (
-        !schemaMode &&
-        !audit.consistent &&
-        (process.env.OMO_DEBUG_TOOLS === '1' || process.env.OMO_AUDIT === '1')
-      ) {
-        console.error(
-          `[tool-scope-audit] payload.tools 与 snapshot 不一致:\n` +
-            `  snapshot=${snapshotCount}, payload=${payloadCount}\n` +
-            `  missingInPayload: ${audit.missingInPayload.join(', ') || '(无)'}\n` +
-            `  extraInPayload: ${audit.extraInPayload.join(', ') || '(无)'}`,
-        );
-      }
-
-      // 统一写入审计（不进聊天流）
-      auditToolScope(
-        'audit',
-        schemaMode ? 'payload:schema_mode' : 'payload',
-        'before_provider_request',
-        payloadTools,
-      );
-    } catch {}
-  });
-
-  // ── Compliance: tool_call gate ──────────────────────────────────────
-  // Conservative implementation: detects blocked/abandoned patterns,
-  // records violations but only blocks clearly dangerous calls.
-  // Additionally enforces mode allowlist: tools not in current mode preset
-  // are blocked as defense-in-depth.
-  const { gatePipelineSubagent, gateSwitchMode } = createToolCallGates({
-    getWorkflowStageGateContext,
-    getWorkflowStageGateConfigError:
-      workflowGateHelpers.getWorkflowStageGateConfigError,
-    getWorkflowStageRuntimeSnapshot:
-      workflowGateHelpers.getWorkflowStageRuntimeSnapshot,
-    advanceWorkflowStage: workflowGateHelpers.advanceWorkflowStage,
-    confirmWorkflowStageRecovery:
-      workflowGateHelpers.confirmWorkflowStageRecovery,
-    approveWorkPackage: workflowGateHelpers.approveWorkPackage,
-    recordWorkflowStageAttempt: workflowGateHelpers.recordWorkflowStageAttempt,
-    notifyWorkflowStageGateSkipped,
-    isCurrentModePipeline,
-    resolveDelegationCaller,
-    resolveSwitchModeTarget: (mode: string) => {
-      const agent = getAgent(mode);
-      return {
-        exists: Boolean(agent),
-        usableAsMode: agent?.type === 'mode' || agent?.type === 'both',
-        requiresUserCommand: agent?.requiresUserCommand === true || agent?.hidden === true,
-      };
-    },
-    emitWorkflowStageNotice: (notice: WorkflowStageNotice) => {
-      try {
-        pi.sendMessage(
-          {
-            customType: 'workflow_stage',
-            content: notice.content,
-            display: true,
-            details: notice.details,
-          },
-          { deliverAs: 'followUp', triggerTurn: false },
-        );
-      } catch {}
-    },
-  });
-
-  pi.on('tool_call', async (event, ctx) => {
+  pi.on('tool_call', async (event) => {
     const toolName = (event as any).toolName;
     const input = (event as any).input;
+    if (!toolName) return;
 
-    // ── Denied Tool Memory: 防止重复被拒调用 ──────────────────────────────
-    if (toolName && typeof input === 'object' && input !== null) {
-      const deniedRecord = isDeniedToolCall(
-        toolName,
-        input as Record<string, unknown>,
-      );
-      if (deniedRecord) {
-        const guardMessage = buildDeniedToolGuardMessage(deniedRecord);
-        return {
-          block: true,
-          reason: `${guardMessage}\n[guard] 如需继续，请考虑替代方案或询问用户确认。`,
-        };
-      }
-    }
-
-    if (toolName === 'omo_subagent') {
-      const decision = await gatePipelineSubagent(ctx, input);
-      if (!decision.ok) {
-        if (toolName && typeof input === 'object' && input !== null) {
-          recordDeniedToolCall(
-            toolName,
-            input as Record<string, unknown>,
-            decision.reason,
-          );
-        }
-        return { block: true, reason: decision.reason };
-      }
-    }
-
-    if (toolName === 'switch_mode') {
-      const decision = await gateSwitchMode(ctx, input);
-      if (!decision.ok) {
-        if (toolName && typeof input === 'object' && input !== null) {
-          recordDeniedToolCall(
-            toolName,
-            input as Record<string, unknown>,
-            decision.reason,
-          );
-        }
-        return { block: true, reason: decision.reason };
-      }
-    }
-
-    // ── Tool scope gate（单一真值：只读 snapshot，不重算）─────────────
-    // switch_mode and ask_user_question are always allowed across modes.
-    if (
-      toolName &&
-      toolName !== 'switch_mode' &&
-      toolName !== 'ask_user_question'
-    ) {
-      const snapshot = getToolScope();
-      if (snapshot && !isToolAllowed(toolName)) {
-        const violation: ViolationRecord = {
-          type: 'TOOL_BLOCKED',
-          reason: `Tool "${toolName}" is not in current tool scope (source: ${snapshot.source}/${snapshot.sourceName}).`,
-          at: Date.now(),
-        };
-        recordViolation(complianceState, violation);
-        auditApproval('denied', toolName, undefined, violation.reason);
-        recordDeniedToolCall(
-          toolName,
-          input as Record<string, unknown>,
-          violation.reason,
-        );
-        return {
-          block: true,
-          reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
-        };
-      }
-    }
-
-    // ── Clarification gate（信息不足时不盲目执行）───────────────────────
-    if (toolName && typeof input === 'object' && input !== null) {
-      const clarifyDecision = checkClarification(
-        toolName,
-        input as Record<string, unknown>,
-      );
-      if (!clarifyDecision.ready) {
-        auditClarification('blocked', toolName, clarifyDecision.reason);
-        if (toolName && typeof input === 'object' && input !== null) {
-          recordDeniedToolCall(
-            toolName,
-            input as Record<string, unknown>,
-            clarifyDecision.reason ?? 'clarification required',
-          );
-        }
-        return {
-          block: true,
-          reason: `需要先确认信息: ${clarifyDecision.reason}\n[guard] 下一步：先询问缺失信息，不要猜测执行。`,
-        };
-      }
-      auditClarification('passed', toolName);
-    }
-
-    // Detect tool calls with empty/missing required args as potential
-    // pseudo-tool patterns (model declares intent but doesn't fill params).
-    if (
-      toolName &&
-      typeof input === 'object' &&
-      input !== null &&
-      Object.keys(input).length === 0 &&
-      ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'].includes(toolName)
-    ) {
-      const violation: ViolationRecord = {
-        type: 'TOOL_BLOCKED',
-        reason: `Tool "${toolName}" called with empty parameters — likely pseudo-call.`,
-        at: Date.now(),
+    const scope = getToolScope();
+    if (scope && !isToolAllowed(toolName)) {
+      return {
+        block: true,
+        reason: `Tool "${toolName}" is outside the active ${scope.sourceName} tool scope.`,
       };
-      recordViolation(complianceState, violation);
-      recordDeniedToolCall(
-        toolName,
-        input as Record<string, unknown>,
-        violation.reason,
-      );
-      return { block: true, reason: `POLICY_VIOLATION: ${violation.reason}` };
     }
 
-    // Explicitly blocked tool names / patterns
-    // Only block truly dangerous commands that would destroy the system
-    const DANGER_PATTERNS = [
-      /^sudo\s/i, // sudo commands
-      /^rm\s+-rf\s+\/\s*$/i, // rm -rf / (exact root)
-      /^rm\s+-rf\s+\/\*/i, // rm -rf /* (root wildcard)
-      /^rm\s+-rf\s+~\s*$/i, // rm -rf ~ (home directory)
-      /^rm\s+-rf\s+~\/*/i, // rm -rf ~/* (home wildcard)
-      /^:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/i, // fork bomb
-    ];
-    if (toolName === 'bash' && typeof input?.command === 'string') {
-      const trimmedCmd = input.command.trim();
-      for (const pattern of DANGER_PATTERNS) {
-        if (pattern.test(trimmedCmd)) {
-          const violation: ViolationRecord = {
-            type: 'TOOL_BLOCKED',
-            reason: `Blocked dangerous bash command matching pattern ${pattern}.`,
-            at: Date.now(),
-          };
-          recordViolation(complianceState, violation);
-          recordDeniedToolCall(
-            toolName,
-            input as Record<string, unknown>,
-            violation.reason,
-          );
-          return {
-            block: true,
-            reason: `POLICY_VIOLATION: ${violation.reason}\n[guard] 下一步：说明当前工具限制，并请求用户确认可行替代方案。`,
-          };
-        }
+    if (toolName !== 'bash' || typeof input?.command !== 'string') return;
+    const command = input.command.trim();
+    for (const pattern of DANGEROUS_BASH_PATTERNS) {
+      if (pattern.test(command)) {
+        return {
+          block: true,
+          reason: `Blocked dangerous bash command matching ${pattern}.`,
+        };
       }
     }
   });
 
-  // ── Register custom tools ───────────────────────────────────────────
-  const tools = createToolImplementations(config);
-  pi.registerTool(tools.council);
+  pi.registerTool(createCouncilTool(config));
+  registerSubagentTool(pi);
 
-  // ── Register omo_subagent tool (zero external deps, uses pi --mode rpc/json) ─
-  registerSubagentTool(pi, {
-    getWorkflowContinuationAgents: (parentAgent) =>
-      getModeWorkflowContinuationAgents(parentAgent, runtimeAgentDefinitions, config),
-    shouldBlockPoolContinuation: (targetAgent) => {
-      if (!isCurrentModePipeline()) return undefined;
-      const snapshot = workflowGateHelpers.getWorkflowStageRuntimeSnapshot();
-      const reviewLoop = snapshot.reviewLoop;
-      if (!reviewLoop || reviewLoop.lastVerdict === 'PASS') return undefined;
-      if (!reviewLoop.exhausted) {
-        const stageContext = workflowGateHelpers.getWorkflowStageGateContext();
-        const currentStageAgents = new Set([
-          stageContext?.stage.agent,
-          ...(stageContext?.stage.allowedSubagents ?? []),
-        ].filter((name): name is string => Boolean(name)));
-        if (currentStageAgents.has(targetAgent)) return undefined;
-        return `Review loop pending for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: last VERDICT ${reviewLoop.lastVerdict} at round ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds}. Continue the current-stage rework/re-review loop before continuing unrelated pool agents.`;
-      }
-      return `Review loop exhausted for ${reviewLoop.workflowName}/${reviewLoop.stageId ?? reviewLoop.stageIndex}: VERDICT ${reviewLoop.lastVerdict} after ${reviewLoop.rounds}/${reviewLoop.maxReviewRounds} rounds. Stop further返工/复审 and ask the user to decide.`;
-    },
-  });
-
-  // ── Pipeline completion is driven by pool_completed + active mode decision.
-  // step_report / step_ask_user tools removed to keep runtime protocol minimal.
-  // Agent review followUp disabled: avoid chat pollution and context drift.
-  let _debugProviderLogged = false;
-
-  function getPresetCommandCompletions(
-    prefix: string,
-  ): AutocompleteItem[] | null {
-    const latestConfig = loadOmniMoConfig();
-    const trimmed = prefix.trimStart();
-    const presetItems = getPresetCompletions(latestConfig, trimmed) ?? [];
-
-    if (!trimmed.includes(' ')) {
-      const modelItem: AutocompleteItem = {
-        value: PRESET_MODEL_SUBCOMMAND,
-        label: PRESET_MODEL_SUBCOMMAND,
-        description: 'Set a model for the primary mode or a subagent in a preset',
-      };
-      const items = [modelItem, ...presetItems].filter(
-        (item) =>
-          !trimmed || item.value.toLowerCase().includes(trimmed.toLowerCase()),
-      );
-      return items.length > 0 ? items : null;
-    }
-
-    const subcommand = trimmed.split(/\s+/, 1)[0];
-    if (subcommand !== PRESET_MODEL_SUBCOMMAND)
-      return presetItems.length > 0 ? presetItems : null;
-
-    const rest = trimmed.slice(PRESET_MODEL_SUBCOMMAND.length).trimStart();
-    const endsWithSpace = /\s$/.test(trimmed);
-    const tokens = rest ? rest.split(/\s+/) : [];
-    const presetNames = getConfigPresetNames(latestConfig);
-
-    if (tokens.length === 0 || (tokens.length === 1 && !endsWithSpace)) {
-      const presetPrefix = tokens[0] ?? '';
-      const items = presetNames
-        .filter(
-          (name) =>
-            !presetPrefix ||
-            name.toLowerCase().includes(presetPrefix.toLowerCase()),
-        )
-        .map((name) => ({
-          value: `${PRESET_MODEL_SUBCOMMAND} ${name}`,
-          label: name,
-          description: 'preset',
-        }));
-      return items.length > 0 ? items : null;
-    }
-
-    const presetName = tokens[0]!;
-    if (
-      (tokens.length === 1 && endsWithSpace) ||
-      (tokens.length === 2 && !endsWithSpace)
-    ) {
-      if (!latestConfig?.presets?.[presetName]) return null;
-      const agentPrefix = tokens.length === 2 ? tokens[1]! : '';
-      const items = getConfigAgentNames(latestConfig, presetName)
-        .filter(
-          (name) =>
-            !agentPrefix ||
-            name.toLowerCase().includes(agentPrefix.toLowerCase()),
-        )
-        .map((name) => ({
-          value: `${PRESET_MODEL_SUBCOMMAND} ${presetName} ${name}`,
-          label: name,
-          description:
-            getConfiguredAgentModel(
-              latestConfig as OmniMoConfig,
-              presetName,
-              name,
-            ) ?? 'agent',
-        }));
-      return items.length > 0 ? items : null;
-    }
-
-    return null;
-  }
-
-  async function selectPresetModel(
-    ctx: ExtensionContext,
-    currentModelRef?: string,
-  ): Promise<string | undefined> {
-    const models = getAvailableModels(ctx);
-    if (models.length === 0) {
-      ctx.ui.notify(
-        'No available models found. Configure provider auth first.',
-        'warning',
-      );
-      return undefined;
-    }
-
-    type PresetModelOption = {
-      provider: string;
-      id: string;
-      ref: string;
-      name?: string;
-    };
-    const options: PresetModelOption[] = models
-      .map((model) => ({
-        provider: model.provider,
-        id: model.id,
-        ref: `${model.provider}/${model.id}`,
-        name:
-          typeof (model as { name?: unknown }).name === 'string'
-            ? (model as unknown as { name: string }).name
-            : undefined,
-      }))
-      .sort((a, b) => {
-        if (currentModelRef) {
-          if (a.ref === currentModelRef && b.ref !== currentModelRef) return -1;
-          if (b.ref === currentModelRef && a.ref !== currentModelRef) return 1;
-        }
-        const providerCompare = a.provider.localeCompare(b.provider);
-        return providerCompare || a.id.localeCompare(b.id);
-      });
-
-    return ctx.ui.custom<string | undefined>(
-      (tui, theme, _kb, done) => {
-        const searchInput = new Input();
-        const topBorder = new DynamicBorder((s: string) =>
-          theme.fg('accent', s),
-        );
-        const title = new Text(
-          theme.fg('accent', theme.bold('Select model for preset agent')),
-          1,
-          0,
-        );
-        const hint = new Text(
-          theme.fg(
-            'dim',
-            'Type to filter · ↑↓ move · Enter select · Esc cancel',
-          ),
-          1,
-          0,
-        );
-        const spacer = new Spacer(1);
-        const bottomBorder = new DynamicBorder((s: string) =>
-          theme.fg('accent', s),
-        );
-        const selectTheme: SelectListTheme = {
-          selectedPrefix: (text: string) => theme.fg('accent', text),
-          selectedText: (text: string) => theme.fg('accent', text),
-          description: (text: string) => theme.fg('muted', text),
-          scrollInfo: (text: string) => theme.fg('dim', text),
-          noMatch: (text: string) => theme.fg('warning', text),
-        };
-
-        let disposed = false;
-        let selectList = createSelectList('');
-
-        searchInput.onSubmit = () => {
-          const selected = selectList.getSelectedItem();
-          if (selected) safeDone(selected.value);
-        };
-        searchInput.onEscape = () => safeDone(undefined);
-
-        function safeDone(value: string | undefined) {
-          if (disposed) return;
-          disposed = true;
-          done(value);
-        }
-
-        function toSelectItem(option: PresetModelOption): SelectItem {
-          const details = [
-            option.provider,
-            option.name,
-            option.ref === currentModelRef ? 'current' : undefined,
-          ].filter((part): part is string => Boolean(part));
-          return {
-            value: option.ref,
-            label: option.id,
-            ...(details.length > 0 ? { description: details.join(' · ') } : {}),
-          };
-        }
-
-        function filterOptions(query: string): PresetModelOption[] {
-          const normalized = query.trim().toLowerCase();
-          if (!normalized) return options;
-          return options.filter((option) => {
-            const haystack =
-              `${option.ref} ${option.id} ${option.provider} ${option.name ?? ''}`.toLowerCase();
-            return haystack.includes(normalized);
-          });
-        }
-
-        function createSelectList(query: string): SelectList {
-          const list = new SelectList(
-            filterOptions(query).map(toSelectItem),
-            PRESET_MODEL_SELECTOR_MAX_VISIBLE,
-            selectTheme,
-          );
-          list.onSelect = (item: SelectItem) => safeDone(item.value);
-          list.onCancel = () => safeDone(undefined);
-          return list;
-        }
-
-        function refreshFilter() {
-          selectList = createSelectList(searchInput.getValue());
-        }
-
-        return {
-          get focused() {
-            return searchInput.focused;
-          },
-          set focused(value: boolean) {
-            searchInput.focused = value;
-          },
-          render(width: number) {
-            return [
-              ...topBorder.render(width),
-              ...title.render(width),
-              ...hint.render(width),
-              ...spacer.render(width),
-              ...searchInput.render(width),
-              ...spacer.render(width),
-              ...selectList.render(width),
-              ...spacer.render(width),
-              ...bottomBorder.render(width),
-            ];
-          },
-          invalidate() {
-            topBorder.invalidate();
-            title.invalidate();
-            hint.invalidate();
-            spacer.invalidate();
-            searchInput.invalidate();
-            selectList.invalidate();
-            bottomBorder.invalidate();
-          },
-          handleInput(data: string) {
-            const before = searchInput.getValue();
-            selectList.handleInput(data);
-            if (disposed) return;
-            searchInput.handleInput(data);
-            if (searchInput.getValue() !== before) refreshFilter();
-            tui.requestRender();
-          },
-          dispose() {
-            safeDone(undefined);
-          },
-        };
-      },
-      {
-        overlay: true,
-        overlayOptions: {
-          width: '100%',
-          maxHeight: Math.max(12, PRESET_MODEL_SELECTOR_MAX_VISIBLE + 8),
-          anchor: 'bottom-center',
-          margin: 0,
-        },
-      },
-    );
-  }
-
-  async function handlePresetModelCommand(
-    args: string,
-    ctx: ExtensionContext,
-  ): Promise<void> {
-    const config = readPiNativeConfig() ??
-      loadOmniMoConfig() ?? { presets: {} };
-    config.presets ??= {};
-
-    const tokens = args.trim().split(/\s+/).filter(Boolean);
-    let presetName = tokens[0];
-    let agentName = tokens[1];
-    let modelRef = tokens[2];
-
-    if (!presetName) {
-      const presetNames = getConfigPresetNames(config);
-      if (presetNames.length === 0) {
-        ctx.ui.notify('No presets configured.', 'error');
-        return;
-      }
-      const selectedPreset = await ctx.ui.select('Select preset', presetNames);
-      if (!selectedPreset) return;
-      presetName = selectedPreset;
-    }
-
-    if (!config.presets[presetName]) {
-      ctx.ui.notify(`Preset "${presetName}" not found.`, 'error');
-      return;
-    }
-
-    const agentNames = getConfigAgentNames(config, presetName);
-    if (!agentName) {
-      const selectedAgent = await ctx.ui.select('Select agent', agentNames);
-      if (!selectedAgent) return;
-      agentName = selectedAgent;
-    } else if (!agentNames.includes(agentName)) {
-      const available = agentNames.join(', ') || '(none)';
-      ctx.ui.notify(
-        `"${agentName}" is not model-configurable in presets. Available targets: ${available}`,
-        'error',
-      );
-      return;
-    }
-
-    const currentModelRef = getConfiguredAgentModel(
-      config,
-      presetName,
-      agentName,
-    );
-    if (!modelRef) {
-      const selectedModel = await selectPresetModel(ctx, currentModelRef);
-      if (!selectedModel) return;
-      modelRef = selectedModel;
-    }
-
-    if (isModelPlaceholder(modelRef)) {
-      ctx.ui.notify(
-        `This preset still contains ${modelRef}; configure a real provider/model first.`,
-        'error',
-      );
-      return;
-    }
-    const normalizedModelRef = normalizeModelReference(modelRef);
-    if (!normalizedModelRef) {
-      ctx.ui.notify(
-        `Invalid model id "${modelRef}". Expected provider/model.`,
-        'error',
-      );
-      return;
-    }
-
-    const parsed = parsePiModelId(normalizedModelRef)!;
-    const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
-    if (!model) {
-      ctx.ui.notify(`Model not found: ${normalizedModelRef}`, 'error');
-      return;
-    }
-
-    const preset = config.presets[presetName]!;
-    const existing =
-      typeof preset[agentName] === 'object' && preset[agentName] !== null
-        ? (preset[agentName] as Record<string, unknown>)
-        : {};
-    preset[agentName] = { ...existing, model: normalizedModelRef };
-    writePiNativeConfig(config);
-
-    const effects = [
-      `${presetName}.${agentName}.model = ${normalizedModelRef}`,
-      `saved to ${getPiNativeConfigPath()}`,
-    ];
-    if (presetName === currentPreset) {
-      updateAgentModels(config, presetName);
-      effects.push('active agent files updated');
-      if (agentName === PRIMARY_MODE_AGENT_NAME) {
-        const switched = await pi.setModel(model);
-        effects.push(
-          switched
-            ? `${PRIMARY_MODE_AGENT_NAME} model switched now`
-            : `${PRIMARY_MODE_AGENT_NAME} model saved but not switched: no API key`,
-        );
-      }
-    }
-
-    ctx.ui.notify(
-      `Preset model updated:\n${effects.map((effect) => `- ${effect}`).join('\n')}`,
-      'success',
-    );
-  }
-
-  // ── Commands ────────────────────────────────────────────────────────
   pi.registerCommand('preset', {
     description:
-      'Switch model preset. Usage: /preset <name>\n' +
-      'Configure presets in ~/.config/opencode/oh-my-opencode-slim.json',
-    ...(getPresetCommandCompletions
-      ? {
-          getArgumentCompletions: (prefix: string): AutocompleteItem[] | null =>
-            getPresetCommandCompletions(prefix),
-        }
-      : {}),
-    handler: async (args, ctx) => {
-      const rawArgs = args.trim();
-      if (
-        rawArgs === PRESET_MODEL_SUBCOMMAND ||
-        rawArgs.startsWith(`${PRESET_MODEL_SUBCOMMAND} `)
-      ) {
-        await handlePresetModelCommand(
-          rawArgs.slice(PRESET_MODEL_SUBCOMMAND.length),
-          ctx,
-        );
-        return;
-      }
-
-      const name = rawArgs;
-      if (!name) {
+      'Open preset switcher/editor for optional subagent model overrides. Does not change the main model.',
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) {
         ctx.ui.notify(
-          `Usage: /preset <name>. Current: ${currentPreset}`,
-          'info',
-        );
-        return;
-      }
-
-      const newConfig = loadOmniMoConfig();
-      const plan = resolvePresetSwitchPlan(newConfig, name);
-      if (plan.error || !newConfig) {
-        ctx.ui.notify(
-          plan.error ?? 'No oh-my-opencode-slim config found',
+          ' /preset requires an interactive UI (TUI or PiWeb dialogs).',
           'error',
         );
         return;
       }
 
-      currentPreset = name;
-      newConfig.preset = name;
-      persistPresetSelectionToPiNativeConfig(name, newConfig);
-      updateAgentModels(newConfig, name);
+      config = loadOmniMoConfig();
+      currentPreset = getActivePresetName(config, currentPreset);
 
-      const effects: string[] = [
-        'active preset saved',
-        'agent .md/.toml files updated',
+      const available = await listAvailableModelRefs(ctx);
+      const presetNames = listPresetNames(config);
+      if (presetNames.length === 0) {
+        ctx.ui.notify(
+          'No presets configured. Add presets.<name> objects in ~/.pi/agent/oh-my-opencode-slim.json',
+          'warning',
+        );
+        return;
+      }
+
+      const labelForPreset = (name: string): string => {
+        const pack = asPresetPack(getPresetPack(config, name));
+        const stale = findStalePresetSlots(pack, available);
+        const active = name === currentPreset ? ' (当前)' : '';
+        const summary = summarizePresetPack(pack);
+        const staleMark =
+          stale.length > 0
+            ? ` ⚠️ ${stale.map((item) => `${item.slot}=${item.modelId}`).join(', ')}`
+            : '';
+        return `${name}${active} · ${summary}${staleMark}`;
+      };
+
+      const EDIT = '__edit__';
+      const firstChoices = [
+        ...presetNames.map(labelForPreset),
+        '编辑覆盖…',
       ];
+      const first = await ctx.ui.select('预设（子代理模型策略）', firstChoices);
+      if (!first) return;
 
-      if (plan.model) {
-        const parsed = parsePiModelId(plan.model);
-        if (!parsed) {
-          effects.push(
-            `${PRIMARY_MODE_AGENT_NAME} model not switched: invalid model id ${plan.model}`,
+      const selectedPreset =
+        first === '编辑覆盖…'
+          ? EDIT
+          : presetNames.find((name) => labelForPreset(name) === first);
+      if (!selectedPreset) return;
+
+      if (selectedPreset !== EDIT) {
+        const pack = asPresetPack(getPresetPack(config, selectedPreset));
+        const stale = findStalePresetSlots(pack, available);
+        if (stale.length > 0) {
+          const action = await ctx.ui.select(
+            `预设「${selectedPreset}」含不可用覆盖`,
+            [
+              '清除失效覆盖后切换',
+              '编辑该预设',
+              '仍然切换（可能 spawn 失败）',
+              '取消',
+            ],
           );
-        } else {
-          const model = ctx.modelRegistry.find(parsed.provider, parsed.model);
-          if (!model) {
-            effects.push(
-              `${PRIMARY_MODE_AGENT_NAME} model not switched: model not found ${plan.model}`,
-            );
-          } else {
-            const switched = await pi.setModel(model);
-            effects.push(
-              switched
-                ? `${PRIMARY_MODE_AGENT_NAME} model switched to ${plan.model}`
-                : `${PRIMARY_MODE_AGENT_NAME} model not switched: no API key for ${plan.model}`,
-            );
+          if (!action || action === '取消') return;
+          if (action === '编辑该预设') {
+            await editPresetOverrides(selectedPreset, ctx, available);
+            config = loadOmniMoConfig();
+            currentPreset = getActivePresetName(config, currentPreset);
+            return;
           }
+          if (action === '清除失效覆盖后切换') {
+            const native = ensureNativePresetsShell(
+              readPiNativeConfig() ?? { presets: {} },
+              presetNames,
+            );
+            let packNext = asPresetPack(native.presets?.[selectedPreset]);
+            for (const item of stale) {
+              packNext = setPresetSlot(packNext, item.slot, undefined) as Record<
+                string,
+                string
+              >;
+            }
+            native.presets![selectedPreset] = packNext;
+            native.preset = selectedPreset;
+            writePiNativeConfig(native);
+            currentPreset = selectedPreset;
+            config = loadOmniMoConfig();
+            ctx.ui.notify(
+              `已切换到「${selectedPreset}」，并清除失效覆盖。\n${summarizePresetPack(packNext)}`,
+              'success',
+            );
+            return;
+          }
+          // fall through: still switch
         }
+
+        const native = ensureNativePresetsShell(
+          readPiNativeConfig() ?? { presets: {} },
+          presetNames,
+        );
+        native.preset = selectedPreset;
+        if (!native.presets?.[selectedPreset]) {
+          native.presets![selectedPreset] = asPresetPack(
+            getPresetPack(config, selectedPreset),
+          );
+        }
+        writePiNativeConfig(native);
+        currentPreset = selectedPreset;
+        config = loadOmniMoConfig();
+        const packAfter = asPresetPack(getPresetPack(config, selectedPreset));
+        ctx.ui.notify(
+          `已切换到「${selectedPreset}」\n- 主模型不变（请用 Pi /model）\n- 子代理策略: ${summarizePresetPack(packAfter)}`,
+          'success',
+        );
+        return;
       }
 
-      if (plan.thinking) {
-        pi.setThinkingLevel(plan.thinking);
-        effects.push(`thinking set to ${plan.thinking}`);
-      }
-
-      ctx.ui.notify(
-        `Switched to preset: ${name}\n${effects.map((e) => `- ${e}`).join('\n')}`,
-        'success',
-      );
+      // Edit flow
+      const target =
+        presetNames.length === 1
+          ? presetNames[0]
+          : await ctx.ui.select(
+              '选择要编辑的预设',
+              presetNames.map((name) => labelForPreset(name)),
+            ).then((label) =>
+              label
+                ? presetNames.find((name) => labelForPreset(name) === label)
+                : undefined,
+            );
+      if (!target) return;
+      await editPresetOverrides(target, ctx, available);
+      config = loadOmniMoConfig();
+      currentPreset = getActivePresetName(config, currentPreset);
     },
   });
 
+  async function editPresetOverrides(
+    presetName: string,
+    ctx: ExtensionContext,
+    available: AvailableModelRef[],
+  ): Promise<void> {
+    const slotChoices = [
+      ...PRESET_MODEL_SLOT_NAMES.map((slot) => {
+        const pack = asPresetPack(getPresetPack(loadOmniMoConfig(), presetName));
+        const current = pack[slot];
+        const stale =
+          current &&
+          findStalePresetSlots({ [slot]: current }, available).length > 0;
+        return current
+          ? `${slot} = ${current}${stale ? ' ⚠️' : ''}`
+          : `${slot} （未设置）`;
+      }),
+      '清除全部覆盖（跟随主模型）',
+      '返回',
+    ];
+    const chosen = await ctx.ui.select(
+      `编辑预设「${presetName}」覆盖`,
+      slotChoices,
+    );
+    if (!chosen || chosen === '返回') return;
+
+    const native = ensureNativePresetsShell(
+      readPiNativeConfig() ?? { presets: {} },
+      listPresetNames(loadOmniMoConfig()),
+    );
+    let pack = asPresetPack(native.presets?.[presetName]);
+
+    if (chosen.startsWith('清除全部覆盖')) {
+      native.presets![presetName] = {};
+      writePiNativeConfig(native);
+      ctx.ui.notify(`「${presetName}」已清空，子代理将跟随主模型。`, 'success');
+      return;
+    }
+
+    const slot = PRESET_MODEL_SLOT_NAMES.find((name) =>
+      chosen.startsWith(`${name} `) || chosen.startsWith(`${name}=`) || chosen.startsWith(name),
+    );
+    if (!slot) return;
+
+    const slotAction = await ctx.ui.select(`槽位 ${slot}`, [
+      '选择模型',
+      '清除此覆盖',
+      '取消',
+    ]);
+    if (!slotAction || slotAction === '取消') return;
+    if (slotAction === '清除此覆盖') {
+      pack = setPresetSlot(pack, slot, undefined) as Record<string, string>;
+      native.presets![presetName] = pack;
+      writePiNativeConfig(native);
+      ctx.ui.notify(`已清除 ${presetName}.${slot}`, 'success');
+      return;
+    }
+
+    if (available.length === 0) {
+      ctx.ui.notify(
+        '当前没有可用模型。请先在 Pi 中配置/登录模型提供商。',
+        'error',
+      );
+      return;
+    }
+
+    const byProvider = groupModelsByProvider(available);
+    const providers = [...byProvider.keys()].sort((a, b) => a.localeCompare(b));
+    const provider = await ctx.ui.select('选择 provider', providers);
+    if (!provider) return;
+    const models = byProvider.get(provider) ?? [];
+    const modelId = await ctx.ui.select(
+      `选择 ${provider} 模型`,
+      models.map((id) => `${provider}/${id}`),
+    );
+    if (!modelId) return;
+    const normalized = normalizeModelReference(modelId);
+    if (!normalized || isModelPlaceholder(normalized)) {
+      ctx.ui.notify('无效的模型 id', 'error');
+      return;
+    }
+    pack = setPresetSlot(pack, slot, normalized) as Record<string, string>;
+    native.presets![presetName] = pack;
+    writePiNativeConfig(native);
+    ctx.ui.notify(`已保存 ${presetName}.${slot} = ${normalized}`, 'success');
+  }
+
   pi.registerCommand('pi-sync', {
-    description:
-      '同步/检查 Pi 本地开发环境。用法: /pi-sync [check|write|typecheck|test|build]',
+    description: 'Synchronize or check the Pi development environment.',
     handler: async (args, ctx) => {
       const result = runPiSyncCommand(args);
-      const level = result.ok ? 'success' : 'error';
-      const output =
-        result.output || (result.ok ? 'Pi sync completed.' : 'Pi sync failed.');
       ctx.ui.notify(
-        output.length > 4000 ? `${output.slice(0, 4000)}\n...` : output,
-        level,
+        result.output || (result.ok ? 'Pi sync completed.' : 'Pi sync failed.'),
+        result.ok ? 'success' : 'error',
       );
     },
   });
 
   pi.registerCommand('pool-status', {
-    description: '查看子代理 pool 状态（轻量，只读，不进入 chat TUI）',
+    description: 'Show active subagent pool state.',
     handler: async (_args, ctx) => {
       const agents = getPool().list();
-      if (agents.length === 0) {
-        ctx.ui.notify('Pool is empty.', 'info');
-        return;
-      }
-      const lines = agents.map(
-        (a: PoolAgentInfo) =>
-          `${a.status === 'dead' ? '✗' : '●'} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`,
-      );
-      ctx.ui.notify(
-        `Pool agents (${agents.length}):\n${lines.join('\n')}`,
-        'info',
-      );
+      const text =
+        agents.length === 0
+          ? 'Pool is empty.'
+          : agents
+              .map(
+                (agent: PoolAgentInfo) =>
+                  `${agent.id} (${agent.agentName}) - ${agent.status}, ${agent.messageCount} messages`,
+              )
+              .join('\n');
+      ctx.ui.notify(text, 'info');
     },
   });
 
-  // ── Cleanup on session shutdown ────────────────────────────────────
   pi.on('session_shutdown', async () => {
-    try {
-      const { getPool } = await import('../subagent/subagent-pool');
-      await getPool().killAll();
-    } catch (err) {
-      console.error('[pi-hub] Cleanup error:', err);
-    }
+    await resetPool();
+    resetToolScope();
   });
 
-  // ── Log startup ─────────────────────────────────────────────────────
-  const presetName = config?.preset ?? 'default';
-  const primaryModeModel =
-    getPresetModelForPrimaryMode(config, presetName) ?? 'default';
-  const startupCapabilities = refreshDelegationCapabilities();
   console.error(
-    `[oh-my-opencode-slim] Pi adapter loaded. Preset: ${presetName}, Primary mode model: ${primaryModeModel}, capabilities: pi-agents=${startupCapabilities.hasPiAgents ? 'yes' : 'no'}, subagent=${startupCapabilities.hasSubagent ? 'yes' : 'no'}, agent_message=${startupCapabilities.hasAgentMessage ? 'yes' : 'no'}`,
+    `[oh-my-opencode-slim] Thin Pi runtime loaded. Preset: ${currentPreset} (subagent overrides only; main model uses Pi controls)`,
   );
 }

@@ -49,7 +49,8 @@ export const MAX_TOOL_RESULT_TOKENS = 100_000;
 /**
  * 最大工具结果字节数
  */
-export const MAX_TOOL_RESULT_BYTES = MAX_TOOL_RESULT_TOKENS * BYTES_PER_TOKEN_ESTIMATE;
+export const MAX_TOOL_RESULT_BYTES =
+  MAX_TOOL_RESULT_TOKENS * BYTES_PER_TOKEN_ESTIMATE;
 
 /**
  * 系统默认阈值（按工具类型）
@@ -104,8 +105,13 @@ export function getToolThreshold(
 
   // 1. 用户配置的 byTool（精确匹配）
   if (userConfig?.byTool) {
-    const userByTool = userConfig.byTool[normalized] ?? userConfig.byTool[toolName];
-    if (typeof userByTool === "number" && Number.isFinite(userByTool) && userByTool > 0) {
+    const userByTool =
+      userConfig.byTool[normalized] ?? userConfig.byTool[toolName];
+    if (
+      typeof userByTool === 'number' &&
+      Number.isFinite(userByTool) &&
+      userByTool > 0
+    ) {
       return userByTool;
     }
   }
@@ -113,14 +119,18 @@ export function getToolThreshold(
   // 2. 用户配置的 default（覆盖系统 byTool 和系统 default）
   if (userConfig?.default !== undefined) {
     const userDefault = userConfig.default;
-    if (typeof userDefault === "number" && Number.isFinite(userDefault) && userDefault > 0) {
+    if (
+      typeof userDefault === 'number' &&
+      Number.isFinite(userDefault) &&
+      userDefault > 0
+    ) {
       return userDefault;
     }
   }
 
   // 3. 系统默认的 byTool
   const systemByTool = SYSTEM_TOOL_THRESHOLDS[normalized];
-  if (typeof systemByTool === "number") {
+  if (typeof systemByTool === 'number') {
     return systemByTool;
   }
 
@@ -135,7 +145,7 @@ export function getToolThreshold(
  * 某些工具（如 Read）不应该持久化，因为会造成循环
  */
 export const SKIP_PERSIST_TOOL_NAMES = new Set([
-  "read", // Read 自己会用 maxTokens 控制大小
+  'read', // Read 自己会用 maxTokens 控制大小
 ]);
 
 /**

@@ -1,40 +1,135 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import * as fs from 'node:fs';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { discoverAgents } from '../../adapters/agent-discovery';
 import {
   checkDelegationAllowed,
   parseAllowedSubagentsEnv,
 } from '../../adapters/delegation-rules';
-import { consumePipelineDelegationGrant } from '../policy/pipeline-delegation-grants';
+import { loadPluginConfig } from '../../config/loader';
+import { readPiNativeConfigObject } from '../../config/pi-native';
+import {
+  formatModelRef,
+  getActivePresetName,
+  getPresetPack,
+  isModelAvailable,
+  parseModelRef,
+  resolveRoleSubagentModelId,
+  type AvailableModelRef,
+} from '../preset/preset-model-resolution';
 import {
   getPool,
-  resolveDelegationCaller,
-  type PoolAgentRecord,
   type PoolAgentInfo,
+  type PoolAgentRecord,
+  resolveDelegationCaller,
 } from './subagent-pool';
+import type { SubagentToolAction } from './subagent-run-detail-view';
 import { buildOmoSubagentToolDetails } from './subagent-run-tool-details';
 import {
   renderOmoSubagentCall,
   renderOmoSubagentResult,
 } from './subagent-run-tool-renderer';
-import type { SubagentToolAction } from './subagent-run-detail-view';
 import { ensureSubagentRunWidgetRegistered } from './subagent-run-widget';
-import { SUBAGENT_POOL_ACTION, SUBAGENT_POOL_ACTIONS } from './subagent-tool-actions';
+import {
+  SUBAGENT_POOL_ACTION,
+  SUBAGENT_POOL_ACTIONS,
+} from './subagent-tool-actions';
 
-function buildDetails(action: SubagentToolAction, runId?: string, focusRun = false) {
-  return buildOmoSubagentToolDetails(getPool().getRunTreeView({ maxRecentLines: 10 }), {
-    action,
-    runId,
-    focusRun,
-    eventLimit: 10,
-    maxChildren: 5,
-    maxDepth: 2,
-    maxRoots: 5,
-  });
+function buildDetails(
+  action: SubagentToolAction,
+  runId?: string,
+  focusRun = false,
+) {
+  return buildOmoSubagentToolDetails(
+    getPool().getRunTreeView({ maxRecentLines: 10 }),
+    {
+      action,
+      runId,
+      focusRun,
+      eventLimit: 10,
+      maxChildren: 5,
+      maxDepth: 2,
+      maxRoots: 5,
+    },
+  );
 }
 
 function emptyDetails(action: SubagentToolAction, runId?: string) {
   return buildDetails(action, runId, false);
+}
+
+
+async function listAvailableModels(ctx: any): Promise<AvailableModelRef[]> {
+  try {
+    const available = await ctx?.modelRegistry?.getAvailable?.();
+    if (!Array.isArray(available)) return [];
+    return available
+      .map((model: any) => ({
+        provider: String(model?.provider ?? ''),
+        id: String(model?.id ?? ''),
+      }))
+      .filter((model: AvailableModelRef) => model.provider && model.id);
+  } catch {
+    return [];
+  }
+}
+
+function loadEffectivePresetConfig(cwd: string) {
+  const piNative = readPiNativeConfigObject();
+  const shared = loadPluginConfig(cwd, { quiet: true }) as Record<string, unknown>;
+  return {
+    preset:
+      (typeof piNative.preset === 'string' && piNative.preset) ||
+      (typeof shared.preset === 'string' && shared.preset) ||
+      undefined,
+    presets: {
+      ...((shared.presets as Record<string, any>) ?? {}),
+      ...((piNative.presets as Record<string, any>) ?? {}),
+    },
+  };
+}
+
+async function resolveSpawnModelId(args: {
+  ctx: any;
+  role: string;
+  explicitModel?: string;
+  cwd: string;
+}): Promise<{ ok: true; modelId?: string } | { ok: false; error: string }> {
+  const config = loadEffectivePresetConfig(args.cwd);
+  const pack = getPresetPack(config, getActivePresetName(config));
+  const mainModelId = formatModelRef(args.ctx?.model);
+  const resolved = resolveRoleSubagentModelId({
+    role: args.role,
+    explicitModel: args.explicitModel,
+    pack,
+    mainModelId,
+  });
+  if (!resolved.modelId) {
+    return {
+      ok: false,
+      error:
+        'No model available for subagent spawn. Set the main session model in Pi, or add a preset subagent/role override via /preset.',
+    };
+  }
+  const available = await listAvailableModels(args.ctx);
+  if (available.length > 0 && !isModelAvailable(resolved.modelId, available)) {
+    const parsed = parseModelRef(resolved.modelId);
+    return {
+      ok: false,
+      error: `Model "${resolved.modelId}" from ${resolved.source} is unavailable in Pi. Use /preset to clear or reselect the override${parsed ? '' : ''}.`,
+    };
+  }
+  // Also require registry.find when possible
+  const parsed = parseModelRef(resolved.modelId);
+  if (parsed && args.ctx?.modelRegistry?.find) {
+    const found = args.ctx.modelRegistry.find(parsed.provider, parsed.model);
+    if (!found) {
+      return {
+        ok: false,
+        error: `Model "${resolved.modelId}" from ${resolved.source} was not found in the model registry. Use /preset to clear or reselect the override.`,
+      };
+    }
+  }
+  return { ok: true, modelId: resolved.modelId };
 }
 
 export interface ResumeSessionPlan {
@@ -81,11 +176,7 @@ export function formatPoolResultContent(args: {
   const response = args.response.trim();
   const error = args.errorMessage?.trim();
   if (!error) return `${header}\n\n${response}`;
-  const lines = [
-    header,
-    '',
-    `Status: failed (${error})`,
-  ];
+  const lines = [header, '', `Status: failed (${error})`];
   if (response) {
     lines.push('', 'Partial result captured before failure:', '', response);
   } else {
@@ -97,8 +188,6 @@ export function formatPoolResultContent(args: {
 export function checkPoolContinuationAllowed(args: {
   callerAgent?: string;
   targetAgent?: string;
-  parentAgent?: string;
-  parentWorkflowAgents?: readonly string[];
   depth?: number;
   cwd?: string;
   allowedSubagents?: readonly string[];
@@ -108,20 +197,13 @@ export function checkPoolContinuationAllowed(args: {
   | { ok: false; reason: string; allowedAgents?: readonly string[] } {
   const targetAgent = args.targetAgent?.trim();
   if (!targetAgent) {
-    return { ok: false, reason: 'Saved or active pool agent has no target agent name.' };
+    return {
+      ok: false,
+      reason: 'Saved or active pool agent has no target agent name.',
+    };
   }
-
-  const callerAgent = args.callerAgent?.trim();
-  const parentAgent = args.parentAgent?.trim();
-  if (callerAgent && parentAgent && callerAgent === parentAgent) {
-    const parentWorkflowAgents = new Set(
-      (args.parentWorkflowAgents ?? []).map((agent) => agent.trim()).filter(Boolean),
-    );
-    if (parentWorkflowAgents.has(targetAgent)) return { ok: true };
-  }
-
   const delegation = checkDelegationAllowed({
-    caller: callerAgent,
+    caller: args.callerAgent,
     target: targetAgent,
     depth: args.depth,
     cwd: args.cwd,
@@ -131,15 +213,14 @@ export function checkPoolContinuationAllowed(args: {
   if (delegation.allowed) return { ok: true };
   return {
     ok: false,
-    reason: delegation.reason ?? `Agent '${callerAgent ?? ''}' is not allowed to continue '${targetAgent}'.`,
+    reason:
+      delegation.reason ??
+      `Agent '${args.callerAgent ?? ''}' is not allowed to continue '${targetAgent}'.`,
     allowedAgents: delegation.allowedAgents,
   };
 }
 
-export function registerSubagentTool(pi: ExtensionAPI, options: {
-  getWorkflowContinuationAgents?: (parentAgent: string) => readonly string[] | undefined;
-  shouldBlockPoolContinuation?: (targetAgent: string) => string | undefined;
-} = {}): void {
+export function registerSubagentTool(pi: ExtensionAPI): void {
   const poolActionDescription = `Pool action: ${SUBAGENT_POOL_ACTIONS.join(' | ')}`;
 
   pi.registerTool({
@@ -157,14 +238,16 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
       '',
       '协议（实现无关）：',
       '  - spawn 提交任务后即进入异步执行；默认下一步是等待完成通知。',
-      '  - send 仅用于向已存在会话追加指令，不是 spawn 后默认动作。',
+      '  - 正常完成信号来自系统 follow-up / completion notification（customType pool_completed 或 pool_failed）。',
+      '  - pool=list 可用：复用前发现 idle agent、排查池状态都可以。不要把 list 当成完成等待循环（不要为了等 idle 反复 list）。',
+      '  - send 仅用于向已存在且非 busy 的会话追加指令，不是 spawn 后默认动作。',
       '  - 会话处于运行态时不要重复提交同类请求；收到 busy/reject 先降级或询问用户。',
     ].join('\n'),
     parameters: {
       type: 'object',
       properties: {
-        agent: { type: 'string', description: 'Agent name (for single mode)' },
-        task: { type: 'string', description: 'Task prompt (for single mode)' },
+        agent: { type: 'string', description: 'Subagent role name' },
+        task: { type: 'string', description: 'Task prompt for a pool agent' },
         pool: {
           type: 'string',
           description: poolActionDescription,
@@ -198,18 +281,15 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
 
       const requireDelegationAllowed = (
         targetAgent: string,
-        childAllowedSubagents?: readonly string[],
-      ):
-        | { ok: true; childAllowedSubagents?: readonly string[] }
-        | { ok: false; response: any } => {
+      ): { ok: true } | { ok: false; response: any } => {
         const delegation = checkDelegationAllowed({
           caller: callerAgent,
           target: targetAgent,
           depth: callerDepth,
           cwd,
-          allowedSubagents: childAllowedSubagents ?? allowedSubagents,
+          allowedSubagents,
         });
-        if (delegation.allowed) return { ok: true, childAllowedSubagents };
+        if (delegation.allowed) return { ok: true };
         const allowed = delegation.allowedAgents?.length
           ? delegation.allowedAgents.join(', ')
           : '(none)';
@@ -256,29 +336,32 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               isError: true,
             };
           }
-          let pipelineGrantAllowedSubagents: readonly string[] | undefined;
-          const grant = consumePipelineDelegationGrant({
-            caller: callerAgent,
-            target: params.agent,
-            depth: callerDepth,
+          const delegation = requireDelegationAllowed(params.agent);
+          if (!delegation.ok) return delegation.response;
+          const modelResolution = await resolveSpawnModelId({
+            ctx,
+            role: params.agent,
+            explicitModel: params.model,
+            cwd,
           });
-          if (grant) {
-            pipelineGrantAllowedSubagents = grant.childAllowedSubagents;
-          } else {
-            const delegation = requireDelegationAllowed(params.agent);
-            if (!delegation.ok) return delegation.response;
+          if (!modelResolution.ok) {
+            return {
+              content: [{ type: 'text', text: `✗ Spawn failed: ${modelResolution.error}` }],
+              details: buildDetails('spawn', params.id, true),
+              isError: true,
+            };
           }
           const spawnResult = await pool.spawn({
             id: params.id,
             name: params.id,
             agent: agentCfg,
             task: params.task,
-            model: params.model || agentCfg.model,
+            model: modelResolution.modelId,
             cwd,
             parentAgent: callerAgent,
             parentRunId: callerRunId,
             depth: callerDepth + 1,
-            allowedSubagents: pipelineGrantAllowedSubagents ?? allowedSubagents,
+            allowedSubagents,
           });
           if (spawnResult.error) {
             return {
@@ -289,7 +372,11 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               isError: true,
             };
           }
-          const successText = `✓ Pool agent "${params.id}" (${params.agent}) spawned. Initial task started asynchronously; wait for completion notification.`;
+          const successText = [
+            `✓ Pool agent "${params.id}" (${params.agent}) spawned. Initial task started asynchronously.`,
+            'Default next step: wait for the completion notification (pool_completed / pool_failed follow-up).',
+            'pool=list is allowed for reuse/debug, but do not poll list in a loop just to wait for completion; use pool=result if you need the full text after the notification.',
+          ].join(' ');
           return {
             content: [
               {
@@ -318,28 +405,9 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
           const record = pool.getRegistryEntry(params.id);
           const targetAgent = current?.agentName ?? record?.agentName;
           if (current || record) {
-            if (targetAgent) {
-              const reviewLoopBlock = options.shouldBlockPoolContinuation?.(targetAgent);
-              if (reviewLoopBlock) {
-                return {
-                  content: [
-                    {
-                      type: 'text',
-                      text: reviewLoopBlock,
-                    },
-                  ],
-                  details: emptyDetails('send', params.id),
-                  isError: true,
-                };
-              }
-            }
             const continuation = checkPoolContinuationAllowed({
               callerAgent,
               targetAgent,
-              parentAgent: record?.parentAgent,
-              parentWorkflowAgents: record?.parentAgent
-                ? options.getWorkflowContinuationAgents?.(record.parentAgent)
-                : undefined,
               depth: callerDepth,
               cwd,
               allowedSubagents,
@@ -368,7 +436,7 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               content: [
                 {
                   type: 'text',
-                  text: `Agent "${params.id}" is running (${current.status}). Do not submit another request now; wait for completion notification.\n[guard] 下一步：等待完成后再继续，或先向用户确认是否改为降级方案。`,
+                  text: `Agent "${params.id}" is running (${current.status}). Do not submit another request now; wait for the completion notification.\n[guard] 下一步：等待完成通知后再继续，或先向用户确认是否改为降级方案。list 可用于排查，但不要用 list 轮询代替完成通知。`,
                 },
               ],
               details: buildDetails('send', params.id, true),
@@ -406,11 +474,19 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
             (a: PoolAgentInfo) =>
               `  ${a.status === 'dead' ? '✗' : '●'} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`,
           );
+          const running = list.filter(
+            (a: PoolAgentInfo) =>
+              a.status === 'starting' || a.status === 'streaming',
+          );
+          const footer =
+            running.length > 0
+              ? `\n[note] ${running.length} agent(s) still running. Prefer waiting for pool_completed/pool_failed rather than re-calling list in a tight wait loop. list remains valid for reuse/debug snapshots.`
+              : '\n[note] list is fine for discovering idle agents to reuse via send. Completion is normally delivered by notification; list is not required as a wait loop.';
           return {
             content: [
               {
                 type: 'text',
-                text: `Pool agents (${list.length}):\n${lines.join('\n')}`,
+                text: `Pool agents (${list.length}):\n${lines.join('\n')}${footer}`,
               },
             ],
             details: buildDetails('list'),
@@ -445,16 +521,14 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               content: [{ type: 'text', text: 'No saved sub-agent sessions.' }],
               details: emptyDetails('listSaved'),
             };
-          const lines = entries.map(
-            (r) => {
-              const status = r.status ?? 'saved';
-              const preview = (r.lastResponse || r.errorMessage || r.task).slice(
-                0,
-                100,
-              );
-              return `  ${r.id} (${r.agentName}) — ${status}, ${r.messageCount ?? 0} msgs — ${preview}`;
-            },
-          );
+          const lines = entries.map((r) => {
+            const status = r.status ?? 'saved';
+            const preview = (r.lastResponse || r.errorMessage || r.task).slice(
+              0,
+              100,
+            );
+            return `  ${r.id} (${r.agentName}) — ${status}, ${r.messageCount ?? 0} msgs — ${preview}`;
+          });
           return {
             content: [
               {
@@ -506,7 +580,8 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
                 type: 'text',
                 text: formatPoolResultContent({
                   id: params.id,
-                  agentName: record?.agentName ?? active?.agentName ?? 'unknown',
+                  agentName:
+                    record?.agentName ?? active?.agentName ?? 'unknown',
                   response,
                   errorMessage,
                 }),
@@ -540,10 +615,6 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
           const continuation = checkPoolContinuationAllowed({
             callerAgent,
             targetAgent: record.agentName,
-            parentAgent: record.parentAgent,
-            parentWorkflowAgents: record.parentAgent
-              ? options.getWorkflowContinuationAgents?.(record.parentAgent)
-              : undefined,
             depth: callerDepth,
             cwd: record.cwd || cwd,
             allowedSubagents,
@@ -563,19 +634,6 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               isError: true,
             };
           }
-          const reviewLoopBlock = options.shouldBlockPoolContinuation?.(record.agentName);
-          if (reviewLoopBlock) {
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: reviewLoopBlock,
-                },
-              ],
-              details: emptyDetails('resume', params.id),
-              isError: true,
-            };
-          }
           const agentCfg = agents.find((a) => a.name === record.agentName);
           if (!agentCfg)
             return {
@@ -589,12 +647,30 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
               isError: true,
             };
           const resumePlan = planPoolResume(record, params.message);
+          const modelResolution = await resolveSpawnModelId({
+            ctx,
+            role: record.agentName,
+            explicitModel: params.model,
+            cwd: record.cwd || cwd,
+          });
+          if (!modelResolution.ok) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `✗ Resume failed: ${modelResolution.error}`,
+                },
+              ],
+              details: buildDetails('resume', params.id, true),
+              isError: true,
+            };
+          }
           const resumeResult = await pool.spawn({
             id: record.id,
             name: record.name,
             agent: agentCfg,
             task: record.task,
-            model: params.model || agentCfg.model,
+            model: modelResolution.modelId,
             cwd: record.cwd || cwd,
             parentAgent: resolveDelegationCaller(),
             parentRunId: callerRunId,
@@ -648,7 +724,7 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
           content: [
             {
               type: 'text',
-              text: `Single mode is disabled. Use pool spawn: { pool: "spawn", id: "...", agent: "${params.agent}", task: "..." }`,
+              text: `Use pool=spawn with id, agent, and task for "${params.agent}".`,
             },
           ],
           details: emptyDetails('spawn'),
@@ -660,7 +736,7 @@ export function registerSubagentTool(pi: ExtensionAPI, options: {
         content: [
           {
             type: 'text',
-            text: 'Invalid params. Use single (agent+task) or pool action.',
+            text: 'Invalid parameters. Use a pool action.',
           },
         ],
         details: emptyDetails('list'),

@@ -14,13 +14,13 @@
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-export type VerifierVerdictStatus = "PASS" | "FAIL" | "PARTIAL";
+export type VerifierVerdictStatus = 'PASS' | 'FAIL' | 'PARTIAL';
 
 export interface VerifierCheckBlock {
   checkDescription: string;
   commandRun: string;
   outputObserved: string;
-  result: "PASS" | "FAIL";
+  result: 'PASS' | 'FAIL';
   expectedVsActual?: string;
 }
 
@@ -43,7 +43,8 @@ export interface VerifierVerdictParseResult {
 
 const VERDICT_PATTERN = /^VERDICT:\s*(PASS|FAIL|PARTIAL)\s*$/m;
 
-const CHECK_BLOCK_PATTERN = /### Check:\s*(.+?)\n\*\*Command run:\*\*\n([\s\S]*?)\n\*\*Output observed:\*\*\n([\s\S]*?)\n\*\*Result:\s*(PASS|FAIL)\*\*/g;
+const CHECK_BLOCK_PATTERN =
+  /### Check:\s*(.+?)\n\*\*Command run:\*\*\n([\s\S]*?)\n\*\*Output observed:\*\*\n([\s\S]*?)\n\*\*Result:\s*(PASS|FAIL)\*\*/g;
 
 const EXPECTED_VS_ACTUAL_PATTERN = /\*\*Expected vs Actual:\*\*\s*(.+?)\n/;
 
@@ -53,7 +54,7 @@ function extractVerdictStatus(text: string): VerifierVerdictStatus | null {
   const match = text.match(VERDICT_PATTERN);
   if (!match) return null;
   const status = match[1];
-  if (status === "PASS" || status === "FAIL" || status === "PARTIAL") {
+  if (status === 'PASS' || status === 'FAIL' || status === 'PARTIAL') {
     return status;
   }
   return null;
@@ -61,16 +62,21 @@ function extractVerdictStatus(text: string): VerifierVerdictStatus | null {
 
 function extractCheckBlocks(text: string): VerifierCheckBlock[] {
   const blocks: VerifierCheckBlock[] = [];
-  const pattern = new RegExp(CHECK_BLOCK_PATTERN.source, CHECK_BLOCK_PATTERN.flags);
+  const pattern = new RegExp(
+    CHECK_BLOCK_PATTERN.source,
+    CHECK_BLOCK_PATTERN.flags,
+  );
 
-  let match;
-  while ((match = pattern.exec(text)) !== null) {
-    const checkDescription = (match[1] ?? "").trim();
-    const commandRun = (match[2] ?? "").trim();
-    const outputObserved = (match[3] ?? "").trim();
-    const result = match[4] === "PASS" ? "PASS" : "FAIL";
+  let match: RegExpExecArray | null = pattern.exec(text);
+  while (match !== null) {
+    const checkDescription = (match[1] ?? '').trim();
+    const commandRun = (match[2] ?? '').trim();
+    const outputObserved = (match[3] ?? '').trim();
+    const result = match[4] === 'PASS' ? 'PASS' : 'FAIL';
 
-    const expectedMatch = text.slice(match.index).match(EXPECTED_VS_ACTUAL_PATTERN);
+    const expectedMatch = text
+      .slice(match.index)
+      .match(EXPECTED_VS_ACTUAL_PATTERN);
     const expectedVsActual = expectedMatch?.[1]?.trim();
 
     blocks.push({
@@ -80,8 +86,8 @@ function extractCheckBlocks(text: string): VerifierCheckBlock[] {
       result,
       expectedVsActual,
     });
+    match = pattern.exec(text);
   }
-
   return blocks;
 }
 
@@ -94,20 +100,26 @@ function hasOutputObservedBlocks(blocks: VerifierCheckBlock[]): boolean {
 }
 
 function extractFailDetails(text: string): string | undefined {
-  if (!text.includes("VERDICT: FAIL")) return undefined;
+  if (!text.includes('VERDICT: FAIL')) return undefined;
 
   // 提取 FAIL 后的说明文字
-  const failSection = text.slice(text.indexOf("VERDICT: FAIL"));
-  const lines = failSection.split("\n").slice(1, 10);
-  return lines.filter((line) => line.trim().length > 0).join("\n").trim();
+  const failSection = text.slice(text.indexOf('VERDICT: FAIL'));
+  const lines = failSection.split('\n').slice(1, 10);
+  return lines
+    .filter((line) => line.trim().length > 0)
+    .join('\n')
+    .trim();
 }
 
 function extractPartialDetails(text: string): string | undefined {
-  if (!text.includes("VERDICT: PARTIAL")) return undefined;
+  if (!text.includes('VERDICT: PARTIAL')) return undefined;
 
-  const partialSection = text.slice(text.indexOf("VERDICT: PARTIAL"));
-  const lines = partialSection.split("\n").slice(1, 10);
-  return lines.filter((line) => line.trim().length > 0).join("\n").trim();
+  const partialSection = text.slice(text.indexOf('VERDICT: PARTIAL'));
+  const lines = partialSection.split('\n').slice(1, 10);
+  return lines
+    .filter((line) => line.trim().length > 0)
+    .join('\n')
+    .trim();
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -120,12 +132,15 @@ function extractPartialDetails(text: string): string | undefined {
  */
 export function parseVerifierVerdict(text: string): VerifierVerdictParseResult {
   if (!text || text.trim().length === 0) {
-    return { success: false, error: "Empty text" };
+    return { success: false, error: 'Empty text' };
   }
 
   const verdictStatus = extractVerdictStatus(text);
   if (!verdictStatus) {
-    return { success: false, error: "No VERDICT: PASS|FAIL|PARTIAL line found" };
+    return {
+      success: false,
+      error: 'No VERDICT: PASS|FAIL|PARTIAL line found',
+    };
   }
 
   const checkBlocks = extractCheckBlocks(text);
@@ -135,8 +150,10 @@ export function parseVerifierVerdict(text: string): VerifierVerdictParseResult {
     checkBlocks,
     hasCommandRun: hasCommandRunBlocks(checkBlocks),
     hasOutputObserved: hasOutputObservedBlocks(checkBlocks),
-    failDetails: verdictStatus === "FAIL" ? extractFailDetails(text) : undefined,
-    partialDetails: verdictStatus === "PARTIAL" ? extractPartialDetails(text) : undefined,
+    failDetails:
+      verdictStatus === 'FAIL' ? extractFailDetails(text) : undefined,
+    partialDetails:
+      verdictStatus === 'PARTIAL' ? extractPartialDetails(text) : undefined,
   };
 
   return { success: true, verdict };

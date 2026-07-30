@@ -17,7 +17,7 @@ function startRun(runId: string, startedAt: number, parentRunId?: string) {
     type: 'run_started' as const,
     runId,
     parentRunId,
-    agentName: runId === 'parent' ? 'standard-dev' : 'oracle',
+    agentName: runId === 'parent' ? 'main' : 'oracle',
     displayName: runId === 'parent' ? 'Coordinator' : 'Oracle Review',
     depth: parentRunId ? 1 : 0,
     startedAt,
@@ -112,7 +112,10 @@ describe('subagent run view', () => {
     let state = createSubagentRunState();
     state = updateSubagentRunState(state, startRun('valid-root', 500));
     state = updateSubagentRunState(state, startRun('cycle-a', 1_000));
-    state = updateSubagentRunState(state, startRun('cycle-b', 2_000, 'cycle-a'));
+    state = updateSubagentRunState(
+      state,
+      startRun('cycle-b', 2_000, 'cycle-a'),
+    );
     state = {
       ...state,
       runs: {

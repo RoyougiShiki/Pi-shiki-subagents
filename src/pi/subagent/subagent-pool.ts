@@ -1,14 +1,9 @@
 /**
  * omo-subagent — Lightweight subagent delegation using pi SDK.
+ * Persistent subagent delegation using Pi SDK sessions.
  *
- * Two modes:
- *   - Single: one-shot via `createAgentSession()` + `session.prompt()`
- *   - Pool: persistent agents via `Map<string, AgentSession>`
- *
- * Uses pi SDK directly — no child process, no JSONL parsing, no RPC protocol.
- * Tools are managed by the extension's mode system from JSON config (same as old RPC).
+ * Each pool agent owns an SDK session with its own concrete tool list.
  */
-
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -21,10 +16,9 @@ import type { AgentConfig } from '../../adapters/agent-discovery';
 import {
   loadRuntimeAgentDefinitions,
   loadRuntimeToolGroups,
-  resolveAgentToolNames,
   type RuntimeAgentDefinition,
+  resolveAgentToolNames,
 } from '../../adapters/agent-runtime-config';
-import { getToolScope } from '../policy/tool-scope-manager';
 import { toSubagentRunEvents } from './subagent-run-adapter';
 import type { SubagentRunEvent, SubagentRunStatus } from './subagent-run-state';
 import {
@@ -74,14 +68,7 @@ async function withSpawnMutex<T>(fn: () => Promise<T>): Promise<T> {
 export function resolveDelegationCaller(): string | undefined {
   const envCaller = process.env.OMO_AGENT_NAME?.trim();
   if (envCaller) return envCaller;
-
-  const snapshot = getToolScope();
-  if (snapshot?.sourceName?.trim()) return snapshot.sourceName.trim();
-
-  // Do not fall back to loadActiveMode(): during extension reload its module-local
-  // session file can be unset, which falls back to the first configured mode and
-  // misclassifies rescue/fallback calls as ordinary mode delegation.
-  return undefined;
+  return 'main';
 }
 
 // ── Agent env helpers (unified save/restore to keep 3 env lists in sync) ──
@@ -91,7 +78,6 @@ interface AgentEnv {
   OMO_AGENT_NAME: string | undefined;
   OMO_PARENT_AGENT_NAME: string | undefined;
   OMO_SUBAGENT_DEPTH: string | undefined;
-  OMO_STAGE_RESULT_PATH: string | undefined;
   OMO_ALLOWED_SUBAGENTS: string | undefined;
   OMO_AGENT_ID: string | undefined;
 }
@@ -102,7 +88,6 @@ function saveAgentEnv(): AgentEnv {
     OMO_AGENT_NAME: process.env.OMO_AGENT_NAME,
     OMO_PARENT_AGENT_NAME: process.env.OMO_PARENT_AGENT_NAME,
     OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
-    OMO_STAGE_RESULT_PATH: process.env.OMO_STAGE_RESULT_PATH,
     OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
     OMO_AGENT_ID: process.env.OMO_AGENT_ID,
   };
@@ -148,7 +133,6 @@ export interface PoolAgentRecord {
   parentAgent?: string;
   depth?: number;
   allowedSubagents?: readonly string[];
-  stageResultPath?: string;
   sessionFile?: string;
   spawnedAt: number;
   status?: 'starting' | 'idle' | 'streaming' | 'dead' | 'completed' | 'failed';
@@ -221,8 +205,11 @@ function extractLatestAssistantText(messages: unknown): string {
   return '';
 }
 
-function preferNonEmptyText(next: string | undefined, previous: string | undefined): string {
-  return next?.trim() ? next : previous ?? '';
+function preferNonEmptyText(
+  next: string | undefined,
+  previous: string | undefined,
+): string {
+  return next?.trim() ? next : (previous ?? '');
 }
 
 export async function runIsolatedTask(opts: {
@@ -257,7 +244,11 @@ export async function runIsolatedTask(opts: {
       const created = await createAgentSession({
         cwd: opts.cwd,
         sessionManager: SessionManager.inMemory(),
-        tools: resolveSubagentToolNamesForAgent(opts.agent.name, opts.cwd, opts.allToolNames),
+        tools: resolveSubagentToolNamesForAgent(
+          opts.agent.name,
+          opts.cwd,
+          opts.allToolNames,
+        ),
       });
       session = created.session;
 
@@ -397,14 +388,15 @@ export class AgentPool {
   private readonly timeoutMs: number;
   private readonly sessionDir: string;
   private readonly createSession: typeof createAgentSession;
-  private readonly createSessionManager: (cwd: string, sessionDir: string) => any;
+  private readonly createSessionManager: (
+    cwd: string,
+    sessionDir: string,
+  ) => any;
   private readonly openSessionManager: (sessionFile: string) => any;
   private readonly resolveModel:
     | ((modelId: string) => any | undefined)
     | undefined;
-  private readonly resolveAllToolNames:
-    | (() => readonly string[])
-    | undefined;
+  private readonly resolveAllToolNames: (() => readonly string[]) | undefined;
   private eventListeners: Array<(event: PoolEvent) => void> = [];
   private runStateListeners: Array<() => void> = [];
   private runState = createSubagentRunState();
@@ -481,7 +473,6 @@ export class AgentPool {
     depth?: number;
     allowedSubagents?: readonly string[];
     parentRunId?: string;
-    stageResultPath?: string;
     resumeSessionFile?: string;
     resumeMessage?: string;
   }): Promise<{ response: string; error?: string }> {
@@ -500,8 +491,6 @@ export class AgentPool {
       if (opts.parentAgent)
         process.env.OMO_PARENT_AGENT_NAME = opts.parentAgent;
       process.env.OMO_SUBAGENT_DEPTH = String(opts.depth ?? 1);
-      if (opts.stageResultPath)
-        process.env.OMO_STAGE_RESULT_PATH = opts.stageResultPath;
       if (opts.allowedSubagents)
         process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(',');
       process.env.OMO_AGENT_ID = opts.id;
@@ -526,7 +515,10 @@ export class AgentPool {
         existingRecord = this.getRegistryEntry(opts.id);
         const sessionManager = opts.resumeSessionFile
           ? this.openSessionManager(opts.resumeSessionFile)
-          : this.createSessionManager(opts.cwd ?? process.cwd(), this.sessionDir);
+          : this.createSessionManager(
+              opts.cwd ?? process.cwd(),
+              this.sessionDir,
+            );
         const created = await this.createSession({
           cwd: opts.cwd,
           sessionManager,
@@ -639,7 +631,6 @@ export class AgentPool {
           parentAgent: opts.parentAgent,
           depth: opts.depth,
           allowedSubagents: opts.allowedSubagents,
-          stageResultPath: opts.stageResultPath,
           sessionFile,
           spawnedAt: Date.now(),
           status: 'starting',
@@ -833,7 +824,10 @@ export class AgentPool {
       }
 
       const messages =
-        sess.messages ?? sess.state?.messages ?? sess.agent?.state?.messages ?? [];
+        sess.messages ??
+        sess.state?.messages ??
+        sess.agent?.state?.messages ??
+        [];
       const text = extractLatestAssistantText(messages);
       if (text) {
         entry.lastResponse = text;

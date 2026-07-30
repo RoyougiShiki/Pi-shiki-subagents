@@ -20,18 +20,10 @@ export interface PoolNoticeBridgePi {
 }
 
 export interface PoolNoticeBridgeHarnessRuntime {
-  ingestPoolCompleted(event: PoolNoticeEvent, ctx: ExtensionContext): Promise<void>;
-}
-
-export interface PoolReviewLoopDecision {
-  verdict: "PASS" | "FAIL" | "PARTIAL";
-  round: number;
-  maxReviewRounds: number;
-  exhausted: boolean;
-}
-
-export interface PoolReviewLoopRuntime {
-  recordPoolCompletedReview(event: PoolNoticeEvent): PoolReviewLoopDecision | undefined;
+  ingestPoolCompleted(
+    event: PoolNoticeEvent,
+    ctx: ExtensionContext,
+  ): Promise<void>;
 }
 
 interface PoolNoticeBridgeState {
@@ -49,29 +41,26 @@ function bridgeState(): PoolNoticeBridgeState {
   return globalRecord[GLOBAL_KEY];
 }
 
-export function formatPoolEventLabel(event: { agentName: string; poolId?: string }): string {
+export function formatPoolEventLabel(event: {
+  agentName: string;
+  poolId?: string;
+}): string {
   return event.poolId && event.poolId !== event.agentName
     ? `${event.agentName}/${event.poolId}`
     : event.agentName;
 }
 
-export function formatPoolCompletedContent(
-  event: PoolNoticeEvent,
-  reviewLoop?: PoolReviewLoopDecision,
-): string {
-  const header = `[pool] ${formatPoolEventLabel(event)} 已完成`;
-  const base = event.response
-    ? `${header}\n\n${event.response}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`
-    : `${header}\n\n[decision] 请选择下一步: 返工继续 / 提问用户 / 调用下一阶段子代理`;
-  if (!reviewLoop) return base;
-  const verdictLine = `[review-loop] VERDICT: ${reviewLoop.verdict}; round ${reviewLoop.round}/${reviewLoop.maxReviewRounds}.`;
-  if (reviewLoop.verdict === "PASS") {
-    return `${base}\n\n${verdictLine} 审查已通过，可以按 workflow 门禁进入下一步。`;
-  }
-  if (reviewLoop.exhausted) {
-    return `${base}\n\n${verdictLine} 已达到本阶段 MAX_REVIEW_ROUNDS；停止继续返工/复审，向用户汇报分歧和剩余风险，由用户裁决。`;
-  }
-  return `${base}\n\n${verdictLine} 未通过但仍在轮次预算内；把 oracle 的具体问题交还同一实现会话返工，然后再次审查。`;
+export function formatPoolCompletedContent(event: PoolNoticeEvent): string {
+  const header = `[pool] ${formatPoolEventLabel(event)} completed`;
+  const response = event.response?.trim();
+  const preview = response
+    ? response.replace(/\s+/g, ' ').slice(0, 280)
+    : 'No response text captured.';
+  const suffix =
+    response && response.length > preview.length
+      ? ' Use pool=result for the full response.'
+      : ' Use pool=result for details.';
+  return `${header}\n${preview}${suffix}`;
 }
 
 export function formatPoolErrorContent(event: PoolNoticeEvent): string {
@@ -90,7 +79,10 @@ function isCurrentGeneration(generation: number): boolean {
   return bridgeState().generation === generation;
 }
 
-function createGenerationGuardedContext(ctx: ExtensionContext, generation: number): ExtensionContext {
+function createGenerationGuardedContext(
+  ctx: ExtensionContext,
+  generation: number,
+): ExtensionContext {
   const rawCtx = ctx as ExtensionContext & { ui?: { notify?: unknown } };
   const rawUi = rawCtx.ui;
   if (!rawUi || typeof rawUi.notify !== 'function') return ctx;
@@ -114,7 +106,6 @@ export function registerPoolNoticeBridge(options: {
   pi: PoolNoticeBridgePi;
   ctx: ExtensionContext;
   harnessRuntime: PoolNoticeBridgeHarnessRuntime;
-  reviewLoopRuntime?: PoolReviewLoopRuntime;
 }): () => void {
   const state = bridgeState();
   try {
@@ -144,10 +135,12 @@ export function registerPoolNoticeBridge(options: {
         } catch {}
       }
     }
-    // Deliver the user-visible completion promptly; verifier ingestion is best-effort and must not block the follow-up turn.
+    // Deliver a compact completion notification before best-effort harness ingestion.
     if (event.type === 'completed') {
-      const guardedCtx = createGenerationGuardedContext(options.ctx, generation);
-      const reviewLoop = options.reviewLoopRuntime?.recordPoolCompletedReview(event);
+      const guardedCtx = createGenerationGuardedContext(
+        options.ctx,
+        generation,
+      );
       if (isCurrentGeneration(generation)) {
         try {
           options.ctx.ui.notify(
@@ -159,7 +152,7 @@ export function registerPoolNoticeBridge(options: {
           options.pi.sendMessage(
             {
               customType: 'pool_completed',
-              content: formatPoolCompletedContent(event, reviewLoop),
+              content: formatPoolCompletedContent(event),
               display: true,
             },
             { deliverAs: 'followUp', triggerTurn: true },

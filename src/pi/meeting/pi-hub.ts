@@ -13,8 +13,8 @@
  * 基于 pi SDK AgentSession，无子进程通信。
  */
 
-import * as crypto from "node:crypto";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import * as crypto from 'node:crypto';
+import type { AgentSession } from '@earendil-works/pi-coding-agent';
 
 const MAX_MESSAGES = 500;
 
@@ -25,8 +25,8 @@ export interface MeetingParticipant {
 }
 
 export interface ChatStatusMetadata {
-  scope?: "workflow" | "pool" | "standalone";
-  state?: "working" | "waiting" | "idle" | "failed" | "dead" | "done";
+  scope?: 'pool' | 'standalone';
+  state?: 'working' | 'waiting' | 'idle' | 'failed' | 'dead' | 'done';
   startedAt?: number;
   fallbackRecommended?: boolean;
 }
@@ -42,19 +42,24 @@ export interface ChatMessage {
 export interface ActiveMeeting {
   id: string;
   name: string;
-  type: "chat" | "group";
+  type: 'chat' | 'group';
   participants: MeetingParticipant[];
   messages: ChatMessage[];
   startedAt: number;
-  status: "active" | "ended";
+  status: 'active' | 'ended';
   report?: string;
   chatStatus?: ChatStatusMetadata;
-  onUserMessage?: (message: string) => Promise<{ response?: string; error?: string } | void>;
+  onUserMessage?: (
+    message: string,
+  ) => Promise<{ response?: string; error?: string } | void>;
 }
 
 type MessageCallback = (msg: ChatMessage, meeting: ActiveMeeting) => void;
 
-async function sendToSession(session: AgentSession, message: string): Promise<void> {
+async function sendToSession(
+  session: AgentSession,
+  message: string,
+): Promise<void> {
   const sess = session as any;
   try {
     if (sess.isStreaming) {
@@ -71,13 +76,22 @@ class Hub {
   private meetings = new Map<string, ActiveMeeting>();
   private messageListeners = new Map<string, Set<MessageCallback>>();
 
-  registerMeeting(id: string, name: string, participants: MeetingParticipant[]): ActiveMeeting {
+  registerMeeting(
+    id: string,
+    name: string,
+    participants: MeetingParticipant[],
+  ): ActiveMeeting {
     if (this.meetings.has(id)) {
       throw new Error(`Meeting "${id}" already exists`);
     }
     const meeting: ActiveMeeting = {
-      id, name, type: "group", participants, messages: [],
-      startedAt: Date.now(), status: "active",
+      id,
+      name,
+      type: 'group',
+      participants,
+      messages: [],
+      startedAt: Date.now(),
+      status: 'active',
     };
     this.meetings.set(id, meeting);
     for (const p of participants) this.watchParticipant(meeting, p);
@@ -88,16 +102,26 @@ class Hub {
     id: string,
     name: string,
     participant: MeetingParticipant,
-    onUserMessage?: ActiveMeeting["onUserMessage"],
+    onUserMessage?: ActiveMeeting['onUserMessage'],
     chatStatus?: ChatStatusMetadata,
   ): ActiveMeeting {
     if (this.meetings.has(id)) {
       throw new Error(`Meeting "${id}" already exists`);
     }
     const meeting: ActiveMeeting = {
-      id, name, type: "chat", participants: [participant], messages: [],
-      startedAt: Date.now(), status: "active", onUserMessage,
-      chatStatus: chatStatus ?? { scope: "standalone", state: "idle", startedAt: Date.now() },
+      id,
+      name,
+      type: 'chat',
+      participants: [participant],
+      messages: [],
+      startedAt: Date.now(),
+      status: 'active',
+      onUserMessage,
+      chatStatus: chatStatus ?? {
+        scope: 'standalone',
+        state: 'idle',
+        startedAt: Date.now(),
+      },
     };
     this.meetings.set(id, meeting);
     this.watchParticipant(meeting, participant);
@@ -107,69 +131,98 @@ class Hub {
   private watchParticipant(meeting: ActiveMeeting, p: MeetingParticipant) {
     // Subscribe to session events to capture assistant responses
     const unsubscribe = p.session.subscribe((event: any) => {
-      if (event.type !== "agent_end") return;
+      if (event.type !== 'agent_end') return;
       const msgs: any[] = event.messages ?? [];
       for (const m of msgs) {
-        if (m.role !== "assistant") continue;
+        if (m.role !== 'assistant') continue;
         const texts = (m.content ?? [])
-          .filter((c: any) => c.type === "text")
+          .filter((c: any) => c.type === 'text')
           .map((c: any) => c.text);
         if (texts.length === 0) continue;
-        const text = texts.join("\n").trim();
+        const text = texts.join('\n').trim();
         if (!text) continue;
         this.handleAgentResponse(meeting, p, text);
       }
     });
 
     // Track session disposal
-    (p.session as any).agent.waitForIdle().then(() => {
-      /* session still active */
-    }).catch(() => {
-      if (meeting.status === "active" && meeting.chatStatus?.state !== "done") {
-        meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "dead", fallbackRecommended: meeting.chatStatus?.scope === "workflow" };
-      }
-    });
+    (p.session as any).agent
+      .waitForIdle()
+      .then(() => {
+        /* session still active */
+      })
+      .catch(() => {
+        if (
+          meeting.status === 'active' &&
+          meeting.chatStatus?.state !== 'done'
+        ) {
+          meeting.chatStatus = {
+            ...(meeting.chatStatus ?? {}),
+            state: 'dead',
+            fallbackRecommended: true,
+          };
+        }
+      });
   }
 
   /** 处理参与者回复：记录 + 通知用户 + 群聊中继给其他参与者 */
-  private async handleAgentResponse(meeting: ActiveMeeting, sender: MeetingParticipant, text: string): Promise<void> {
+  private async handleAgentResponse(
+    meeting: ActiveMeeting,
+    sender: MeetingParticipant,
+    text: string,
+  ): Promise<void> {
     this.publishMessage(meeting, sender.name, text);
 
     // 群聊：中继给其他参与者
-    if (meeting.type === "group") {
-      const others = meeting.participants.filter(p => p.name !== sender.name);
+    if (meeting.type === 'group') {
+      const others = meeting.participants.filter((p) => p.name !== sender.name);
       if (others.length === 0) return;
       const relayMsg = `[${sender.name}]: ${text}`;
-      const promises = others.map(p => sendToSession(p.session, relayMsg).catch(err => {
-        console.error(`[pi-hub] 中继到 ${p.name} 失败: ${err.message}`);
-      }));
+      const promises = others.map((p) =>
+        sendToSession(p.session, relayMsg).catch((err) => {
+          console.error(`[pi-hub] 中继到 ${p.name} 失败: ${err.message}`);
+        }),
+      );
       await Promise.all(promises);
     }
   }
 
-  async broadcast(meetingId: string, message: string, fromName = "You"): Promise<void> {
+  async broadcast(
+    meetingId: string,
+    message: string,
+    fromName = 'You',
+  ): Promise<void> {
     const meeting = this.meetings.get(meetingId);
-    if (!meeting || meeting.status === "ended") return;
+    if (!meeting || meeting.status === 'ended') return;
 
     this.publishMessage(meeting, fromName, message);
 
-    if (meeting.onUserMessage && fromName === "You") {
+    if (meeting.onUserMessage && fromName === 'You') {
       const result = await meeting.onUserMessage(message);
-      if (result?.error) console.error(`[pi-hub] 用户消息处理失败: ${result.error}`);
+      if (result?.error)
+        console.error(`[pi-hub] 用户消息处理失败: ${result.error}`);
       return;
     }
 
-    const promises = meeting.participants.map(p =>
-      sendToSession(p.session, message).catch(err => {
+    const promises = meeting.participants.map((p) =>
+      sendToSession(p.session, message).catch((err) => {
         console.error(`[pi-hub] 写入 ${p.name} 失败: ${err.message}`);
-      })
+      }),
     );
     await Promise.all(promises);
   }
 
-  private publishMessage(meeting: ActiveMeeting, from: string, content: string): void {
+  private publishMessage(
+    meeting: ActiveMeeting,
+    from: string,
+    content: string,
+  ): void {
     const msg: ChatMessage = {
-      id: crypto.randomUUID(), meetingId: meeting.id, from, content, timestamp: Date.now(),
+      id: crypto.randomUUID(),
+      meetingId: meeting.id,
+      from,
+      content,
+      timestamp: Date.now(),
     };
     meeting.messages.push(msg);
     if (meeting.messages.length > MAX_MESSAGES) {
@@ -183,9 +236,9 @@ class Hub {
   endMeeting(meetingId: string, report?: string): void {
     const meeting = this.meetings.get(meetingId);
     if (!meeting) return;
-    meeting.status = "ended";
+    meeting.status = 'ended';
     meeting.report = report;
-    meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: "done" };
+    meeting.chatStatus = { ...(meeting.chatStatus ?? {}), state: 'done' };
   }
 
   updateChatStatus(meetingId: string, patch: ChatStatusMetadata): void {
@@ -195,7 +248,8 @@ class Hub {
   }
 
   onMessage(meetingId: string, cb: MessageCallback): () => void {
-    if (!this.messageListeners.has(meetingId)) this.messageListeners.set(meetingId, new Set());
+    if (!this.messageListeners.has(meetingId))
+      this.messageListeners.set(meetingId, new Set());
     this.messageListeners.get(meetingId)!.add(cb);
     return () => this.messageListeners.get(meetingId)?.delete(cb);
   }
@@ -205,7 +259,9 @@ class Hub {
   }
 
   getActiveMeetings(): ActiveMeeting[] {
-    return Array.from(this.meetings.values()).filter((m) => m.status === "active");
+    return Array.from(this.meetings.values()).filter(
+      (m) => m.status === 'active',
+    );
   }
 
   getAllMeetings(): ActiveMeeting[] {

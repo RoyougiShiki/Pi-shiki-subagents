@@ -8,13 +8,16 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  parseJsonc,
+  stripJsonComments as stripJsonCommentsContent,
+} from '../config/jsonc';
+import {
   ensureConfigDir,
   ensureOpenCodeConfigDir,
   getExistingConfigPath,
   getLiteConfig,
 } from './paths';
 import { generateLiteConfig } from './providers';
-import { parseJsonc, stripJsonComments as stripJsonCommentsContent } from '../config/jsonc';
 import type {
   ConfigMergeResult,
   DetectedConfig,
@@ -380,13 +383,19 @@ export function detectCurrentConfig(): DetectedConfig {
     const configObj = liteConfig as Record<string, unknown>;
     const presetName = configObj.preset as string;
     const presets = configObj.presets as Record<string, unknown>;
-    const agents = presets?.[presetName] as
-      | Record<string, { model?: string }>
+    const pack = presets?.[presetName] as
+      | Record<string, string | { model?: string }>
       | undefined;
 
-    if (agents) {
-      const models = Object.values(agents)
-        .map((a) => a?.model)
+    if (pack) {
+      const models = Object.values(pack)
+        .map((value) =>
+          typeof value === 'string'
+            ? value
+            : value && typeof value === 'object'
+              ? value.model
+              : undefined,
+        )
         .filter(Boolean);
       result.hasOpenAI = models.some((m) => m?.startsWith('openai/'));
       result.hasAnthropic = models.some((m) => m?.startsWith('anthropic/'));
@@ -400,7 +409,6 @@ export function detectCurrentConfig(): DetectedConfig {
         result.hasChutes = true;
       }
     }
-
   }
 
   return result;

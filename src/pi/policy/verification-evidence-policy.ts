@@ -1,5 +1,5 @@
-import { DEFAULT_HARNESS_MESSAGES } from "../harness/messages";
-import type { HarnessMessageCatalog } from "../harness/types";
+import { DEFAULT_HARNESS_MESSAGES } from '../harness/messages';
+import type { HarnessMessageCatalog } from '../harness/types';
 
 export interface VerificationEvidenceState {
   hasRead: boolean;
@@ -16,24 +16,24 @@ export interface VerificationEvidenceContext {
 }
 
 export interface VerificationEvidenceDecision {
-  action: "allow" | "warn";
+  action: 'allow' | 'warn';
   reason?: string;
-  messageKey?: keyof HarnessMessageCatalog["verificationEvidence"];
+  messageKey?: keyof HarnessMessageCatalog['verificationEvidence'];
   hint?: string;
 }
 
 export interface VerificationEvidenceOptions {
-  messages?: HarnessMessageCatalog["verificationEvidence"];
+  messages?: HarnessMessageCatalog['verificationEvidence'];
 }
 
-const allow = (): VerificationEvidenceDecision => ({ action: "allow" });
+const allow = (): VerificationEvidenceDecision => ({ action: 'allow' });
 
 const warn = (
   reason: string,
-  messageKey: keyof HarnessMessageCatalog["verificationEvidence"],
+  messageKey: keyof HarnessMessageCatalog['verificationEvidence'],
   hint: string,
 ): VerificationEvidenceDecision => ({
-  action: "warn",
+  action: 'warn',
   reason,
   messageKey,
   hint,
@@ -50,28 +50,36 @@ export function checkVerificationEvidence(
   context: VerificationEvidenceContext = {},
   options: VerificationEvidenceOptions = {},
 ): VerificationEvidenceDecision {
-  const messages = options.messages ?? DEFAULT_HARNESS_MESSAGES.verificationEvidence;
+  const messages =
+    options.messages ?? DEFAULT_HARNESS_MESSAGES.verificationEvidence;
 
   if (context.dependingOnSubagent && state.hasSubagentPending) {
     return warn(
-      "subagent_pending",
-      "subagentPending",
+      'subagent_pending',
+      'subagentPending',
       messages.subagentPending,
     );
   }
 
-  if ((context.afterToolFailure || state.hasFailure) && !state.hasVerification) {
+  if (
+    (context.afterToolFailure || state.hasFailure) &&
+    !state.hasVerification
+  ) {
     return warn(
-      "tool_failed_without_recovery",
-      "toolFailedWithoutRecovery",
+      'tool_failed_without_recovery',
+      'toolFailedWithoutRecovery',
       messages.toolFailedWithoutRecovery,
     );
   }
 
-  if ((context.afterModification || state.hasModify) && state.hasModify && !state.hasVerification) {
+  if (
+    (context.afterModification || state.hasModify) &&
+    state.hasModify &&
+    !state.hasVerification
+  ) {
     return warn(
-      "modified_without_verification",
-      "modificationWithoutVerification",
+      'modified_without_verification',
+      'modificationWithoutVerification',
       messages.modificationWithoutVerification,
     );
   }

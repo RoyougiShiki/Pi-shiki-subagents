@@ -1,5 +1,4 @@
 import type { HarnessConfig } from '../config/schema';
-import type { WorkflowsConfig } from '../config/workflow-types';
 
 export interface PiCouncilParticipantConfig {
   name?: string;
@@ -17,28 +16,22 @@ export interface PiCouncilConfig {
   meeting_backend?: 'session' | 'collaborating';
 }
 
+/** Preset pack: optional subagent default + per-role model id strings. */
+export type PresetModelPackConfig = Record<string, string>;
+
 export interface OmniMoConfig {
   preset?: string;
-  presets?: Record<
-    string,
-    Record<
-      string,
-      | { model?: string; variant?: string; thinking?: string }
-      | Record<string, unknown>
-    >
-  >;
+  presets?: Record<string, PresetModelPackConfig | undefined>;
   agents?: Record<
     string,
     {
       model?: string;
       variant?: string;
       thinking?: string;
-      workflow?: string;
       presetPrimary?: boolean;
     }
   >;
   disabled_agents?: string[];
   council?: PiCouncilConfig;
-  workflows?: WorkflowsConfig;
   harness?: HarnessConfig;
 }

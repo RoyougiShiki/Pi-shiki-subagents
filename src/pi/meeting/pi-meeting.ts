@@ -1,19 +1,27 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
-import { homedir } from "node:os";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { AGENT_PROMPTS } from "./pi-agents";
-import { PoolMeetingBackend } from "./pi-meeting-pool";
-import type { OmniMoConfig, PiCouncilParticipantConfig } from "../config-types";
+import * as fs from 'node:fs';
+import { homedir } from 'node:os';
+import * as path from 'node:path';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import {
+  createAgentSession,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
+import type { OmniMoConfig, PiCouncilParticipantConfig } from '../config-types';
+import { AGENT_PROMPTS } from './pi-agents';
 import {
   extractAssistantTextFromMessages,
+  type PiCouncilParticipant,
   resolvePiCouncilParticipants,
   resolvePiModel,
-  type PiCouncilParticipant,
-} from "./pi-council";
+} from './pi-council';
+import { PoolMeetingBackend } from './pi-meeting-pool';
 
-export type PiMeetingObjective = "brainstorm" | "review" | "design" | "debug" | "decision";
+export type PiMeetingObjective =
+  | 'brainstorm'
+  | 'review'
+  | 'design'
+  | 'debug'
+  | 'decision';
 
 export interface PiMeetingRequest {
   meetingId: string;
@@ -30,7 +38,7 @@ export interface PiMeetingMessage {
   id: string;
   meetingId: string;
   round: number;
-  phase: "opening" | "discussion" | "final" | "chair";
+  phase: 'opening' | 'discussion' | 'final' | 'chair';
   from: string;
   role: string;
   content: string;
@@ -41,18 +49,18 @@ export interface PiMeetingParticipantResult {
   name: string;
   agent: string;
   model?: string;
-  status: "completed" | "failed" | "timed_out";
+  status: 'completed' | 'failed' | 'timed_out';
   finalPosition?: string;
   error?: string;
 }
 
-export type PiMeetingBackendName = "session" | "pool";
+export type PiMeetingBackendName = 'session' | 'pool';
 
 export interface PiMeetingResult {
   meetingId: string;
   question: string;
   objective: PiMeetingObjective;
-  status: "completed" | "partial" | "failed" | "timed_out";
+  status: 'completed' | 'partial' | 'failed' | 'timed_out';
   roundsCompleted: number;
   participants: PiMeetingParticipantResult[];
   report: string;
@@ -64,7 +72,10 @@ export interface PiMeetingResult {
 }
 
 export interface PiMeetingBackend {
-  run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult>;
+  run(
+    request: PiMeetingRequest,
+    ctx: ExtensionContext,
+  ): Promise<PiMeetingResult>;
 }
 
 export interface PiMeetingBackendResolution {
@@ -84,7 +95,7 @@ type CollabDirs = {
 type CollabMessageLogEvent = {
   id: string;
   from: string;
-  to: string | "all";
+  to: string | 'all';
   text: string;
   kind: string;
   timestamp: string;
@@ -102,7 +113,7 @@ type CollabSpawnAgentDefinition = {
   model?: string;
   tools?: string[];
   systemPrompt: string;
-  source: "bundled" | "user" | "project";
+  source: 'bundled' | 'user' | 'project';
   filePath: string;
 };
 
@@ -114,13 +125,19 @@ type CollabSpawnResult = {
 };
 
 type CollabConfig = {
-  subagentLaunchMode: "process" | "cmux-pane";
+  subagentLaunchMode: 'process' | 'cmux-pane';
   closeCompletedCmuxPanes: boolean;
 };
 
 type CollabStoreModule = {
-  registerSelf: (dirs: CollabDirs, registration: Record<string, unknown>) => boolean;
-  unregisterSelf: (dirs: CollabDirs, owner: { name: string; pid: number; sessionId?: string }) => void;
+  registerSelf: (
+    dirs: CollabDirs,
+    registration: Record<string, unknown>,
+  ) => boolean;
+  unregisterSelf: (
+    dirs: CollabDirs,
+    owner: { name: string; pid: number; sessionId?: string },
+  ) => void;
   sendDirect: (
     dirs: CollabDirs,
     from: string,
@@ -147,7 +164,7 @@ type CollabSpawnModule = {
       recursionDepth: number;
       parentAgentName?: string;
       launchDelayMs?: number;
-      launchMode?: "process" | "cmux-pane";
+      launchMode?: 'process' | 'cmux-pane';
       closeCompletedCmuxPane?: boolean;
       cmuxResultTimeoutMs?: number;
       onLaunch?: (launch: { name: string }) => void | Promise<void>;
@@ -159,20 +176,28 @@ type CollabConfigModule = { loadConfig: (cwd: string) => CollabConfig };
 
 type MeetingEnvelope = {
   meetingId: string;
-  phase: "opening" | "discussion" | "final";
+  phase: 'opening' | 'discussion' | 'final';
   round: number;
   role: string;
   body: string;
 };
 
-const PI_MEETING_OBJECTIVES: PiMeetingObjective[] = ["brainstorm", "review", "design", "debug", "decision"];
+const PI_MEETING_OBJECTIVES: PiMeetingObjective[] = [
+  'brainstorm',
+  'review',
+  'design',
+  'debug',
+  'decision',
+];
 const POLL_INTERVAL_MS = 1000;
 const PHASE_WAIT_MS = 45000;
 
-export function normalizePiMeetingObjective(value: string | undefined): PiMeetingObjective {
+export function normalizePiMeetingObjective(
+  value: string | undefined,
+): PiMeetingObjective {
   return PI_MEETING_OBJECTIVES.includes(value as PiMeetingObjective)
-    ? value as PiMeetingObjective
-    : "decision";
+    ? (value as PiMeetingObjective)
+    : 'decision';
 }
 
 export function normalizePiMeetingMaxRounds(value: number | undefined): number {
@@ -180,9 +205,11 @@ export function normalizePiMeetingMaxRounds(value: number | undefined): number {
   return Math.max(0, Math.min(5, Math.floor(value as number)));
 }
 
-export function normalizePiMeetingBackend(value: string | undefined): PiMeetingBackendName {
-  if (value === "pool" || value === "collaborating") return "pool";
-  return "session";
+export function normalizePiMeetingBackend(
+  value: string | undefined,
+): PiMeetingBackendName {
+  if (value === 'pool' || value === 'collaborating') return 'pool';
+  return 'session';
 }
 
 function createPiMeetingId(): string {
@@ -196,7 +223,12 @@ function createPiMeetingId(): string {
  */
 function computeSemanticOverlap(a: string, b: string): number {
   const tokenize = (t: string) =>
-    new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3));
+    new Set(
+      t
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((w) => w.length > 3),
+    );
   const setA = tokenize(a);
   const setB = tokenize(b);
   if (setA.size === 0 || setB.size === 0) return 0;
@@ -209,12 +241,16 @@ function computeSemanticOverlap(a: string, b: string): number {
 
 function truncateForDigest(text: string, maxChars = 900): string {
   const trimmed = text.trim();
-  return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
+  return trimmed.length <= maxChars
+    ? trimmed
+    : `${trimmed.slice(0, maxChars)}…`;
 }
 
 function extractKeySignalsFromReport(report: string): string[] {
   const lines = report.split(/\r?\n/);
-  const start = lines.findIndex((line) => /^### Key Signals From Discussion\s*$/i.test(line.trim()));
+  const start = lines.findIndex((line) =>
+    /^### Key Signals From Discussion\s*$/i.test(line.trim()),
+  );
   if (start < 0) return [];
   const signals: string[] = [];
   for (let i = start + 1; i < lines.length; i++) {
@@ -227,30 +263,40 @@ function extractKeySignalsFromReport(report: string): string[] {
 }
 
 function formatPiMeetingDigest(messages: PiMeetingMessage[]): string {
-  if (messages.length === 0) return "(No prior meeting messages.)";
+  if (messages.length === 0) return '(No prior meeting messages.)';
 
-  const byPhase = (phase: PiMeetingMessage["phase"]) => messages.filter((m) => m.phase === phase);
-  const formatMessages = (items: PiMeetingMessage[]) => items
-    .slice(-8)
-    .map((m) => `- ${m.from} (${m.role}, round ${m.round}): ${truncateForDigest(m.content, 500)}`)
-    .join("\n") || "- (none)";
+  const byPhase = (phase: PiMeetingMessage['phase']) =>
+    messages.filter((m) => m.phase === phase);
+  const formatMessages = (items: PiMeetingMessage[]) =>
+    items
+      .slice(-8)
+      .map(
+        (m) =>
+          `- ${m.from} (${m.role}, round ${m.round}): ${truncateForDigest(m.content, 500)}`,
+      )
+      .join('\n') || '- (none)';
 
-  return `## Current Hidden Meeting Digest\n\n` +
-    `### Opening Positions\n${formatMessages(byPhase("opening"))}\n\n` +
-    `### Discussion So Far\n${formatMessages(byPhase("discussion"))}\n\n` +
-    `### Final Positions\n${formatMessages(byPhase("final"))}`;
+  return (
+    `## Current Hidden Meeting Digest\n\n` +
+    `### Opening Positions\n${formatMessages(byPhase('opening'))}\n\n` +
+    `### Discussion So Far\n${formatMessages(byPhase('discussion'))}\n\n` +
+    `### Final Positions\n${formatMessages(byPhase('final'))}`
+  );
 }
 
 function formatParticipantPrompt(args: {
   request: PiMeetingRequest;
   participant: PiCouncilParticipant;
-  phase: "opening" | "discussion" | "final";
+  phase: 'opening' | 'discussion' | 'final';
   round: number;
   digest: string;
 }): string {
   const { request, participant, phase, round, digest } = args;
-  const roleGuidance = participant.prompt ? `Role-specific guidance:\n${participant.prompt}\n\n` : "";
-  const base = `${AGENT_PROMPTS[participant.agent]?.prompt ?? ""}\n\n` +
+  const roleGuidance = participant.prompt
+    ? `Role-specific guidance:\n${participant.prompt}\n\n`
+    : '';
+  const base =
+    `${AGENT_PROMPTS[participant.agent]?.prompt ?? ''}\n\n` +
     `You are participant "${participant.name}" in a hidden OMO realtime meeting.\n` +
     `The main agent is not participating and will not see raw discussion noise.\n` +
     `Meeting ID: ${request.meetingId}\n` +
@@ -258,34 +304,45 @@ function formatParticipantPrompt(args: {
     `${roleGuidance}` +
     `Question:\n${request.question}\n\n`;
 
-  if (phase === "opening") {
-    return `${base}Give your opening position. Return concise sections:\n` +
-      `Recommendation:\nAssumptions:\nRisks:\nEvidence needed:\nConfidence:\n`;
+  if (phase === 'opening') {
+    return (
+      `${base}Give your opening position. Return concise sections:\n` +
+      `Recommendation:\nAssumptions:\nRisks:\nEvidence needed:\nConfidence:\n`
+    );
   }
 
-  if (phase === "discussion") {
-    return `${base}Meeting digest visible to you:\n${digest}\n\n` +
+  if (phase === 'discussion') {
+    return (
+      `${base}Meeting digest visible to you:\n${digest}\n\n` +
       `Discussion round ${round}. Return concise sections:\n` +
       `Challenge:\nResponse to another participant:\nUpdated view:\nKey signal for final decision:\nConfidence:\n` +
-      `Do not repeat your opening statement unless your view changed.`;
+      `Do not repeat your opening statement unless your view changed.`
+    );
   }
 
-  return `${base}Meeting digest visible to you:\n${digest}\n\n` +
+  return (
+    `${base}Meeting digest visible to you:\n${digest}\n\n` +
     `Give your final position. Return exactly these sections:\n` +
-    `Recommendation:\nChanged view:\nRemaining disagreement:\nKey evidence:\nRisks:\nConfidence:\nNext action:\n`;
+    `Recommendation:\nChanged view:\nRemaining disagreement:\nKey evidence:\nRisks:\nConfidence:\nNext action:\n`
+  );
 }
 
 async function runPiMeetingParticipantTurn(args: {
   request: PiMeetingRequest;
   participant: PiCouncilParticipant;
-  phase: "opening" | "discussion" | "final";
+  phase: 'opening' | 'discussion' | 'final';
   round: number;
   digest: string;
   ctx: ExtensionContext;
   timeoutMs: number;
-}): Promise<{ message?: PiMeetingMessage; result?: PiMeetingParticipantResult }> {
+}): Promise<{
+  message?: PiMeetingMessage;
+  result?: PiMeetingParticipantResult;
+}> {
   const { request, participant, phase, round, digest, ctx, timeoutMs } = args;
-  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  let session:
+    | Awaited<ReturnType<typeof createAgentSession>>['session']
+    | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
@@ -296,7 +353,7 @@ async function runPiMeetingParticipantTurn(args: {
           name: participant.name,
           agent: participant.agent,
           model: participant.model,
-          status: "failed",
+          status: 'failed',
           error: `Model not found: ${participant.model}`,
         },
       };
@@ -305,21 +362,32 @@ async function runPiMeetingParticipantTurn(args: {
     const created = await createAgentSession({
       cwd: ctx.cwd,
       model,
-      thinkingLevel: "low",
-      tools: ["read", "bash", "grep", "find", "ls"],
+      thinkingLevel: 'low',
+      tools: ['read', 'bash', 'grep', 'find', 'ls'],
       sessionManager: SessionManager.inMemory(),
     });
     session = created.session;
 
-    const prompt = formatParticipantPrompt({ request, participant, phase, round, digest });
-    const promptPromise = session.prompt(prompt, { source: "extension" });
+    const prompt = formatParticipantPrompt({
+      request,
+      participant,
+      phase,
+      round,
+      digest,
+    });
+    const promptPromise = session.prompt(prompt, { source: 'extension' });
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error("Meeting participant turn timed out")), timeoutMs);
+      timeout = setTimeout(
+        () => reject(new Error('Meeting participant turn timed out')),
+        timeoutMs,
+      );
     });
 
     await Promise.race([promptPromise, timeoutPromise]);
-    const text = extractAssistantTextFromMessages((session as any).state?.messages ?? (session as any).messages ?? []);
-    const content = text || "(completed with no text output)";
+    const text = extractAssistantTextFromMessages(
+      (session as any).state?.messages ?? (session as any).messages ?? [],
+    );
+    const content = text || '(completed with no text output)';
 
     return {
       message: {
@@ -332,15 +400,16 @@ async function runPiMeetingParticipantTurn(args: {
         content,
         timestamp: Date.now(),
       },
-      result: phase === "final"
-        ? {
-            name: participant.name,
-            agent: participant.agent,
-            model: participant.model,
-            status: "completed",
-            finalPosition: content,
-          }
-        : undefined,
+      result:
+        phase === 'final'
+          ? {
+              name: participant.name,
+              agent: participant.agent,
+              model: participant.model,
+              status: 'completed',
+              finalPosition: content,
+            }
+          : undefined,
     };
   } catch (err: any) {
     const message = err?.message ?? String(err);
@@ -349,7 +418,7 @@ async function runPiMeetingParticipantTurn(args: {
         name: participant.name,
         agent: participant.agent,
         model: participant.model,
-        status: message.includes("timed out") ? "timed_out" : "failed",
+        status: message.includes('timed out') ? 'timed_out' : 'failed',
         error: message,
       },
     };
@@ -366,21 +435,29 @@ async function runPiMeetingParticipantTurn(args: {
   }
 }
 
-function formatParticipantStatusLines(participants: PiMeetingParticipantResult[]): string {
+function formatParticipantStatusLines(
+  participants: PiMeetingParticipantResult[],
+): string {
   return participants
     .map((p) => {
-      const detail = p.error ? ` — ${truncateForDigest(p.error, 220)}` : "";
+      const detail = p.error ? ` — ${truncateForDigest(p.error, 220)}` : '';
       return `- ${p.name} (${p.agent}, ${p.status})${detail}`;
     })
-    .join("\n");
+    .join('\n');
 }
 
-function fallbackPiMeetingReport(result: Omit<PiMeetingResult, "report" | "keySignals">): string {
+function fallbackPiMeetingReport(
+  result: Omit<PiMeetingResult, 'report' | 'keySignals'>,
+): string {
   const finalPositions = result.participants
-    .map((p) => `- ${p.name} (${p.agent}, ${p.status}): ${truncateForDigest(p.finalPosition ?? p.error ?? "No final position", 700)}`)
-    .join("\n");
+    .map(
+      (p) =>
+        `- ${p.name} (${p.agent}, ${p.status}): ${truncateForDigest(p.finalPosition ?? p.error ?? 'No final position', 700)}`,
+    )
+    .join('\n');
 
-  return `## Realtime Meeting Result\n\n` +
+  return (
+    `## Realtime Meeting Result\n\n` +
     `### Question\n${result.question}\n\n` +
     `### Objective\n${result.objective}\n\n` +
     `### Status\n${result.status}\n\n` +
@@ -392,33 +469,45 @@ function fallbackPiMeetingReport(result: Omit<PiMeetingResult, "report" | "keySi
     `### Risks\n- Chair synthesis did not produce a structured report.\n\n` +
     `### Confidence\nLow to medium, depending on participant completion.\n\n` +
     `### Suggested Next Actions\n1. Use the final positions to make a constrained decision.\n2. Re-run with includeTranscript=true only if debugging the meeting runtime.\n\n` +
-    `### Participant Final Positions\n${finalPositions || "- (none)"}\n\n` +
-    `### Metadata\n- meetingId: ${result.meetingId}\n- roundsCompleted: ${result.roundsCompleted}\n- requestedBackend: ${result.requestedBackend}\n- backendUsed: ${result.backendUsed}${result.fallbackReason ? `\n- fallbackReason: ${result.fallbackReason}` : ""}\n- transcript omitted: yes`;
+    `### Participant Final Positions\n${finalPositions || '- (none)'}\n\n` +
+    `### Metadata\n- meetingId: ${result.meetingId}\n- roundsCompleted: ${result.roundsCompleted}\n- requestedBackend: ${result.requestedBackend}\n- backendUsed: ${result.backendUsed}${result.fallbackReason ? `\n- fallbackReason: ${result.fallbackReason}` : ''}\n- transcript omitted: yes`
+  );
 }
 
 async function runPiMeetingChairSynthesis(args: {
   request: PiMeetingRequest;
   transcript: PiMeetingMessage[];
   participants: PiMeetingParticipantResult[];
-  status: PiMeetingResult["status"];
+  status: PiMeetingResult['status'];
   roundsCompleted: number;
   ctx: ExtensionContext;
   timeoutMs: number;
 }): Promise<string> {
-  const { request, transcript, participants, status, roundsCompleted, ctx, timeoutMs } = args;
-  let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+  const {
+    request,
+    transcript,
+    participants,
+    status,
+    roundsCompleted,
+    ctx,
+    timeoutMs,
+  } = args;
+  let session:
+    | Awaited<ReturnType<typeof createAgentSession>>['session']
+    | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
     const created = await createAgentSession({
       cwd: ctx.cwd,
-      thinkingLevel: "low",
-      tools: ["read", "bash", "grep", "find", "ls"],
+      thinkingLevel: 'low',
+      tools: ['read', 'bash', 'grep', 'find', 'ls'],
       sessionManager: SessionManager.inMemory(),
     });
     session = created.session;
 
-    const prompt = `You are the hidden chair of an OMO realtime meeting.\n\n` +
+    const prompt =
+      `You are the hidden chair of an OMO realtime meeting.\n\n` +
       `The main agent did not participate and must not see raw discussion noise.\n` +
       `Return a compact report for the main agent. Do not include raw transcript.\n\n` +
       `Question:\n${request.question}\n\n` +
@@ -441,15 +530,20 @@ async function runPiMeetingChairSynthesis(args: {
       `### Metadata\n` +
       `Metadata must include meetingId ${request.meetingId}, roundsCompleted ${roundsCompleted}, and transcript omitted: yes.\n`;
 
-    const promptPromise = session.prompt(prompt, { source: "extension" });
+    const promptPromise = session.prompt(prompt, { source: 'extension' });
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => reject(new Error("Meeting chair synthesis timed out")), timeoutMs);
+      timeout = setTimeout(
+        () => reject(new Error('Meeting chair synthesis timed out')),
+        timeoutMs,
+      );
     });
 
     await Promise.race([promptPromise, timeoutPromise]);
-    return extractAssistantTextFromMessages((session as any).state?.messages ?? (session as any).messages ?? []);
+    return extractAssistantTextFromMessages(
+      (session as any).state?.messages ?? (session as any).messages ?? [],
+    );
   } catch {
-    return "";
+    return '';
   } finally {
     if (timeout) clearTimeout(timeout);
     if (session) {
@@ -465,12 +559,12 @@ async function runPiMeetingChairSynthesis(args: {
 
 function getCtxModelLabel(ctx: ExtensionContext): string {
   const model = (ctx as any).model;
-  return model ? `${model.provider}/${model.id}` : "unknown";
+  return model ? `${model.provider}/${model.id}` : 'unknown';
 }
 
 function buildMeetingEnvelope(args: {
   meetingId: string;
-  phase: MeetingEnvelope["phase"];
+  phase: MeetingEnvelope['phase'];
   round: number;
   role: string;
   body: string;
@@ -479,62 +573,89 @@ function buildMeetingEnvelope(args: {
 }
 
 function parseMeetingEnvelope(text: string): MeetingEnvelope | undefined {
-  const match = text.match(/^\[meeting:([^\]]+)\]\[phase:(opening|discussion|final)\]\[round:(\d+)\]\[role:([^\]]+)\]\n?([\s\S]*)$/);
+  const match = text.match(
+    /^\[meeting:([^\]]+)\]\[phase:(opening|discussion|final)\]\[round:(\d+)\]\[role:([^\]]+)\]\n?([\s\S]*)$/,
+  );
   if (!match) return undefined;
   return {
     meetingId: match[1],
-    phase: match[2] as MeetingEnvelope["phase"],
+    phase: match[2] as MeetingEnvelope['phase'],
     round: Number(match[3]),
     role: match[4],
-    body: (match[5] ?? "").trim(),
+    body: (match[5] ?? '').trim(),
   };
 }
 
 export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
-  async run(request: PiMeetingRequest, ctx: ExtensionContext): Promise<PiMeetingResult> {
+  async run(
+    request: PiMeetingRequest,
+    ctx: ExtensionContext,
+  ): Promise<PiMeetingResult> {
     const transcript: PiMeetingMessage[] = [];
     const participantResults = new Map<string, PiMeetingParticipantResult>();
-    const perTurnTimeoutMs = Math.max(10_000, Math.min(60_000, Math.floor(request.maxDurationMs / 3)));
+    const perTurnTimeoutMs = Math.max(
+      10_000,
+      Math.min(60_000, Math.floor(request.maxDurationMs / 3)),
+    );
 
-    const runPhase = async (phase: "opening" | "discussion" | "final", round: number) => {
-      const digest = phase === "opening" ? "" : formatPiMeetingDigest(transcript);
-      const turnResults = await Promise.all(request.participants.map((participant) =>
-        runPiMeetingParticipantTurn({ request, participant, phase, round, digest, ctx, timeoutMs: perTurnTimeoutMs }),
-      ));
+    const runPhase = async (
+      phase: 'opening' | 'discussion' | 'final',
+      round: number,
+    ) => {
+      const digest =
+        phase === 'opening' ? '' : formatPiMeetingDigest(transcript);
+      const turnResults = await Promise.all(
+        request.participants.map((participant) =>
+          runPiMeetingParticipantTurn({
+            request,
+            participant,
+            phase,
+            round,
+            digest,
+            ctx,
+            timeoutMs: perTurnTimeoutMs,
+          }),
+        ),
+      );
 
       for (const turn of turnResults) {
         if (turn.message) transcript.push(turn.message);
         if (turn.result) {
           const previous = participantResults.get(turn.result.name);
-          if (phase === "final" || !previous || previous.status !== "completed") {
+          if (
+            phase === 'final' ||
+            !previous ||
+            previous.status !== 'completed'
+          ) {
             participantResults.set(turn.result.name, {
               ...previous,
               ...turn.result,
-              finalPosition: turn.result.finalPosition ?? previous?.finalPosition,
+              finalPosition:
+                turn.result.finalPosition ?? previous?.finalPosition,
             });
           }
         }
       }
     };
 
-    await runPhase("opening", 0);
+    await runPhase('opening', 0);
     let roundsCompleted = 0;
     // Track previous discussion messages for convergence detection
-    let previousDiscussionContent = new Map<string, string>();
+    const previousDiscussionContent = new Map<string, string>();
     for (let round = 1; round <= request.maxRounds; round++) {
-      await runPhase("discussion", round);
+      await runPhase('discussion', round);
       roundsCompleted = round;
       // Convergence check: if all participants are repeating themselves,
       // skip remaining discussion rounds.
       if (round < request.maxRounds && previousDiscussionContent.size > 0) {
         const currentDiscussion = new Map<string, string>();
         for (const msg of transcript) {
-          if (msg.phase === "discussion" && msg.round === round) {
+          if (msg.phase === 'discussion' && msg.round === round) {
             currentDiscussion.set(msg.from, msg.content);
           }
         }
         if (currentDiscussion.size >= request.participants.length) {
-          const thresholds = [0.75, 0.70, 0.65];
+          const thresholds = [0.75, 0.7, 0.65];
           const threshold = thresholds[round - 1] ?? 0.55;
           let convergedCount = 0;
           for (const [name, content] of currentDiscussion) {
@@ -553,36 +674,46 @@ export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
       // Store current discussion for next round's comparison
       previousDiscussionContent.clear();
       for (const msg of transcript) {
-        if (msg.phase === "discussion" && (msg.round === round || (round > 0 && msg.round === round))) {
+        if (
+          msg.phase === 'discussion' &&
+          (msg.round === round || (round > 0 && msg.round === round))
+        ) {
           previousDiscussionContent.set(msg.from, msg.content);
         }
       }
     }
-    await runPhase("final", request.maxRounds + 1);
+    await runPhase('final', request.maxRounds + 1);
 
     for (const participant of request.participants) {
       if (!participantResults.has(participant.name)) {
-        const latest = [...transcript].reverse().find((m) => m.from === participant.name);
+        const latest = [...transcript]
+          .reverse()
+          .find((m) => m.from === participant.name);
         participantResults.set(participant.name, {
           name: participant.name,
           agent: participant.agent,
           model: participant.model,
-          status: latest ? "completed" : "failed",
+          status: latest ? 'completed' : 'failed',
           finalPosition: latest?.content,
-          error: latest ? undefined : "No meeting output produced",
+          error: latest ? undefined : 'No meeting output produced',
         });
       }
     }
 
-    const participants = request.participants.map((p) => participantResults.get(p.name)!).filter(Boolean);
-    const completed = participants.filter((p) => p.status === "completed").length;
-    const status: PiMeetingResult["status"] = completed === 0
-      ? "failed"
-      : completed === participants.length
-        ? "completed"
-        : "partial";
+    const participants = request.participants
+      .map((p) => participantResults.get(p.name)!)
+      .filter(Boolean);
+    const completed = participants.filter(
+      (p) => p.status === 'completed',
+    ).length;
+    const status: PiMeetingResult['status'] =
+      completed === 0
+        ? 'failed'
+        : completed === participants.length
+          ? 'completed'
+          : 'partial';
 
-    const baseResult: Omit<PiMeetingResult, "report" | "keySignals"> = {
+    const baseResult: Omit<PiMeetingResult, 'report' | 'keySignals'> = {
       meetingId: request.meetingId,
       question: request.question,
       objective: request.objective,
@@ -590,8 +721,8 @@ export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
       roundsCompleted,
       participants,
       transcript: request.includeTranscript ? transcript : undefined,
-      requestedBackend: "session",
-      backendUsed: "session",
+      requestedBackend: 'session',
+      backendUsed: 'session',
       fallbackReason: undefined,
     };
 
@@ -610,30 +741,34 @@ export class CreateAgentSessionMeetingBackend implements PiMeetingBackend {
     return {
       ...baseResult,
       report,
-      keySignals: keySignals.length > 0 ? keySignals : ["No explicit key signals extracted from chair report."],
+      keySignals:
+        keySignals.length > 0
+          ? keySignals
+          : ['No explicit key signals extracted from chair report.'],
     };
   }
 }
-
 
 // The spawned subagent reads a Node poll script's stdout to detect round
 // prompts, then ITSELF generates substantive content and broadcasts it.
 // This avoids the template-broadcasting problem of the old Node-only approach.
 
-export function resolvePiMeetingBackend(value: string | undefined): PiMeetingBackendResolution {
+export function resolvePiMeetingBackend(
+  value: string | undefined,
+): PiMeetingBackendResolution {
   const requestedBackend = normalizePiMeetingBackend(value);
 
-  if (requestedBackend === "pool") {
+  if (requestedBackend === 'pool') {
     return {
       requestedBackend,
-      backendUsed: "pool",
+      backendUsed: 'pool',
       backend: new PoolMeetingBackend(),
     };
   }
 
   return {
     requestedBackend,
-    backendUsed: "session",
+    backendUsed: 'session',
     backend: new CreateAgentSessionMeetingBackend(),
   };
 }
@@ -643,23 +778,29 @@ export function formatPiMeetingResult(result: PiMeetingResult): string {
   const backendLines = [
     `- requestedBackend: ${result.requestedBackend}`,
     `- backendUsed: ${result.backendUsed}`,
-    result.fallbackReason ? `- fallbackReason: ${result.fallbackReason}` : undefined,
+    result.fallbackReason
+      ? `- fallbackReason: ${result.fallbackReason}`
+      : undefined,
   ].filter((line): line is string => Boolean(line));
 
-  if (!output.includes("requestedBackend:")) {
-    if (!output.includes("### Metadata")) output += `\n\n### Metadata`;
-    output += `\n${backendLines.join("\n")}`;
+  if (!output.includes('requestedBackend:')) {
+    if (!output.includes('### Metadata')) output += `\n\n### Metadata`;
+    output += `\n${backendLines.join('\n')}`;
   }
 
-  if (!output.includes("transcript omitted:") && !result.transcript) {
+  if (!output.includes('transcript omitted:') && !result.transcript) {
     output += `\n- meetingId: ${result.meetingId}\n- roundsCompleted: ${result.roundsCompleted}\n- transcript omitted: yes`;
   }
 
   if (result.transcript) {
-    output += `\n\n## Transcript Appendix\nTranscript included because includeTranscript=true.\n\n` +
+    output +=
+      `\n\n## Transcript Appendix\nTranscript included because includeTranscript=true.\n\n` +
       result.transcript
-        .map((m) => `### ${m.phase} round ${m.round} — ${m.from} (${m.role})\n${m.content}`)
-        .join("\n\n");
+        .map(
+          (m) =>
+            `### ${m.phase} round ${m.round} — ${m.from} (${m.role})\n${m.content}`,
+        )
+        .join('\n\n');
   }
 
   return output;
@@ -684,7 +825,9 @@ export async function runPiMeeting(args: {
   });
   if (resolved.error) return { error: resolved.error };
 
-  const resolution = resolvePiMeetingBackend(args.backend || args.config?.council?.meeting_backend);
+  const resolution = resolvePiMeetingBackend(
+    args.backend || args.config?.council?.meeting_backend,
+  );
 
   const request: PiMeetingRequest = {
     meetingId: createPiMeetingId(),
@@ -693,7 +836,8 @@ export async function runPiMeeting(args: {
     participants: resolved.participants,
     objective: normalizePiMeetingObjective(args.objective),
     maxRounds: normalizePiMeetingMaxRounds(args.maxRounds),
-    maxDurationMs: args.maxDurationMs ?? args.config?.council?.timeout ?? 180000,
+    maxDurationMs:
+      args.maxDurationMs ?? args.config?.council?.timeout ?? 180000,
     includeTranscript: args.includeTranscript ?? false,
   };
 

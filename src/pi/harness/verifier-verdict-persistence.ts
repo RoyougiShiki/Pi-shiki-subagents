@@ -1,10 +1,13 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import * as path from "node:path";
-import { buildToolResultBudgetSessionDir } from "./tool-result-budget";
-import type { VerifierVerdictEvidence, VerifierVerdictEvidenceSource } from "./verifier-verdict-evidence";
-import type { VerifierVerdictStatus } from "./verifier-verdict-parser";
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { buildToolResultBudgetSessionDir } from './tool-result-budget';
+import type {
+  VerifierVerdictEvidence,
+  VerifierVerdictEvidenceSource,
+} from './verifier-verdict-evidence';
+import type { VerifierVerdictStatus } from './verifier-verdict-parser';
 
-const VERIFIER_VERDICTS_FILENAME = ".verifier-verdicts.json";
+const VERIFIER_VERDICTS_FILENAME = '.verifier-verdicts.json';
 
 interface PersistedVerifierVerdict {
   source: VerifierVerdictEvidenceSource;
@@ -20,14 +23,18 @@ interface PersistedVerifierVerdictsFile {
 }
 
 function isVerdictStatus(value: unknown): value is VerifierVerdictStatus {
-  return value === "PASS" || value === "FAIL" || value === "PARTIAL";
+  return value === 'PASS' || value === 'FAIL' || value === 'PARTIAL';
 }
 
-function isEvidenceSource(value: unknown): value is VerifierVerdictEvidenceSource {
-  return value === "subagent" || value === "tool" || value === "flue_workflow" || value === "manual";
+function isEvidenceSource(
+  value: unknown,
+): value is VerifierVerdictEvidenceSource {
+  return value === 'subagent' || value === 'tool' || value === 'manual';
 }
 
-function toPersistedVerifierVerdict(evidence: VerifierVerdictEvidence): PersistedVerifierVerdict {
+function toPersistedVerifierVerdict(
+  evidence: VerifierVerdictEvidence,
+): PersistedVerifierVerdict {
   return {
     source: evidence.source,
     verdict: evidence.verdict,
@@ -37,14 +44,21 @@ function toPersistedVerifierVerdict(evidence: VerifierVerdictEvidence): Persiste
   };
 }
 
-function fromPersistedVerifierVerdict(value: unknown): VerifierVerdictEvidence | null {
-  if (!value || typeof value !== "object") return null;
+function fromPersistedVerifierVerdict(
+  value: unknown,
+): VerifierVerdictEvidence | null {
+  if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
   if (!isEvidenceSource(record.source)) return null;
   if (!isVerdictStatus(record.verdict)) return null;
-  if (typeof record.summary !== "string") return null;
-  if (record.verifier !== undefined && typeof record.verifier !== "string") return null;
-  if (typeof record.timestamp !== "number" || !Number.isFinite(record.timestamp)) return null;
+  if (typeof record.summary !== 'string') return null;
+  if (record.verifier !== undefined && typeof record.verifier !== 'string')
+    return null;
+  if (
+    typeof record.timestamp !== 'number' ||
+    !Number.isFinite(record.timestamp)
+  )
+    return null;
 
   return {
     source: record.source,
@@ -57,15 +71,21 @@ function fromPersistedVerifierVerdict(value: unknown): VerifierVerdictEvidence |
       checkBlocks: [],
       hasCommandRun: false,
       hasOutputObserved: false,
-      failDetails: record.verdict === "FAIL" ? record.summary : undefined,
-      partialDetails: record.verdict === "PARTIAL" ? record.summary : undefined,
+      failDetails: record.verdict === 'FAIL' ? record.summary : undefined,
+      partialDetails: record.verdict === 'PARTIAL' ? record.summary : undefined,
     },
     timestamp: record.timestamp,
   };
 }
 
-export function getVerifierVerdictsPath(baseDir: string, sessionId: string): string {
-  return path.join(buildToolResultBudgetSessionDir({ baseDir, sessionId }), VERIFIER_VERDICTS_FILENAME);
+export function getVerifierVerdictsPath(
+  baseDir: string,
+  sessionId: string,
+): string {
+  return path.join(
+    buildToolResultBudgetSessionDir({ baseDir, sessionId }),
+    VERIFIER_VERDICTS_FILENAME,
+  );
 }
 
 export function toVerifierVerdictsPersistenceJson(
@@ -77,8 +97,10 @@ export function toVerifierVerdictsPersistenceJson(
   };
 }
 
-export function fromVerifierVerdictsPersistenceJson(json: unknown): VerifierVerdictEvidence[] | null {
-  if (!json || typeof json !== "object") return null;
+export function fromVerifierVerdictsPersistenceJson(
+  json: unknown,
+): VerifierVerdictEvidence[] | null {
+  if (!json || typeof json !== 'object') return null;
   const record = json as Record<string, unknown>;
   if (record.version !== 1) return null;
   if (!Array.isArray(record.verdicts)) return null;
@@ -98,18 +120,26 @@ export async function loadVerifierVerdicts(
 ): Promise<VerifierVerdictEvidence[] | null> {
   const statePath = getVerifierVerdictsPath(baseDir, sessionId);
   try {
-    const content = await readFile(statePath, "utf8");
+    const content = await readFile(statePath, 'utf8');
     const verdicts = fromVerifierVerdictsPersistenceJson(JSON.parse(content));
     if (!verdicts) {
-      console.warn(`[oh-my-opencode-slim] Ignoring invalid verifier verdict state: ${statePath}`);
+      console.warn(
+        `[oh-my-opencode-slim] Ignoring invalid verifier verdict state: ${statePath}`,
+      );
       return null;
     }
     return verdicts;
   } catch (error) {
-    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error as NodeJS.ErrnoException).code === 'ENOENT'
+    ) {
       return null;
     }
-    console.warn(`[oh-my-opencode-slim] Failed to load verifier verdict state: ${statePath}`);
+    console.warn(
+      `[oh-my-opencode-slim] Failed to load verifier verdict state: ${statePath}`,
+    );
     return null;
   }
 }
@@ -129,11 +159,17 @@ export async function saveVerifierVerdicts(
   const tmpPath = `${statePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   try {
     await mkdir(sessionDir, { recursive: true });
-    await writeFile(tmpPath, JSON.stringify(toVerifierVerdictsPersistenceJson(verdicts), null, 2), "utf8");
+    await writeFile(
+      tmpPath,
+      JSON.stringify(toVerifierVerdictsPersistenceJson(verdicts), null, 2),
+      'utf8',
+    );
     await rename(tmpPath, statePath);
     return true;
   } catch {
-    console.warn(`[oh-my-opencode-slim] Failed to save verifier verdict state: ${statePath}`);
+    console.warn(
+      `[oh-my-opencode-slim] Failed to save verifier verdict state: ${statePath}`,
+    );
     return false;
   }
 }

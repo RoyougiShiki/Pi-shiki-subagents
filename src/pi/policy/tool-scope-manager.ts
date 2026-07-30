@@ -1,20 +1,17 @@
 /**
  * ToolScopeManager — 工具真值的唯一决策源
  *
- * 设计原则：
- * - 单一真值：setActiveTools 被调用时写入 snapshot
- * - 禁止重算：tool_call gate 只读 snapshot，不重新推导
- * - 观测分离：before_provider_request 做 diff 审计，不参与决策
+ * The main session writes a broad scope once. Each subagent is mechanically
+ * constrained through its own Pi SDK session tool list.
  */
-
 // ─── Types ────────────────────────────────────────────────────────────────
 
 export interface ToolScopeSnapshot {
   /** 当前生效的工具列表 */
   tools: Set<string>;
-  /** 决策来源标识（mode / subagent / fallback） */
-  source: "mode" | "subagent" | "fallback";
-  /** 决策来源名称（mode name / agent name） */
+  /** Scope owner. */
+  source: 'main' | 'subagent';
+  /** Scope owner name. */
   sourceName: string;
   /** 写入时间戳 */
   timestamp: number;
@@ -40,16 +37,13 @@ let _snapshot: ToolScopeSnapshot | null = null;
 // ─── Core API ─────────────────────────────────────────────────────────────
 
 /**
- * 写入工具真值快照（唯一写入点）
- *
- * 在 setActiveTools(active) 之后调用。
- * mode 和 subagent 都走这个函数。
+ * Record the active main-session scope after setActiveTools().
  */
 export function setToolScope(
   activeTools: string[],
-  source: ToolScopeSnapshot["source"],
+  source: ToolScopeSnapshot['source'],
   sourceName: string,
-  agentConfig?: ToolScopeSnapshot["agentConfig"]
+  agentConfig?: ToolScopeSnapshot['agentConfig'],
 ): void {
   _snapshot = {
     tools: new Set(activeTools),
@@ -84,7 +78,9 @@ export function isToolAllowed(toolName: string): boolean {
  *
  * before_provider_request 中调用，只做 diff，不参与决策。
  */
-export function auditPayloadTools(payloadTools: string[]): ToolScopeAuditResult {
+export function auditPayloadTools(
+  payloadTools: string[],
+): ToolScopeAuditResult {
   if (!_snapshot) {
     return {
       consistent: false,
@@ -99,8 +95,8 @@ export function auditPayloadTools(payloadTools: string[]): ToolScopeAuditResult 
   const payloadSet = new Set(payloadTools);
   const snapshotSet = _snapshot.tools;
 
-  const missingInPayload = snapshotList.filter(t => !payloadSet.has(t));
-  const extraInPayload = payloadTools.filter(t => !snapshotSet.has(t));
+  const missingInPayload = snapshotList.filter((t) => !payloadSet.has(t));
+  const extraInPayload = payloadTools.filter((t) => !snapshotSet.has(t));
 
   return {
     consistent: missingInPayload.length === 0 && extraInPayload.length === 0,

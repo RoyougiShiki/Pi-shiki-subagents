@@ -12,31 +12,31 @@
  * - 文案来自 HarnessMessageCatalog
  */
 
-import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import * as path from "node:path";
-import {
-  createToolResultBudgetState,
-  reconstructToolResultBudgetState,
-  serializeToolResultBudgetState,
-  isSeenId,
-  markSeenId,
-  getReplacement,
-  recordReplacement,
-  partitionCandidates,
-  type ToolResultBudgetState,
-  type ToolResultReplacementRecord,
-  type ToolResultCandidate,
-} from "./tool-result-budget-state";
+import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { DEFAULT_HARNESS_MESSAGES } from './messages';
 import {
   DEFAULT_PREVIEW_CHARS,
-  MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
   getToolThreshold,
+  MAX_TOOL_RESULTS_PER_MESSAGE_CHARS,
   shouldSkipPersist,
   type UserThresholdConfig,
-} from "./thresholds";
-import { DEFAULT_HARNESS_MESSAGES } from "./messages";
-import type { HarnessMessageCatalog } from "./types";
+} from './thresholds';
+import {
+  createToolResultBudgetState,
+  getReplacement,
+  isSeenId,
+  markSeenId,
+  partitionCandidates,
+  reconstructToolResultBudgetState,
+  recordReplacement,
+  serializeToolResultBudgetState,
+  type ToolResultBudgetState,
+  type ToolResultCandidate,
+  type ToolResultReplacementRecord,
+} from './tool-result-budget-state';
+import type { HarnessMessageCatalog } from './types';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -71,9 +71,9 @@ export interface PersistedToolResultRef {
 }
 
 export type ToolResultDecision =
-  | { action: "keep"; content: string; originalSize: number }
-  | { action: "persist"; content: string; ref: PersistedToolResultRef }
-  | { action: "reapply"; content: string; originalSize: number };
+  | { action: 'keep'; content: string; originalSize: number }
+  | { action: 'persist'; content: string; ref: PersistedToolResultRef }
+  | { action: 'reapply'; content: string; originalSize: number };
 
 export interface PerMessageBudgetResult {
   decisions: ToolResultDecision[];
@@ -111,32 +111,55 @@ export async function applyToolResultBudget(
   if (state) {
     const existingReplacement = getReplacement(state, input.toolCallId);
     if (existingReplacement) {
-      return { action: "reapply", content: existingReplacement, originalSize: input.content.length };
+      return {
+        action: 'reapply',
+        content: existingReplacement,
+        originalSize: input.content.length,
+      };
     }
 
     // 检查是否已发送（冻结状态）
     if (isSeenId(state, input.toolCallId)) {
-      return { action: "keep", content: input.content, originalSize: input.content.length };
+      return {
+        action: 'keep',
+        content: input.content,
+        originalSize: input.content.length,
+      };
     }
   }
 
   // 检查是否应该跳过
   const skipNames = options.skipToolNames ?? new Set();
-  if (skipNames.has(input.toolName.trim().toLowerCase()) || shouldSkipPersist(input.toolName)) {
+  if (
+    skipNames.has(input.toolName.trim().toLowerCase()) ||
+    shouldSkipPersist(input.toolName)
+  ) {
     if (state) markSeenId(state, input.toolCallId);
-    return { action: "keep", content: input.content, originalSize: input.content.length };
+    return {
+      action: 'keep',
+      content: input.content,
+      originalSize: input.content.length,
+    };
   }
 
   // 检查阈值
   if (!shouldPersistToolResult(input, thresholds)) {
     if (state) markSeenId(state, input.toolCallId);
-    return { action: "keep", content: input.content, originalSize: input.content.length };
+    return {
+      action: 'keep',
+      content: input.content,
+      originalSize: input.content.length,
+    };
   }
 
   // 需要持久化但没有 storage 配置
   if (!options.storage) {
     if (state) markSeenId(state, input.toolCallId);
-    return { action: "keep", content: input.content, originalSize: input.content.length };
+    return {
+      action: 'keep',
+      content: input.content,
+      originalSize: input.content.length,
+    };
   }
 
   // 执行持久化
@@ -147,7 +170,7 @@ export async function applyToolResultBudget(
   const createdAt = options.now?.() ?? Date.now();
 
   await mkdir(path.dirname(filepath), { recursive: true });
-  await writeFile(filepath, input.content, "utf8");
+  await writeFile(filepath, input.content, 'utf8');
 
   const ref: PersistedToolResultRef = {
     toolName: input.toolName,
@@ -170,7 +193,7 @@ export async function applyToolResultBudget(
   // 记录替换
   if (state) {
     recordReplacement(state, {
-      kind: "tool-result",
+      kind: 'tool-result',
       toolUseId: input.toolCallId,
       toolName: input.toolName,
       originalSize: ref.originalSize,
@@ -180,14 +203,14 @@ export async function applyToolResultBudget(
     });
   }
 
-  return { action: "persist", content: replacementContent, ref };
+  return { action: 'persist', content: replacementContent, ref };
 }
 
 // ─── Per-Message Budget ────────────────────────────────────────────────────
 
 /**
  * 处理一批并发工具结果（per-message 预算）
- * 
+ *
  * cc-haha 设计：
  * - 每个 user message（一批并发工具结果）有总预算
  * - 防止 N 个并发工具各自达到阈值，总量超标
@@ -217,7 +240,7 @@ export async function applyPerMessageBudget(
   // 重新应用已有替换
   for (const candidate of mustReapply) {
     decisions.push({
-      action: "reapply",
+      action: 'reapply',
       content: candidate.replacement,
       originalSize: candidate.size,
     });
@@ -227,7 +250,7 @@ export async function applyPerMessageBudget(
   for (const candidate of frozen) {
     markSeenId(state, candidate.toolUseId);
     decisions.push({
-      action: "keep",
+      action: 'keep',
       content: candidate.content,
       originalSize: candidate.size,
     });
@@ -239,17 +262,21 @@ export async function applyPerMessageBudget(
 
   // 过滤可处理的候选
   const eligible = fresh.filter(
-    (c) => !skipNames.has(c.toolName.trim().toLowerCase()) && !shouldSkipPersist(c.toolName),
+    (c) =>
+      !skipNames.has(c.toolName.trim().toLowerCase()) &&
+      !shouldSkipPersist(c.toolName),
   );
   const skipped = fresh.filter(
-    (c) => skipNames.has(c.toolName.trim().toLowerCase()) || shouldSkipPersist(c.toolName),
+    (c) =>
+      skipNames.has(c.toolName.trim().toLowerCase()) ||
+      shouldSkipPersist(c.toolName),
   );
 
   // 标记跳过的候选为已发送
   for (const candidate of skipped) {
     markSeenId(state, candidate.toolUseId);
     decisions.push({
-      action: "keep",
+      action: 'keep',
       content: candidate.content,
       originalSize: candidate.size,
     });
@@ -276,9 +303,9 @@ export async function applyPerMessageBudget(
         );
         decisions.push(decision);
 
-        if (decision.action === "persist") {
+        if (decision.action === 'persist') {
           newlyReplaced.push({
-            kind: "tool-result",
+            kind: 'tool-result',
             toolUseId: candidate.toolUseId,
             toolName: candidate.toolName,
             originalSize: candidate.size,
@@ -295,7 +322,7 @@ export async function applyPerMessageBudget(
         // 不需要替换，标记为已发送
         markSeenId(state, candidate.toolUseId);
         decisions.push({
-          action: "keep",
+          action: 'keep',
           content: candidate.content,
           originalSize: candidate.size,
         });
@@ -315,9 +342,9 @@ export async function applyPerMessageBudget(
       );
       decisions.push(decision);
 
-      if (decision.action === "persist") {
+      if (decision.action === 'persist') {
         newlyReplaced.push({
-          kind: "tool-result",
+          kind: 'tool-result',
           toolUseId: candidate.toolUseId,
           toolName: candidate.toolName,
           originalSize: candidate.size,
@@ -333,7 +360,8 @@ export async function applyPerMessageBudget(
     decisions,
     newlyReplaced,
     totalSize: decisions.reduce(
-      (sum, d) => sum + (d.action === "persist" ? d.content.length : d.originalSize),
+      (sum, d) =>
+        sum + (d.action === 'persist' ? d.content.length : d.originalSize),
       0,
     ),
     frozenSize,
@@ -345,8 +373,12 @@ export async function applyPerMessageBudget(
 
 export function safeSegment(value: string): string {
   const trimmed = value.trim();
-  const normalized = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return normalized || createHash("sha256").update(value).digest("hex").slice(0, 16);
+  const normalized = trimmed
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return (
+    normalized || createHash('sha256').update(value).digest('hex').slice(0, 16)
+  );
 }
 
 function buildToolResultPath(
@@ -355,17 +387,26 @@ function buildToolResultPath(
 ): string {
   const tool = safeSegment(input.toolName);
   const call = safeSegment(input.toolCallId);
-  return path.join(storage.baseDir, safeSegment(storage.sessionId), `${tool}-${call}.txt`);
+  return path.join(
+    storage.baseDir,
+    safeSegment(storage.sessionId),
+    `${tool}-${call}.txt`,
+  );
 }
 
-export function buildToolResultBudgetSessionDir(
-  storage: { baseDir: string; sessionId: string },
-): string {
+export function buildToolResultBudgetSessionDir(storage: {
+  baseDir: string;
+  sessionId: string;
+}): string {
   return path.join(storage.baseDir, safeSegment(storage.sessionId));
 }
 
-function previewContent(content: string, previewChars: number): { preview: string; hasMore: boolean } {
-  if (content.length <= previewChars) return { preview: content, hasMore: false };
+function previewContent(
+  content: string,
+  previewChars: number,
+): { preview: string; hasMore: boolean } {
+  if (content.length <= previewChars)
+    return { preview: content, hasMore: false };
   return { preview: content.slice(0, previewChars), hasMore: true };
 }
 
@@ -382,9 +423,15 @@ export interface CommandOutputSummary {
  */
 export function summarizeCommandOutput(content: string): CommandOutputSummary {
   const lines = content.split(/\r?\n/);
-  const failedLines = lines.filter((line) => /\b(fail(?:ed|ure)?|✗|×)\b/i.test(line)).slice(0, 20);
-  const errorLines = lines.filter((line) => /\b(error|exception|traceback|panic)\b/i.test(line)).slice(0, 20);
-  const exitCodeLine = lines.find((line) => /exit\s*code\s*[:=]\s*\d+/i.test(line));
+  const failedLines = lines
+    .filter((line) => /\b(fail(?:ed|ure)?|✗|×)\b/i.test(line))
+    .slice(0, 20);
+  const errorLines = lines
+    .filter((line) => /\b(error|exception|traceback|panic)\b/i.test(line))
+    .slice(0, 20);
+  const exitCodeLine = lines.find((line) =>
+    /exit\s*code\s*[:=]\s*\d+/i.test(line),
+  );
   const exitCodeMatch = exitCodeLine?.match(/exit\s*code\s*[:=]\s*(\d+)/i);
   return {
     exitCode: exitCodeMatch ? Number(exitCodeMatch[1]) : undefined,
@@ -401,4 +448,4 @@ export {
   serializeToolResultBudgetState,
   type ToolResultBudgetState,
   type ToolResultReplacementRecord,
-} from "./tool-result-budget-state";
+} from './tool-result-budget-state';

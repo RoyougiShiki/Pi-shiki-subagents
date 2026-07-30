@@ -5,7 +5,9 @@ import {
   renderOmoSubagentResultLines,
 } from './subagent-run-tool-renderer';
 
-function details(overrides: Partial<OmoSubagentToolDetailsV1> = {}): OmoSubagentToolDetailsV1 {
+function details(
+  overrides: Partial<OmoSubagentToolDetailsV1> = {},
+): OmoSubagentToolDetailsV1 {
   return {
     version: 1,
     action: 'spawn',
@@ -32,7 +34,11 @@ function details(overrides: Partial<OmoSubagentToolDetailsV1> = {}): OmoSubagent
       toolCount: 3,
       latestEvents: [
         { type: 'status', summary: 'status: streaming' },
-        { type: 'tool_activity', summary: 'tool read activity', toolName: 'read' },
+        {
+          type: 'tool_activity',
+          summary: 'tool read activity',
+          toolName: 'read',
+        },
         { type: 'activity', summary: 'activity observed' },
       ],
       hiddenEventCount: 0,
@@ -63,7 +69,16 @@ describe('omo subagent tool renderer', () => {
 
   test('spawn collapsed result does not duplicate the tool call line', () => {
     const lines = renderOmoSubagentResultLines(
-      { details: details({ focusedRun: { ...details().focusedRun!, status: 'starting', elapsedText: '00:00', toolCount: 0 } }) },
+      {
+        details: details({
+          focusedRun: {
+            ...details().focusedRun!,
+            status: 'starting',
+            elapsedText: '00:00',
+            toolCount: 0,
+          },
+        }),
+      },
       { expanded: false, width: 120 },
     );
     expect(lines).toEqual([]);
@@ -82,7 +97,8 @@ describe('omo subagent tool renderer', () => {
   test('collapsed result shows child summary within line budget', () => {
     const lines = renderOmoSubagentResultLines(
       {
-        details: details({ action: 'send',
+        details: details({
+          action: 'send',
           focusedRun: {
             ...details().focusedRun!,
             latestEvents: [],
@@ -143,7 +159,9 @@ describe('omo subagent tool renderer', () => {
 
   test('missing details falls back to normal text', () => {
     expect(
-      renderOmoSubagentResultLines({ content: [{ type: 'text', text: 'fallback' }] }),
+      renderOmoSubagentResultLines({
+        content: [{ type: 'text', text: 'fallback' }],
+      }),
     ).toEqual(['fallback']);
   });
 
@@ -155,7 +173,9 @@ describe('omo subagent tool renderer', () => {
           focusedRun: {
             ...details().focusedRun!,
             title: '实现 子代理\u0007',
-            latestEvents: [{ type: 'activity', summary: '完成 中文摘要\u0007' }],
+            latestEvents: [
+              { type: 'activity', summary: '完成 中文摘要\u0007' },
+            ],
           },
         }),
       },

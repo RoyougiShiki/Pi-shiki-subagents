@@ -1,17 +1,11 @@
-import { MODEL_PLACEHOLDER, PRESET_CONFIGURABLE_AGENT_NAMES } from '../config/constants';
 import type { InstallConfig } from './types';
 
 const SCHEMA_URL =
   'https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json';
 
-
-function createPlaceholderPreset(): Record<string, { model: string }> {
-  return Object.fromEntries(
-    PRESET_CONFIGURABLE_AGENT_NAMES.map((agentName) => [
-      agentName,
-      { model: MODEL_PLACEHOLDER },
-    ]),
-  );
+/** Empty preset packs: role subagents follow the current main model. */
+function createEmptyPreset(): Record<string, never> {
+  return {};
 }
 
 export function generateLiteConfig(
@@ -21,8 +15,8 @@ export function generateLiteConfig(
     $schema: SCHEMA_URL,
     preset: '省钱模式',
     presets: {
-      '省钱模式': createPlaceholderPreset(),
-      '性能模式': createPlaceholderPreset(),
+      省钱模式: createEmptyPreset(),
+      性能模式: createEmptyPreset(),
     },
   };
 

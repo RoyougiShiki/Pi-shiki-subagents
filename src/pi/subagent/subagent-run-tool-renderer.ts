@@ -27,7 +27,7 @@ const COLLAPSED_LINE_LIMIT = 3;
 
 function sanitizeAscii(value: string): string {
   return value
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/\p{Cc}/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -52,7 +52,8 @@ function statusCounts(details: OmoSubagentToolDetailsV1): string {
     parts.push(`${details.summary.counts.completed} completed`);
   if (details.summary.counts.failed)
     parts.push(`${details.summary.counts.failed} failed`);
-  if (details.summary.counts.dead) parts.push(`${details.summary.counts.dead} dead`);
+  if (details.summary.counts.dead)
+    parts.push(`${details.summary.counts.dead} dead`);
   return parts.length ? parts.join(', ') : 'no subagents';
 }
 
@@ -74,7 +75,9 @@ function focusedHeader(details: OmoSubagentToolDetailsV1): string {
   return parts.join(' | ');
 }
 
-function renderSpawnCollapsed(details: OmoSubagentToolDetailsV1): string[] | undefined {
+function renderSpawnCollapsed(
+  details: OmoSubagentToolDetailsV1,
+): string[] | undefined {
   const run = details.focusedRun;
   if (details.action !== 'spawn' || !run) return undefined;
   return [];
@@ -108,8 +111,7 @@ function renderSummaryChildLines(
   hiddenLabel = 'children',
 ): string[] {
   const lines = children.map(
-    (child) =>
-      `  * ${child.title} | ${child.status} | ${child.elapsedText}`,
+    (child) => `  * ${child.title} | ${child.status} | ${child.elapsedText}`,
   );
   if (hiddenCount > 0) lines.push(`  +${hiddenCount} more ${hiddenLabel}`);
   return lines;
@@ -119,7 +121,13 @@ function renderExpanded(details: OmoSubagentToolDetailsV1): string[] {
   const run = details.focusedRun;
   if (!run) {
     const lines = [`Subagents: ${statusCounts(details)}`];
-    lines.push(...renderSummaryChildLines(details.summary.roots, details.summary.hiddenRootCount, 'subagents'));
+    lines.push(
+      ...renderSummaryChildLines(
+        details.summary.roots,
+        details.summary.hiddenRootCount,
+        'subagents',
+      ),
+    );
     return lines;
   }
 
@@ -164,7 +172,8 @@ export function renderOmoSubagentCallLines(
 ): string[] {
   const width = options.width ?? DEFAULT_WIDTH;
   const action = typeof args.pool === 'string' ? args.pool : 'call';
-  const id = typeof args.id === 'string' && args.id.trim() ? args.id.trim() : undefined;
+  const id =
+    typeof args.id === 'string' && args.id.trim() ? args.id.trim() : undefined;
   const agent =
     typeof args.agent === 'string' && args.agent.trim()
       ? args.agent.trim()
@@ -188,7 +197,9 @@ export function renderOmoSubagentResult(
   _theme?: ThemeLike,
 ): Text {
   return new Text(
-    renderOmoSubagentResultLines(result, { expanded: options.expanded }).join('\n'),
+    renderOmoSubagentResultLines(result, { expanded: options.expanded }).join(
+      '\n',
+    ),
     0,
     0,
   );

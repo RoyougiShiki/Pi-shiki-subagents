@@ -107,23 +107,23 @@ describe('subagent session contract', () => {
 
   test('tracks latest activity timestamp, tool count, result summary, and usage', () => {
     let state = createSubagentRunState();
-    state = updateSubagentRunState(state, startRun('dispatcher', 100));
+    state = updateSubagentRunState(state, startRun('fixer', 100));
     state = updateSubagentRunState(state, {
       type: 'tool_call',
-      runId: 'dispatcher',
+      runId: 'fixer',
       timestamp: 120,
       toolName: 'read',
       summary: 'src/index.ts',
     });
     state = updateSubagentRunState(state, {
       type: 'usage',
-      runId: 'dispatcher',
+      runId: 'fixer',
       timestamp: 130,
       usage: { input: 100, output: 20 },
     });
     state = updateSubagentRunState(state, {
       type: 'run_finished',
-      runId: 'dispatcher',
+      runId: 'fixer',
       timestamp: 200,
       status: 'failed',
       errorMessage: 'boom',
@@ -152,23 +152,25 @@ describe('subagent session contract', () => {
 
   test('returns snapshots without aliasing mutable recent events or usage', () => {
     let state = createSubagentRunState();
-    state = updateSubagentRunState(state, startRun('dispatcher', 100));
+    state = updateSubagentRunState(state, startRun('fixer', 100));
     state = updateSubagentRunState(state, {
       type: 'assistant_text',
-      runId: 'dispatcher',
+      runId: 'fixer',
       timestamp: 120,
       text: 'safe summary',
     });
     state = updateSubagentRunState(state, {
       type: 'usage',
-      runId: 'dispatcher',
+      runId: 'fixer',
       timestamp: 130,
       usage: { input: 100 },
     });
 
     const [snapshot] = createSubagentSessionSnapshots(state);
-    if (snapshot?.activity.latestEvent) snapshot.activity.latestEvent.text = 'mutated';
-    if (snapshot?.activity.recentEvents[0]) snapshot.activity.recentEvents[0].text = 'mutated-list';
+    if (snapshot?.activity.latestEvent)
+      snapshot.activity.latestEvent.text = 'mutated';
+    if (snapshot?.activity.recentEvents[0])
+      snapshot.activity.recentEvents[0].text = 'mutated-list';
     if (snapshot?.usage) snapshot.usage.input = 999;
 
     const [freshSnapshot] = createSubagentSessionSnapshots(state);

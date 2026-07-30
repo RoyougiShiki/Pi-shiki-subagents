@@ -99,7 +99,7 @@ declare module "@earendil-works/pi-coding-agent" {
     select<T>(title: string, options: T[]): Promise<T | undefined>;
     input(title: string, placeholder?: string): Promise<string | undefined>;
     setStatus(id: string, text: string): void;
-    setWidget(id: string, lines: string[] | undefined): void;
+    setWidget(id: string, lines: string[] | undefined, options?: { placement?: "aboveEditor" | "belowEditor" }): void;
     custom<T>(
       builder: (tui: any, theme: any, keybindings: any, done: (result: T) => void) => any,
       options?: any,

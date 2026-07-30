@@ -3,1049 +3,246 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-
-mock.module('typebox', () => ({
-  Type: {
-    String: (options?: any) => ({ type: 'string', ...options }),
-    Number: (options?: any) => ({ type: 'number', ...options }),
-    Integer: (options?: any) => ({ type: 'integer', ...options }),
-    Boolean: (options?: any) => ({ type: 'boolean', ...options }),
-    Array: (schema: any, options?: any) => ({ type: 'array', items: schema, ...options }),
-    Object: (properties: any, options?: any) => ({ type: 'object', properties, ...options }),
-    Optional: (schema: any) => ({ ...schema, optional: true }),
-    Union: (schemas: any[]) => ({ anyOf: schemas }),
-    Literal: (value: any) => ({ const: value }),
-    Record: (key: any, value: any) => ({ type: 'record', key, value }),
-  },
-}));
-
 let testPiAgentDir = '/tmp/omo-pi-test/agent';
 
 mock.module('@earendil-works/pi-coding-agent', () => ({
+  getAgentDir: () => testPiAgentDir,
   createAgentSession: mock(async () => ({
     session: {
       prompt: mock(async () => {}),
-      state: { messages: [] },
       subscribe: mock(() => () => {}),
-      dispose: mock(() => {}),
       abort: mock(async () => {}),
-      isStreaming: false,
+      dispose: mock(() => {}),
+      state: { messages: [] },
+      agent: { state: { messages: [] }, waitForIdle: mock(async () => {}) },
     },
   })),
-  getAgentDir: () => testPiAgentDir,
-  DynamicBorder: class { constructor(_c?: any) {} invalidate() {} render(_w: number) { return ['']; } },
   SessionManager: {
-    inMemory: () => ({ getBranch: () => [], getEntries: () => [], getLeafId: () => undefined, getSessionFile: () => undefined }),
+    inMemory: () => ({}),
+    create: () => ({}),
+    open: () => ({}),
+  },
+  DynamicBorder: class {
+    invalidate() {}
+    render() {
+      return [''];
+    }
   },
 }));
-mock.module("@earendil-works/pi-tui", () => {
-  class MockInput {
-    focused = false;
-    onSubmit;
-    onEscape;
-    getValue() { return ""; }
-    setValue(_v) {}
-    handleInput(_d) {}
-    invalidate() {}
-    render(_w) { return [""]; }
-  }
-  class MockContainer {
-    children = [];
-    addChild(c) { this.children.push(c); }
-    removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); }
-    clear() { this.children = []; }
-    invalidate() {}
-    render(_w) { return [""]; }
-  }
-  class MockSpacer {
-    constructor(_n) {}
-    invalidate() {}
-    render(_w) { return [""]; }
-  }
-  class MockText {
-    constructor(_t, _x, _y) {}
-    invalidate() {}
-    render(_w) { return [""]; }
-  }
-  class MockSelectList {
-    items;
-    onSelect;
-    onCancel;
-    constructor(items) { this.items = items; }
-    getSelectedItem() { return this.items[0] ?? null; }
-    handleInput(_d) {}
-    invalidate() {}
-    render(_w) { return this.items.length ? this.items.map((item) => item.label) : [""]; }
-  }
-  return {
-    Input: MockInput,
-    Container: MockContainer,
-    Spacer: MockSpacer,
-    Text: MockText,
-    SelectList: MockSelectList,
-    matchesKey: () => false,
-    Key: {
-      up: 'up',
-      down: 'down',
-      pageUp: 'pageUp',
-      pageDown: 'pageDown',
-      enter: 'enter',
-      escape: 'escape',
-      ctrl: (key: string) => `ctrl+${key}`,
-    },
+
+function writeJson(filePath: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function createPi() {
+  const handlers = new Map<string, Array<(event: any, ctx: any) => unknown>>();
+  const tools: any[] = [];
+  const commands = new Map<string, any>();
+  const pi = {
+    getAllTools: mock(() => [
+      { name: 'read' },
+      { name: 'write' },
+      { name: 'edit' },
+      { name: 'bash' },
+      { name: 'omo_subagent' },
+      { name: 'omo_council' },
+    ]),
+    setActiveTools: mock(() => {}),
+    on: mock((name: string, handler: (event: any, ctx: any) => unknown) => {
+      handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+    }),
+    registerTool: mock((tool: any) => tools.push(tool)),
+    registerCommand: mock((name: string, command: any) =>
+      commands.set(name, command),
+    ),
+    setModel: mock(async () => true),
+    setThinkingLevel: mock(() => {}),
   };
-});
+  const ctx = {
+    cwd: process.cwd(),
+    ui: { notify: mock(() => {}) },
+    modelRegistry: { find: mock(() => ({ provider: 'test', id: 'main' })) },
+  };
+  return { pi, ctx, handlers, tools, commands };
+}
 
-
-describe('Pi adapter agent prompt sync', () => {
-  let tempDir: string;
-  let originalEnv: NodeJS.ProcessEnv;
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-agent-sync-'));
-    originalEnv = { ...process.env };
-    process.env.HOME = path.join(tempDir, 'home');
-    testPiAgentDir = path.join(tempDir, 'pi', 'agent');
-    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
-  });
-
-  // (workflow stage result test removed — stage-result-store 已删除，存储已改为 pi.ts 内部变量)
-
-  test('omits missing or blank constitution and labels workflow stages', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const prompt = buildPiOrchestratorPrompt([], null, {
-      hasPiAgents: false,
-      hasSubagent: false,
-      hasAgentMessage: false,
-    });
-
-    expect(prompt).toContain('<AvailableAgents>');
-    expect(prompt).not.toContain('<CONSTITUTION>');
-    expect(prompt).not.toContain('未找到 constitution.md');
-    const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
-    expect(standardDevLine).not.toContain('非阶段可委托');
-    expect(prompt).toContain('<ModeWorkflows>');
-    expect(prompt).toContain('@standard-dev -> standard-dev');
-    expect(prompt).toContain('@quick-fix -> quick-fix');
-    expect(prompt).toContain('3.implement:dispatcher (+fixer, oracle)');
-    expect(prompt).toContain('1.analysis:quick-fix (+search) -> 2.fix:fixer (+search, oracle)');
-    expect(prompt).toContain('用户决定 WHAT');
-
-    const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
-    fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
-    fs.writeFileSync(constitutionPath, '  \n\t\n', 'utf-8');
-
-    const blankPrompt = buildPiOrchestratorPrompt([], null, {
-      hasPiAgents: false,
-      hasSubagent: false,
-      hasAgentMessage: false,
-    });
-
-    expect(blankPrompt).not.toContain('<CONSTITUTION>');
-    expect(blankPrompt).not.toContain('未找到 constitution.md');
-  });
-
-  test('injects non-empty constitution and filters disabled workflow helpers', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles, getPiAgentDirForConfig } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const constitutionPath = path.join(getPiAgentDirForConfig(), 'constitution.md');
-    fs.mkdirSync(path.dirname(constitutionPath), { recursive: true });
-    fs.writeFileSync(constitutionPath, '<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>\n', 'utf-8');
-
-    const prompt = buildPiOrchestratorPrompt(['search'], null, {
-      hasPiAgents: false,
-      hasSubagent: false,
-      hasAgentMessage: false,
-    });
-
-    expect(prompt).toContain('<CONSTITUTION>\nKeep prompts lean.\n</CONSTITUTION>');
-    const standardDevLine = prompt.split('\n').find((line) => line.includes('@standard-dev')) ?? '';
-    expect(standardDevLine).not.toContain('search');
-    expect(standardDevLine).not.toContain('非阶段可委托');
-    const availableAgents = prompt.match(/<AvailableAgents>[\s\S]*?<\/AvailableAgents>/)?.[0] ?? '';
-    expect(availableAgents).not.toContain('@search');
-    const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
-    expect(modeWorkflows).not.toContain('+search');
-    expect(prompt).toContain('以下 agents 已被禁用: search');
-  });
-
-  test('builds mode workflow prompt from runtime agent config instead of built-in names', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const prompt = buildPiOrchestratorPrompt([], {
-      agents: {
-        customLead: {
-          type: 'mode',
-          label: 'Custom Lead',
-          pipelineMode: true,
-          workflow: 'custom-flow',
-          delegates: ['customWorker'],
-          model: 'custom/lead-model',
-          prompt: 'Custom lead prompt.',
-        },
-        customWorker: {
-          type: 'subagent',
-          label: 'Custom Worker',
-          model: 'custom/worker-model',
-          prompt: 'Custom worker prompt.',
-        },
-        customReviewer: {
-          type: 'subagent',
-          label: 'Custom Reviewer',
-          model: 'custom/reviewer-model',
-          prompt: 'Custom reviewer prompt.',
-        },
-      },
-      workflows: {
-        list: [
-          {
-            name: 'custom-flow',
-            description: 'Custom flow',
-            stages: [
-              {
-                id: 'custom-step',
-                agent: 'customWorker',
-                allowedSubagents: ['customReviewer'],
-              },
-            ],
-          },
-        ],
-      },
-    } as any, {
-      hasPiAgents: false,
-      hasSubagent: true,
-      hasAgentMessage: false,
-    });
-
-    expect(prompt).toContain('@customLead (模式) — Custom Lead');
-    expect(prompt).not.toContain('非阶段可委托');
-    expect(prompt).toContain('@customLead -> custom-flow: 1.custom-step:customWorker (+customReviewer)');
-  });
-
-  test('orchestrator prompt does not revive stale managed agent config entries', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const prompt = buildPiOrchestratorPrompt([], {
-      agents: {
-        coordinator: {
-          type: 'mode',
-          label: 'Old Coordinator',
-          pipelineMode: true,
-          workflow: 'standard-dev',
-        },
-        'quick-fix': {
-          delegates: ['worker', 'oracle'],
-        },
-        worker: {
-          type: 'subagent',
-          label: 'Old Worker',
-          delegates: ['fixer', 'oracle'],
-        },
-      },
-    } as any, {
-      hasPiAgents: false,
-      hasSubagent: true,
-      hasAgentMessage: false,
-    });
-
-    expect(prompt).not.toContain('@coordinator');
-    expect(prompt).not.toContain('@worker');
-    expect(prompt).not.toContain('非阶段可委托: worker');
-  });
-
-  test('orchestrator prompt can use the runtime agent snapshot shared with gates', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const snapshot = {
-      customLead: {
-        type: 'mode',
-        label: 'Snapshot Lead',
-        pipelineMode: true,
-        workflow: 'snapshot-flow',
-      },
-      customWorker: {
-        type: 'subagent',
-        label: 'Snapshot Worker',
-      },
-    };
-    const prompt = buildPiOrchestratorPrompt([], {
-      workflows: {
-        list: [
-          {
-            name: 'snapshot-flow',
-            description: 'Snapshot flow',
-            stages: [{ id: 'work', agent: 'customWorker' }],
-          },
-        ],
-      },
-    } as any, {
-      hasPiAgents: false,
-      hasSubagent: true,
-      hasAgentMessage: false,
-    }, snapshot as any);
-
-    expect(prompt).toContain('@customLead (模式) — Snapshot Lead');
-    expect(prompt).toContain('@customLead -> snapshot-flow: 1.work:customWorker');
-    expect(prompt).not.toContain('@standard-dev');
-  });
-
-  test('mode workflow prompt hides hidden stage agents and helpers like gate known agents', async () => {
-    const { buildPiOrchestratorPrompt, ensureAgentFiles } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const prompt = buildPiOrchestratorPrompt([], {
-      agents: {
-        customLead: {
-          type: 'mode',
-          label: 'Custom Lead',
-          pipelineMode: true,
-          workflow: 'custom-flow',
-          model: 'custom/lead-model',
-          prompt: 'Custom lead prompt.',
-        },
-        visibleWorker: {
-          type: 'subagent',
-          label: 'Visible Worker',
-          model: 'custom/visible-worker-model',
-          prompt: 'Visible worker prompt.',
-        },
-        hiddenWorker: {
-          type: 'subagent',
-          label: 'Hidden Worker',
-          hidden: true,
-          model: 'custom/hidden-worker-model',
-          prompt: 'Hidden worker prompt.',
-        },
-        hiddenHelper: {
-          type: 'subagent',
-          label: 'Hidden Helper',
-          hidden: true,
-          model: 'custom/hidden-helper-model',
-          prompt: 'Hidden helper prompt.',
-        },
-      },
-      workflows: {
-        list: [
-          {
-            name: 'custom-flow',
-            description: 'Custom flow',
-            stages: [
-              { id: 'visible', agent: 'visibleWorker', allowedSubagents: ['hiddenHelper'] },
-              { id: 'hidden', agent: 'hiddenWorker' },
-            ],
-          },
-        ],
-      },
-    } as any, {
-      hasPiAgents: false,
-      hasSubagent: true,
-      hasAgentMessage: false,
-    });
-
-    const modeWorkflows = prompt.match(/<ModeWorkflows>[\s\S]*?<\/ModeWorkflows>/)?.[0] ?? '';
-    expect(modeWorkflows).toContain('1.visible:visibleWorker');
-    expect(modeWorkflows).not.toContain('hiddenWorker');
-    expect(modeWorkflows).not.toContain('hiddenHelper');
-  });
-
-  test('generates managed agent markdown in Pi agents dir without model/tool frontmatter', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-
-    const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
-    const content = fs.readFileSync(oraclePath, 'utf-8');
-    expect(content).toContain('name: oracle');
-    expect(content).toContain('description: 证据驱动的对抗性审查');
-    expect(content).toContain('omo-managed: true');
-    expect(content).toContain('omo-source-hash:');
-    expect(content).not.toContain('model:');
-    expect(content).not.toContain('thinking:');
-    expect(content).not.toContain('tools:');
-  });
-
-  test('updates stale managed agent markdown and writes a backup', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-
-    ensureAgentFiles();
-    const oraclePath = path.join(getPiAgentsDirForSync(), 'oracle.md');
-    const original = fs.readFileSync(oraclePath, 'utf-8');
-    fs.writeFileSync(oraclePath, original.replace('# 角色', '# stale role'), 'utf-8');
-
-    ensureAgentFiles();
-
-    const updated = fs.readFileSync(oraclePath, 'utf-8');
-    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
-    expect(updated).toContain('# 角色');
-    expect(updated).not.toContain('# stale role');
-    expect(backup).toContain('# stale role');
-  });
-
-  test('does not overwrite unmanaged legacy or custom agent markdown', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-    const agentsDir = getPiAgentsDirForSync();
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const oraclePath = path.join(agentsDir, 'oracle.md');
-    const customContent = ['---', 'name: oracle', 'description: Custom Oracle', '---', '', '# custom prompt'].join('\n');
-    fs.writeFileSync(oraclePath, customContent, 'utf-8');
-
-    ensureAgentFiles();
-
-    expect(fs.readFileSync(oraclePath, 'utf-8')).toBe(customContent);
-    expect(fs.existsSync(`${oraclePath}.bak`)).toBe(false);
-  });
-
-  test('migrates old OMO-generated markdown with obsolete model frontmatter', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-    const agentsDir = getPiAgentsDirForSync();
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const sourcePath = path.join(import.meta.dir, 'agents', 'oracle.md');
-    const oraclePath = path.join(agentsDir, 'oracle.md');
-    const legacyContent = fs.readFileSync(sourcePath, 'utf-8').replace('description: 证据驱动的对抗性审查与[用户触发屏蔽词]', 'description: 证据驱动的对抗性审查与[用户触发屏蔽词]\nmodel: openai/gpt-4.1\nthinking: low');
-    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
-
-    ensureAgentFiles();
-
-    const migrated = fs.readFileSync(oraclePath, 'utf-8');
-    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
-    expect(migrated).toContain('omo-managed: true');
-    expect(migrated).toContain('omo-source-hash:');
-    expect(migrated).not.toContain('model:');
-    expect(migrated).not.toContain('thinking:');
-    expect(backup).toBe(legacyContent);
-  });
-
-  test('does not migrate custom prompt that keeps the default description', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-    const agentsDir = getPiAgentsDirForSync();
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const oraclePath = path.join(agentsDir, 'oracle.md');
-    const customContent = [
-      '---',
-      'name: oracle',
-      'description: Strategic technical advisor and code reviewer',
-      '---',
-      '',
-      '# My custom Oracle prompt',
-      'This keeps the stock description but changes the body.',
-    ].join('\n');
-    fs.writeFileSync(oraclePath, customContent, 'utf-8');
-
-    ensureAgentFiles();
-
-    expect(fs.readFileSync(oraclePath, 'utf-8')).toBe(customContent);
-    expect(fs.existsSync(`${oraclePath}.bak`)).toBe(false);
-  });
-
-  test('migrates old English OMO-generated oracle markdown after reload', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-    const agentsDir = getPiAgentsDirForSync();
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const oraclePath = path.join(agentsDir, 'oracle.md');
-    const legacyContent = [
-      '---',
-      'name: oracle',
-      'description: Strategic technical advisor and code reviewer',
-      'thinking: low',
-      '---',
-      '',
-      'You are Oracle - a strategic technical advisor and code reviewer.',
-      '',
-      '**Role**: High-IQ debugging, architecture decisions, code review, simplification, and engineering guidance.',
-    ].join('\n');
-    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
-
-    ensureAgentFiles();
-
-    const migrated = fs.readFileSync(oraclePath, 'utf-8');
-    const backup = fs.readFileSync(`${oraclePath}.bak`, 'utf-8');
-    expect(migrated).toContain('omo-managed: true');
-    expect(migrated).toContain('# 角色');
-    expect(migrated).not.toContain('You are Oracle -');
-    expect(migrated).not.toContain('thinking:');
-    expect(backup).toBe(legacyContent);
-  });
-
-  test('reloads in-memory AGENT_PROMPTS after migrating files', async () => {
-    const { ensureAgentFiles, getPiAgentsDirForSync } = await import('../pi/core/pi');
-    const { AGENT_PROMPTS } = await import('../pi/meeting/pi-agents');
-    const agentsDir = getPiAgentsDirForSync();
-    fs.mkdirSync(agentsDir, { recursive: true });
-    const oraclePath = path.join(agentsDir, 'oracle.md');
-    const legacyContent = [
-      '---',
-      'name: oracle',
-      'description: Strategic technical advisor and code reviewer',
-      'thinking: low',
-      '---',
-      '',
-      'You are Oracle - a strategic technical advisor and code reviewer.',
-    ].join('\n');
-    fs.writeFileSync(oraclePath, legacyContent, 'utf-8');
-
-    ensureAgentFiles();
-
-    expect(AGENT_PROMPTS.oracle?.prompt).toContain('# 角色');
-    expect(AGENT_PROMPTS.oracle?.prompt).not.toContain('You are Oracle -');
-  });
-});
-
-describe('Pi adapter config helpers', () => {
+describe('Pi runtime configuration', () => {
   let tempDir: string;
   let projectDir: string;
   let originalEnv: NodeJS.ProcessEnv;
-  let originalCwd: string;
-
-  function writeJson(filePath: string, value: unknown): void {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
-  }
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-adapter-config-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'omo-pi-runtime-'));
     projectDir = path.join(tempDir, 'project');
     fs.mkdirSync(projectDir, { recursive: true });
     originalEnv = { ...process.env };
-    originalCwd = process.cwd();
     process.env.HOME = path.join(tempDir, 'home');
     process.env.XDG_CONFIG_HOME = path.join(tempDir, 'xdg');
     delete process.env.OPENCODE_CONFIG_DIR;
-    delete process.env.OH_MY_OPENCODE_SLIM_PRESET;
     testPiAgentDir = path.join(tempDir, 'pi', 'agent');
-    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
-    process.chdir(projectDir);
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
     process.env = originalEnv;
     fs.rmSync(tempDir, { recursive: true, force: true });
-    fs.rmSync(path.dirname(testPiAgentDir), { recursive: true, force: true });
   });
 
-  test('workflow stage helper returns session snapshot context', async () => {
-    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
-    const helpers = createWorkflowStageGateHelpers({
-      workflows: {
-        default: 'flow',
-        list: [{ name: 'flow', description: 'Flow', stages: [{ id: 'stage', agent: 'primary' }] }],
-      },
-      knownAgents: ['primary'],
-      getActiveWorkflowName: () => 'flow',
-    });
-
-    expect(helpers.getWorkflowStageGateContext()).toEqual({
-      workflows: [{ name: 'flow', description: 'Flow', stages: [{ id: 'stage', agent: 'primary' }] }],
-      workflowName: 'flow',
-      stageIndex: 0,
-      knownAgents: ['primary'],
-      stage: { id: 'stage', agent: 'primary' },
-    });
-  });
-
-  test('workflow stage helper returns null when workflow config is missing or empty', async () => {
-    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
-    expect(createWorkflowStageGateHelpers({ workflows: undefined, knownAgents: [], getActiveWorkflowName: () => 'flow' }).getWorkflowStageGateContext()).toBeNull();
-    expect(createWorkflowStageGateHelpers({ workflows: { default: 'flow', list: [] }, knownAgents: [], getActiveWorkflowName: () => 'flow' }).getWorkflowStageGateContext()).toBeNull();
-  });
-
-  test('pipeline subagent approval is required only for pipeline primary stage agents', async () => {
-    const { shouldRequestPipelineSubagentApproval } = await import('../pi/core/pi');
-    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: true, requiresStageApproval: true })).toBe(true);
-    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: true, requiresStageApproval: false })).toBe(false);
-    expect(shouldRequestPipelineSubagentApproval({ isPipelineMode: false, requiresStageApproval: true })).toBe(false);
-  });
-
-  test('workflow gate context exposes current stage for downstream delegation grants', async () => {
-    const { createWorkflowStageGateHelpers } = await import('../pi/core/pi');
-    const helpers = createWorkflowStageGateHelpers({
-      knownAgents: ['standard-dev', 'analyst', 'search', 'oracle', 'dispatcher'],
-      workflows: {
-        default: 'custom-flow',
-        list: [{
-          name: 'custom-flow',
-          description: 'Custom',
-          stages: [{ id: 'analysis', agent: 'analyst', allowedSubagents: ['search'], review: { agent: 'oracle' } }],
-        }],
-      },
-      getActiveWorkflowName: () => 'custom-flow',
-    });
-
-    const context = helpers.getWorkflowStageGateContext();
-    expect(context?.stage.agent).toBe('analyst');
-    expect(context?.stage.allowedSubagents).toEqual(['search']);
-  });
-
-  test('strips JSON comments without breaking URLs inside strings', async () => {
+  test('strips JSONC comments without changing URLs in string values', async () => {
     const { stripJsonCommentsSafely } = await import('../pi/core/pi');
-
-    const raw = `{
-  "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/schema.json", // trailing comment
-  /* block comment */
-  "council": {
-    "meeting_backend": "collaborating",
-  }
-}`;
-
-    const cleaned = stripJsonCommentsSafely(raw);
-    const parsed = JSON.parse(cleaned);
-
-    expect(parsed.$schema).toBe('https://unpkg.com/oh-my-opencode-slim@latest/schema.json');
-    expect(parsed.council.meeting_backend).toBe('collaborating');
-    expect(cleaned).not.toContain('trailing comment');
-    expect(cleaned).not.toContain('block comment');
-  });
-
-  test('loads Pi adapter config through shared OpenCode search paths', async () => {
-    const opencodeDir = path.join(tempDir, 'custom-opencode');
-    process.env.OPENCODE_CONFIG_DIR = opencodeDir;
-    writeJson(path.join(opencodeDir, 'oh-my-opencode-slim.json'), {
-      agents: { oracle: { model: 'runtime/review-oracle' } },
-      council: {
-        presets: { default: { alpha: { model: 'openai/gpt-4o' } } },
-        meeting_backend: 'collaborating',
-      },
-      workflows: {
-        default: 'custom-research',
-        list: [{ name: 'custom-research', description: 'Research', stages: [{ agent: 'search' }] }],
-      },
-    });
-
-    const { getConfigSearchDirs } = await import('../cli/paths');
-    const { loadPluginConfig } = await import('../config/loader');
-    const { loadOmniMoConfig } = await import('../pi/core/pi');
-    const searchDirs = getConfigSearchDirs();
-    const sharedConfig = loadPluginConfig(projectDir);
-    const config = loadOmniMoConfig(projectDir);
-
-    expect(searchDirs).toContain(opencodeDir);
-    expect(sharedConfig.agents?.oracle?.model).toBe('runtime/review-oracle');
-    expect(config?.agents?.oracle?.model).toBe('runtime/review-oracle');
-    expect(config?.council?.meeting_backend).toBe('collaborating');
-    expect(config?.workflows?.default).toBe('custom-research');
-  });
-
-  test('persists selected preset to Pi native config for subagent model resolution', async () => {
-    const piAgentDir = testPiAgentDir;
-    const configPath = path.join(piAgentDir, 'oh-my-opencode-slim.json');
-    writeJson(configPath, {
-      preset: '省钱模式',
-      presets: {
-        '省钱模式': { oracle: { model: 'opencode-go/deepseek-v4-flash' } },
-        '性能模式': { oracle: { model: 'dmxapi-responses/gpt-5.5' } },
-      },
-    });
-
-    const { persistPresetSelectionToPiNativeConfig } = await import('../pi/core/pi');
-    persistPresetSelectionToPiNativeConfig('性能模式', {
-      presets: {
-        '性能模式': { oracle: { model: 'dmxapi-responses/gpt-5.5' } },
-      },
-    } as any);
-
-    const saved = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    expect(saved.preset).toBe('性能模式');
-    expect(saved.presets['性能模式'].oracle.model).toBe('dmxapi-responses/gpt-5.5');
-    expect(saved.presets['省钱模式'].oracle.model).toBe('opencode-go/deepseek-v4-flash');
-  });
-
-  test('merges Pi native config as fallback and project config as override', async () => {
-    const piAgentDir = testPiAgentDir;
-    writeJson(path.join(piAgentDir, 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'pi-native/oracle-model',
-          options: { textVerbosity: 'low', reasoningEffort: 'medium' },
-        },
-      },
-      disabled_agents: ['observer'],
-    });
-    writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'project/oracle-model',
-          options: { textVerbosity: 'high' },
-        },
-      },
-    });
-
-    const piModule = await import('../pi/core/pi');
-    expect(piModule.getPiAgentDirForConfig()).toBe(piAgentDir);
-    expect(fs.existsSync(path.join(piAgentDir, 'oh-my-opencode-slim.json'))).toBe(true);
-    const config = piModule.loadOmniMoConfig(projectDir);
-
-    expect(config?.agents?.oracle?.model).toBe('project/oracle-model');
-    expect(config?.agents?.oracle?.options).toEqual({
-      textVerbosity: 'high',
-      reasoningEffort: 'medium',
-    });
-    expect(config?.disabled_agents).toEqual(['observer']);
-  });
-  test('loads Pi native .jsonc config with comments and trailing commas', async () => {
-    const piAgentDir = testPiAgentDir;
-    fs.mkdirSync(piAgentDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(piAgentDir, 'oh-my-opencode-slim.jsonc'),
-      `{
-        // Pi-native JSONC config
-        "agents": {
-          "oracle": { "model": "pi-native/jsonc-model", },
-        },
-      }`,
+    const parsed = JSON.parse(
+      stripJsonCommentsSafely(`{
+      "$schema": "https://example.test/schema.json", // comment
+      /* block */ "council": { "meeting_backend": "session" }
+    }`),
     );
 
-    const piModule = await import('../pi/core/pi');
-    const config = piModule.loadOmniMoConfig(projectDir);
-
-    expect(config?.agents?.oracle?.model).toBe('pi-native/jsonc-model');
+    expect(parsed.$schema).toBe('https://example.test/schema.json');
+    expect(parsed.council.meeting_backend).toBe('session');
   });
 
-  test('merges Pi native, OpenCode user, and project config in precedence order', async () => {
-    const piAgentDir = testPiAgentDir;
-    const opencodeDir = path.join(tempDir, 'custom-opencode');
-    process.env.OPENCODE_CONFIG_DIR = opencodeDir;
-
-    writeJson(path.join(piAgentDir, 'oh-my-opencode-slim.json'), {
+  test('merges Pi-native config as a fallback and project config as an override', async () => {
+    writeJson(path.join(testPiAgentDir, 'oh-my-opencode-slim.json'), {
       agents: {
-        oracle: {
-          model: 'pi-native/oracle-model',
-          options: {
-            reasoningEffort: 'low',
-            textVerbosity: 'low',
-            piOnly: true,
-          },
-        },
-        observer: { model: 'pi-native/observer-model' },
-      },
-      disabled_agents: ['observer'],
-    });
-    writeJson(path.join(opencodeDir, 'oh-my-opencode-slim.json'), {
-      agents: {
-        oracle: {
-          model: 'opencode/oracle-model',
-          options: {
-            reasoningEffort: 'medium',
-            userOnly: true,
-          },
-        },
-        fixer: { model: 'opencode/fixer-model' },
+        oracle: { model: 'native/oracle', options: { verbosity: 'low' } },
       },
     });
     writeJson(path.join(projectDir, '.opencode', 'oh-my-opencode-slim.json'), {
       agents: {
-        oracle: {
-          model: 'project/oracle-model',
-          options: {
-            textVerbosity: 'high',
-          },
-        },
+        oracle: { model: 'project/oracle', options: { reasoning: 'high' } },
       },
     });
 
     const { loadOmniMoConfig } = await import('../pi/core/pi');
     const config = loadOmniMoConfig(projectDir);
 
-    expect(config?.agents?.oracle?.model).toBe('project/oracle-model');
+    expect(config?.agents?.oracle?.model).toBe('project/oracle');
     expect(config?.agents?.oracle?.options).toEqual({
-      reasoningEffort: 'medium',
-      textVerbosity: 'high',
-      piOnly: true,
-      userOnly: true,
+      verbosity: 'low',
+      reasoning: 'high',
     });
-    expect(config?.agents?.observer?.model).toBe('pi-native/observer-model');
-    expect(config?.agents?.fixer?.model).toBe('opencode/fixer-model');
-    expect(config?.disabled_agents).toEqual(['observer']);
+  });
+
+  test('persists the selected preset to Pi-native config', async () => {
+    writeJson(path.join(testPiAgentDir, 'oh-my-opencode-slim.json'), {
+      preset: 'economy',
+      presets: { economy: {} },
+    });
+
+    const { persistPresetSelectionToPiNativeConfig } = await import(
+      '../pi/core/pi'
+    );
+    persistPresetSelectionToPiNativeConfig('quality', {
+      presets: { quality: { subagent: 'test/quality-sub' } },
+    } as any);
+
+    const saved = JSON.parse(
+      fs.readFileSync(
+        path.join(testPiAgentDir, 'oh-my-opencode-slim.json'),
+        'utf8',
+      ),
+    );
+    expect(saved.preset).toBe('quality');
+    expect(saved.presets.quality.subagent).toBe('test/quality-sub');
+    expect(saved.presets.economy).toEqual({});
   });
 });
 
-describe('Pi adapter council helpers', () => {
-  test('resolves explicit participants with fallback names and agents', async () => {
-    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
+describe('Pi thin runtime', () => {
+  test('initializes the broad main tool scope and keeps role tools registered', async () => {
+    const { default: extension } = await import('../pi/core/pi');
+    const { getToolScope } = await import('../pi/policy/tool-scope-manager');
+    const { pi, ctx, handlers, tools, commands } = createPi();
 
-    const result = resolvePiCouncilParticipants({
-      config: null,
-      participants: [
-        { name: 'architect', model: 'openai/gpt-4o' },
-        { agent: 'oracle', prompt: 'Review risks' },
-        { model: 'google/gemini-pro' },
-      ],
-    });
+    extension(pi as any);
+    for (const handler of handlers.get('session_start') ?? [])
+      await handler({}, ctx);
 
-    expect(result.error).toBeUndefined();
-    expect(result.participants).toEqual([
-      { name: 'architect', agent: 'architect', model: 'openai/gpt-4o', variant: undefined, prompt: undefined },
-      { name: 'oracle', agent: 'oracle', model: undefined, variant: undefined, prompt: 'Review risks' },
-      { name: 'participant-3', agent: 'participant-3', model: 'google/gemini-pro', variant: undefined, prompt: undefined },
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      'read',
+      'write',
+      'edit',
+      'bash',
+      'omo_subagent',
+      'omo_council',
     ]);
-  });
-
-  test('resolves configured preset participants and skips legacy master', async () => {
-    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
-
-    const result = resolvePiCouncilParticipants({
-      config: {
-        council: {
-          default_preset: 'design',
-          presets: {
-            design: {
-              alpha: { agent: 'oracle', model: 'openai/gpt-4o', prompt: 'Architecture review' },
-              beta: { agent: 'fixer' },
-              master: { model: 'openai/ignored' },
-            },
-          },
-        },
-      } as any,
+    expect(getToolScope()).toMatchObject({
+      source: 'main',
+      sourceName: 'main',
     });
-
-    expect(result.error).toBeUndefined();
-    expect(result.participants.map((p: any) => p.name)).toEqual(['alpha', 'beta']);
-    expect(result.participants[0]).toMatchObject({ name: 'alpha', agent: 'oracle', model: 'openai/gpt-4o' });
+    expect(tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(['omo_council', 'omo_subagent']),
+    );
+    expect([...commands.keys()]).toEqual(
+      expect.arrayContaining(['preset', 'pi-sync', 'pool-status']),
+    );
+    for (const handler of handlers.get('session_shutdown') ?? [])
+      await handler({}, ctx);
+    expect(getToolScope()).toBeNull();
   });
 
-  test('reports missing council configuration with actionable message', async () => {
-    const { resolvePiCouncilParticipants } = await import('../pi/core/pi');
+  test('blocks tools outside the main scope and dangerous bash commands', async () => {
+    const { default: extension } = await import('../pi/core/pi');
+    const { pi, ctx, handlers } = createPi();
 
-    const result = resolvePiCouncilParticipants({ config: null });
+    extension(pi as any);
+    for (const handler of handlers.get('session_start') ?? [])
+      await handler({}, ctx);
+    const gate = handlers.get('tool_call')?.[0];
+    if (!gate) throw new Error('Tool call gate was not registered.');
 
-    expect(result.participants).toEqual([]);
-    expect(result.error).toContain('Council is not configured');
-  });
-
-  test('formats isolated council results preserving failures and completion count', async () => {
-    const { formatPiCouncilResults } = await import('../pi/core/pi');
-
-    const output = formatPiCouncilResults('Choose an architecture', [
-      { name: 'alpha', agent: 'oracle', model: 'openai/gpt-4o', status: 'completed', result: 'Use A' },
-      { name: 'beta', agent: 'fixer', status: 'failed', error: 'Provider unavailable' },
-    ]);
-
-    expect(output).toContain('## Isolated Council Results');
-    expect(output).toContain('Completed: 1/2');
-    expect(output).toContain('### alpha (openai/gpt-4o)');
-    expect(output).toContain('Use A');
-    expect(output).toContain('### beta');
-    expect(output).toContain('Provider unavailable');
-    expect(output).toContain('Preserve disagreements');
-  });
-});
-
-describe('Pi adapter meeting helpers', () => {
-  test('normalizes meeting objective with decision fallback', async () => {
-    const { normalizePiMeetingObjective } = await import('../pi/core/pi');
-
-    expect(normalizePiMeetingObjective(undefined)).toBe('decision');
-    expect(normalizePiMeetingObjective('review')).toBe('review');
-    expect(normalizePiMeetingObjective('not-real')).toBe('decision');
-  });
-
-  test('normalizes meeting max rounds into supported range', async () => {
-    const { normalizePiMeetingMaxRounds } = await import('../pi/core/pi');
-
-    expect(normalizePiMeetingMaxRounds(undefined)).toBe(2);
-    expect(normalizePiMeetingMaxRounds(0)).toBe(0);
-    expect(normalizePiMeetingMaxRounds(3.8)).toBe(3);
-    expect(normalizePiMeetingMaxRounds(99)).toBe(5);
-  });
-
-  test('normalizes meeting backend with session fallback', async () => {
-    const { normalizePiMeetingBackend } = await import('../pi/core/pi');
-
-    expect(normalizePiMeetingBackend(undefined)).toBe('session');
-    expect(normalizePiMeetingBackend('session')).toBe('session');
-    expect(normalizePiMeetingBackend('collaborating')).toBe('pool');
-    expect(normalizePiMeetingBackend('internal-store')).toBe('session');
-  });
-
-  test('resolves meeting backend selection before runtime fallback', async () => {
-    const { resolvePiMeetingBackend } = await import('../pi/meeting/pi-meeting');
-
-    const sessionResolution = resolvePiMeetingBackend(undefined);
-    expect(sessionResolution.requestedBackend).toBe('session');
-    expect(sessionResolution.backendUsed).toBe('session');
-    expect(sessionResolution.fallbackReason).toBeUndefined();
-
-    const collaboratingResolution = resolvePiMeetingBackend('collaborating');
-    // collaborating 已被 pool 替代
-    expect(collaboratingResolution.requestedBackend).toBe('pool');
-    expect(collaboratingResolution.backendUsed).toBe('pool');
-    expect(collaboratingResolution.fallbackReason).toBeUndefined();
-  });
-
-
-
-  test('formats completed collaborating backend metadata from live-smoke path', async () => {
-    const { formatPiMeetingResult } = await import('../pi/core/pi');
-
-    const output = formatPiMeetingResult({
-      meetingId: 'omo-meet-smoke',
-      question: 'Can collaborating meeting participants reply?',
-      objective: 'debug',
-      status: 'completed',
-      roundsCompleted: 1,
-      participants: [
-        { name: 'oracle', agent: 'oracle', status: 'completed', finalPosition: 'Participant replied.' },
-        { name: 'fixer', agent: 'fixer', status: 'completed', finalPosition: 'Participant replied.' },
-      ],
-      report: '## Realtime Meeting Result\n\n### Status\ncompleted',
-      keySignals: ['Participants returned responses via agent_message.'],
-      requestedBackend: 'collaborating',
-      backendUsed: 'collaborating',
+    await expect(
+      gate({ toolName: 'unknown_tool', input: {} }, ctx),
+    ).resolves.toMatchObject({ block: true });
+    await expect(
+      gate(
+        { toolName: 'bash', input: { command: 'sudo rm -rf /tmp/test' } },
+        ctx,
+      ),
+    ).resolves.toMatchObject({
+      block: true,
+      reason: expect.stringContaining('Blocked dangerous bash command'),
     });
-
-    expect(output).toContain('requestedBackend: collaborating');
-    expect(output).toContain('backendUsed: collaborating');
-    expect(output).toContain('transcript omitted: yes');
-    expect(output).not.toContain('fallbackReason:');
+    await expect(
+      gate({ toolName: 'bash', input: { command: 'git status' } }, ctx),
+    ).resolves.toBeUndefined();
   });
 
-  test('formats meeting result without leaking transcript by default', async () => {
-    const { formatPiMeetingResult } = await import('../pi/core/pi');
+  test('resolves role subagent models from preset slots then main model', async () => {
+    const {
+      resolveRoleSubagentModelId,
+      findStalePresetSlots,
+    } = await import('../pi/preset/preset-model-resolution');
 
-    const output = formatPiMeetingResult({
-      meetingId: 'test-meeting-1',
-      question: 'Pick an approach',
-      objective: 'decision',
-      status: 'completed',
-      roundsCompleted: 2,
-      participants: [
-        { name: 'oracle', agent: 'oracle', status: 'completed', finalPosition: 'Use A' },
-      ],
-      report: '## Realtime Meeting Result\n\n### Question\nPick an approach\n\n### Key Signals From Discussion\n- Oracle changed view after implementation risk was clarified.',
-      keySignals: ['Oracle changed view after implementation risk was clarified.'],
-      requestedBackend: 'session',
-      backendUsed: 'session',
-    });
+    expect(
+      resolveRoleSubagentModelId({
+        role: 'fixer',
+        pack: { subagent: 'provider/sub', fixer: 'provider/fixer' },
+        mainModelId: 'provider/main',
+      }),
+    ).toEqual({ modelId: 'provider/fixer', source: 'role' });
 
-    expect(output).toContain('## Realtime Meeting Result');
-    expect(output).toContain('Key Signals From Discussion');
-    expect(output).toContain('requestedBackend: session');
-    expect(output).toContain('backendUsed: session');
-    expect(output).toContain('transcript omitted: yes');
-    expect(output).not.toContain('raw hidden noise');
-  });
+    expect(
+      resolveRoleSubagentModelId({
+        role: 'search',
+        pack: { subagent: 'provider/sub' },
+        mainModelId: 'provider/main',
+      }),
+    ).toEqual({ modelId: 'provider/sub', source: 'subagent' });
 
-  test('formats meeting transcript only when explicitly present', async () => {
-    const { formatPiMeetingResult } = await import('../pi/core/pi');
+    expect(
+      resolveRoleSubagentModelId({
+        role: 'oracle',
+        pack: {},
+        mainModelId: 'provider/main',
+      }),
+    ).toEqual({ modelId: 'provider/main', source: 'main' });
 
-    const output = formatPiMeetingResult({
-      meetingId: 'test-meeting-2',
-      question: 'Pick an approach',
-      objective: 'review',
-      status: 'completed',
-      roundsCompleted: 1,
-      participants: [
-        { name: 'fixer', agent: 'fixer', status: 'completed', finalPosition: 'Use B' },
-      ],
-      report: '## Realtime Meeting Result\n\n### Key Signals From Discussion\n- Fixer found lower-risk implementation.',
-      keySignals: ['Fixer found lower-risk implementation.'],
-      requestedBackend: 'collaborating',
-      backendUsed: 'session',
-      fallbackReason: 'spawn failed, fell back to session backend',
-      transcript: [
-        {
-          id: 'm1',
-          meetingId: 'test-meeting-2',
-          round: 0,
-          phase: 'opening',
-          from: 'fixer',
-          role: 'fixer',
-          content: 'raw hidden noise',
-          timestamp: 1,
-        },
-      ],
-    });
-
-    expect(output).toContain('## Transcript Appendix');
-    expect(output).toContain('includeTranscript=true');
-    expect(output).toContain('requestedBackend: collaborating');
-    expect(output).toContain('backendUsed: session');
-    expect(output).toContain('fallbackReason: spawn failed, fell back to session backend');
-    expect(output).toContain('raw hidden noise');
-  });
-
-  test('formats failed participant errors into final report output', async () => {
-    const { formatPiMeetingResult } = await import('../pi/core/pi');
-
-    const output = formatPiMeetingResult({
-      meetingId: 'test-meeting-3',
-      question: 'Pick an approach',
-      objective: 'decision',
-      status: 'failed',
-      roundsCompleted: 1,
-      participants: [
-        { name: 'oracle', agent: 'oracle', status: 'failed', error: 'agent_message send failed' },
-        { name: 'fixer', agent: 'fixer', status: 'failed', error: 'subagent exited before sending response' },
-      ],
-      report: '## Realtime Meeting Result\n\n### Participants\n- oracle (oracle, failed) — agent_message send failed\n- fixer (fixer, failed) — subagent exited before sending response',
-      keySignals: ['No discussion content was available.'],
-      requestedBackend: 'collaborating',
-      backendUsed: 'collaborating',
-    });
-
-    expect(output).toContain('agent_message send failed');
-    expect(output).toContain('subagent exited before sending response');
-  });
-});
-
-describe('Pi adapter preset helpers', () => {
-  test('parses provider/model IDs', async () => {
-    const { parsePiModelId } = await import('../pi/core/pi');
-
-    expect(parsePiModelId('openai/gpt-4o')).toEqual({ provider: 'openai', model: 'gpt-4o' });
-    expect(parsePiModelId('dmxapi-responses/gpt-5.5')).toEqual({ provider: 'dmxapi-responses', model: 'gpt-5.5' });
-    expect(parsePiModelId('missing-slash')).toBeUndefined();
-    expect(parsePiModelId('/missing-provider')).toBeUndefined();
-    expect(parsePiModelId('missing-model/')).toBeUndefined();
-  });
-
-  test('resolves preset switch plan with primary mode model and thinking', async () => {
-    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
-
-    const plan = resolvePresetSwitchPlan({
-      presets: {
-        powerful: {
-          'standard-dev': { model: 'openai/gpt-4o', thinking: 'high' },
-          observer: { model: 'openai/gpt-4o-mini' },
-        },
-      },
-    } as any, 'powerful');
-
-    expect(plan).toEqual({ model: 'openai/gpt-4o', thinking: 'high' });
-  });
-
-  test('reports placeholder model in preset switch plan', async () => {
-    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
-
-    const plan = resolvePresetSwitchPlan({
-      presets: {
-        cheap: {
-          'standard-dev': { model: '<YOUR_MODEL>' },
-        },
-      },
-    } as any, 'cheap');
-
-    expect(plan.error).toContain('still contains <YOUR_MODEL>');
-    expect(plan.error).toContain('configure a real provider/model first');
-  });
-
-  test('reports missing preset with available names', async () => {
-    const { resolvePresetSwitchPlan } = await import('../pi/core/pi');
-
-    const plan = resolvePresetSwitchPlan({ presets: { cheap: {} } } as any, 'powerful');
-
-    expect(plan.error).toContain('Preset "powerful" not found');
-    expect(plan.error).toContain('cheap');
+    expect(
+      findStalePresetSlots(
+        { subagent: 'gone/model', oracle: 'ok/model' },
+        [{ provider: 'ok', id: 'model' }],
+      ),
+    ).toEqual([{ slot: 'subagent', modelId: 'gone/model' }]);
   });
 });

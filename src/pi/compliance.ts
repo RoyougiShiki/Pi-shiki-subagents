@@ -22,10 +22,10 @@ export type ComplianceState = {
 };
 
 export type ViolationType =
-  | "MISSING_INTENT_PREFIX"
-  | "TOOL_ENFORCEMENT_MISSED"
-  | "TOOL_BLOCKED"
-  | "RESET_FAILED";
+  | 'MISSING_INTENT_PREFIX'
+  | 'TOOL_ENFORCEMENT_MISSED'
+  | 'TOOL_BLOCKED'
+  | 'RESET_FAILED';
 
 export type ViolationRecord = {
   type: ViolationType;
@@ -48,7 +48,10 @@ export function createComplianceState(): ComplianceState {
  * Record a violation, bumping the counter and updating the timestamp.
  * Mutates `state` in place (lightweight, no cloning).
  */
-export function recordViolation(state: ComplianceState, v: ViolationRecord): void {
+export function recordViolation(
+  state: ComplianceState,
+  v: ViolationRecord,
+): void {
   state.violationCount++;
   state.lastViolationAt = v.at;
 }
@@ -83,7 +86,7 @@ export function hasIntentPrefix(text: string): boolean {
   const trimmed = text.trimStart();
   if (!trimmed) return false;
   // Take first non-empty line
-  const firstLine = trimmed.split("\n").find((line) => line.trim().length > 0);
+  const firstLine = trimmed.split('\n').find((line) => line.trim().length > 0);
   if (!firstLine) return false;
   return INTENT_PREFIX_RE.test(firstLine.trim());
 }
@@ -100,5 +103,5 @@ export function buildResetInstruction(v: ViolationRecord): string {
     `Violation: ${v.type}`,
     `Reason: ${v.reason}`,
     `Fix Plan: Address the violation above by following the required format precisely.`,
-  ].join("\n");
+  ].join('\n');
 }

@@ -12,25 +12,32 @@
  * 详见 proposal-v2.md §2 H5 + 附录 A4。
  */
 
-import { DEFAULT_HARNESS_MESSAGES, buildInjectedGuardMessage } from "./messages";
-import type { HarnessDecision, HarnessIssue, HarnessMessageCatalog } from "./types";
+import {
+  buildInjectedGuardMessage,
+  DEFAULT_HARNESS_MESSAGES,
+} from './messages';
+import type {
+  HarnessDecision,
+  HarnessIssue,
+  HarnessMessageCatalog,
+} from './types';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
 export type CompletionEvidenceKind =
-  | "modification"
-  | "verification"
-  | "test_success"
-  | "test_failure"
-  | "lint_success"
-  | "lint_failure"
-  | "typecheck_success"
-  | "typecheck_failure"
-  | "tool_failure"
-  | "verifier_pass"
-  | "verifier_fail"
-  | "verifier_partial"
-  | "subagent_pending";
+  | 'modification'
+  | 'verification'
+  | 'test_success'
+  | 'test_failure'
+  | 'lint_success'
+  | 'lint_failure'
+  | 'typecheck_success'
+  | 'typecheck_failure'
+  | 'tool_failure'
+  | 'verifier_pass'
+  | 'verifier_fail'
+  | 'verifier_partial'
+  | 'subagent_pending';
 
 export interface CompletionEvidenceSummary {
   kinds: readonly CompletionEvidenceKind[];
@@ -38,7 +45,7 @@ export interface CompletionEvidenceSummary {
   pendingTaskCount?: number;
   failedToolCount?: number;
   modifiedFileCount?: number;
-  verifierVerdict?: "PASS" | "FAIL" | "PARTIAL";
+  verifierVerdict?: 'PASS' | 'FAIL' | 'PARTIAL';
   verifierSummary?: string;
 }
 
@@ -54,22 +61,25 @@ export interface CompletionAuditInput {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function hasKind(evidence: CompletionEvidenceSummary, kind: CompletionEvidenceKind): boolean {
+function hasKind(
+  evidence: CompletionEvidenceSummary,
+  kind: CompletionEvidenceKind,
+): boolean {
   return evidence.kinds.includes(kind);
 }
 
 function hasVerificationEvidence(evidence: CompletionEvidenceSummary): boolean {
   return (
-    hasKind(evidence, "verification") ||
-    hasKind(evidence, "test_success") ||
-    hasKind(evidence, "lint_success") ||
-    hasKind(evidence, "typecheck_success")
+    hasKind(evidence, 'verification') ||
+    hasKind(evidence, 'test_success') ||
+    hasKind(evidence, 'lint_success') ||
+    hasKind(evidence, 'typecheck_success')
   );
 }
 
 function issue(
   id: string,
-  action: HarnessIssue["action"],
+  action: HarnessIssue['action'],
   messageKey: string,
   message: string,
   details?: Record<string, unknown>,
@@ -93,23 +103,23 @@ export function auditCompletion(
   const evidence = input.evidence;
   const issues: HarnessIssue[] = [];
 
-  if (hasKind(evidence, "modification") && !hasVerificationEvidence(evidence)) {
+  if (hasKind(evidence, 'modification') && !hasVerificationEvidence(evidence)) {
     issues.push(
       issue(
-        "modification_without_verification",
-        options.blockOnUnverifiedModification ? "block" : "warn",
-        "modificationWithoutVerification",
+        'modification_without_verification',
+        options.blockOnUnverifiedModification ? 'block' : 'warn',
+        'modificationWithoutVerification',
         messages.completionAuditor.modificationWithoutVerification,
         { modifiedFileCount: evidence.modifiedFileCount },
       ),
     );
   }
 
-  const action = issues.some((item) => item.action === "block")
-    ? "block"
+  const action = issues.some((item) => item.action === 'block')
+    ? 'block'
     : issues.length > 0
-      ? "warn"
-      : "allow";
+      ? 'warn'
+      : 'allow';
 
   return {
     action,

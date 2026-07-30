@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { SubagentRunTreeView } from './subagent-run-view';
 import {
   disposeRegisteredSubagentRunWidget,
@@ -47,7 +47,11 @@ function activeSnapshot() {
     activity: {
       phase: 'active' as const,
       recentEvents: [
-        { type: 'assistant_text' as const, timestamp: 500, text: 'snapshot thinking' },
+        {
+          type: 'assistant_text' as const,
+          timestamp: 500,
+          text: 'snapshot thinking',
+        },
       ],
       updatedAt: 500,
       toolCount: 1,
@@ -58,6 +62,8 @@ function activeSnapshot() {
 }
 
 describe('subagent run widget runtime', () => {
+  beforeEach(() => disposeRegisteredSubagentRunWidget());
+  afterEach(() => disposeRegisteredSubagentRunWidget());
   test('clears widget when there are no visible lines', () => {
     let listener: (() => void) | undefined;
     let currentView = activeView();
@@ -131,7 +137,8 @@ describe('subagent run widget runtime', () => {
 
     expect(pool.getRunTreeView).toHaveBeenCalledWith({ now: 1000 });
     expect(JSON.stringify(view)).toBe(before);
-    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain('Subagents');
+    expect(setWidget.mock.calls[0]?.[0]).toBe('Subagents');
+    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain('running');
     widget.dispose();
   });
 
@@ -151,7 +158,7 @@ describe('subagent run widget runtime', () => {
     expect(pool.getSubagentSessionSnapshots).toHaveBeenCalledTimes(1);
     expect(pool.getRunTreeView).not.toHaveBeenCalled();
     expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain('oracle');
-    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).toContain(
+    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).not.toContain(
       'snapshot thinking',
     );
     widget.dispose();
@@ -253,5 +260,28 @@ describe('subagent run widget runtime', () => {
     expect(pool.onRunStateChange).toHaveBeenCalledTimes(2);
 
     disposeRegisteredSubagentRunWidget();
+  });
+
+  test('uses the host key in RPC mode and keeps the body header count-only', () => {
+    const setWidget = mock(() => {});
+    const pool = {
+      getRunTreeView: mock(() => activeView()),
+      onRunStateChange: mock((_cb: () => void) => () => {}),
+    };
+
+    const widget = registerSubagentRunWidget(
+      { mode: 'rpc', ui: { setWidget } },
+      pool,
+      { now: () => 1000, refreshMs: false },
+    );
+
+    expect(setWidget.mock.calls[0]?.[0]).toBe('Subagents');
+    expect(setWidget.mock.calls[0]?.[1]?.[0]).toBe('1 running');
+    expect(setWidget.mock.calls[0]?.[1]?.join('\n')).not.toContain('*');
+    expect(setWidget.mock.calls[0]?.[2]).toEqual({ placement: 'belowEditor' });
+    widget.dispose();
+    expect(setWidget.mock.calls.at(-1)?.[2]).toEqual({
+      placement: 'belowEditor',
+    });
   });
 });

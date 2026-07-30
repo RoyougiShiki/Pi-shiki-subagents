@@ -25,14 +25,17 @@ describe('agent discovery', () => {
   test('reads name/description from markdown frontmatter and body as prompt', async () => {
     const root = makeProject();
     const agentPath = path.join(root, '.pi', 'agents', 'custom-agent.md');
-    fs.writeFileSync(agentPath, [
-      '---',
-      'name: custom-agent',
-      'description: Custom Agent',
-      '---',
-      '',
-      '# Body prompt',
-    ].join('\n'));
+    fs.writeFileSync(
+      agentPath,
+      [
+        '---',
+        'name: custom-agent',
+        'description: Custom Agent',
+        '---',
+        '',
+        '# Body prompt',
+      ].join('\n'),
+    );
 
     const { discoverAgents } = await import('./agent-discovery');
     const agents = discoverAgents(root);
@@ -45,15 +48,18 @@ describe('agent discovery', () => {
   test('uses JSON/default tools instead of markdown frontmatter tools', async () => {
     const root = makeProject();
     const agentPath = path.join(root, '.pi', 'agents', 'custom-oracle.md');
-    fs.writeFileSync(agentPath, [
-      '---',
-      'name: custom-oracle',
-      'description: Oracle Agent',
-      'tools: [write, edit]',
-      '---',
-      '',
-      'Prompt',
-    ].join('\n'));
+    fs.writeFileSync(
+      agentPath,
+      [
+        '---',
+        'name: custom-oracle',
+        'description: Oracle Agent',
+        'tools: [write, edit]',
+        '---',
+        '',
+        'Prompt',
+      ].join('\n'),
+    );
 
     const { discoverAgents } = await import('./agent-discovery');
     const oracle = discoverAgents(root).find((a) => a.name === 'custom-oracle');
@@ -65,20 +71,26 @@ describe('agent discovery', () => {
     const root = makeProject();
     const opencodeDir = path.join(root, '.opencode');
     fs.mkdirSync(opencodeDir, { recursive: true });
-    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
-      agents: {
-        oracle: { model: 'runtime/oracle-model' },
-      },
-    }));
-    fs.writeFileSync(path.join(root, '.pi', 'agents', 'oracle.md'), [
-      '---',
-      'name: oracle',
-      'description: Oracle Agent',
-      'model: markdown/ignored-model',
-      '---',
-      '',
-      'Prompt',
-    ].join('\n'));
+    fs.writeFileSync(
+      path.join(opencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        agents: {
+          oracle: { model: 'runtime/oracle-model' },
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.pi', 'agents', 'oracle.md'),
+      [
+        '---',
+        'name: oracle',
+        'description: Oracle Agent',
+        'model: markdown/ignored-model',
+        '---',
+        '',
+        'Prompt',
+      ].join('\n'),
+    );
 
     const { resolveAgent } = await import('./agent-discovery');
     const oracle = resolveAgent(root, 'oracle');
@@ -90,16 +102,19 @@ describe('agent discovery', () => {
     const root = makeProject();
     const opencodeDir = path.join(root, '.opencode');
     fs.mkdirSync(opencodeDir, { recursive: true });
-    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
-      agents: {
-        janitor: {
-          type: 'subagent',
-          label: 'Janitor',
-          model: 'runtime/janitor-model',
-          prompt: 'Audit dead code and docs drift.',
+    fs.writeFileSync(
+      path.join(opencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        agents: {
+          janitor: {
+            type: 'subagent',
+            label: 'Janitor',
+            model: 'runtime/janitor-model',
+            prompt: 'Audit dead code and docs drift.',
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const { resolveAgent } = await import('./agent-discovery');
     const janitor = resolveAgent(root, 'janitor');
@@ -113,15 +128,18 @@ describe('agent discovery', () => {
     const root = makeProject();
     const opencodeDir = path.join(root, '.opencode');
     fs.mkdirSync(opencodeDir, { recursive: true });
-    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
-      agents: {
-        worker: {
-          type: 'subagent',
-          delegates: ['fixer', 'oracle'],
-          model: 'runtime/old-worker-model',
+    fs.writeFileSync(
+      path.join(opencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        agents: {
+          worker: {
+            type: 'subagent',
+            delegates: ['fixer', 'oracle'],
+            model: 'runtime/old-worker-model',
+          },
         },
-      },
-    }));
+      }),
+    );
 
     const { resolveAgent } = await import('./agent-discovery');
 
@@ -131,30 +149,36 @@ describe('agent discovery', () => {
   test('does not discover hidden agents from markdown or inline runtime prompts', async () => {
     const root = makeProject();
     const agentPath = path.join(root, '.pi', 'agents', 'hidden-worker.md');
-    fs.writeFileSync(agentPath, [
-      '---',
-      'name: hidden-worker',
-      'description: Hidden Worker',
-      '---',
-      '',
-      'Hidden markdown prompt.',
-    ].join('\n'));
+    fs.writeFileSync(
+      agentPath,
+      [
+        '---',
+        'name: hidden-worker',
+        'description: Hidden Worker',
+        '---',
+        '',
+        'Hidden markdown prompt.',
+      ].join('\n'),
+    );
     const opencodeDir = path.join(root, '.opencode');
     fs.mkdirSync(opencodeDir, { recursive: true });
-    fs.writeFileSync(path.join(opencodeDir, 'oh-my-opencode-slim.json'), JSON.stringify({
-      agents: {
-        'hidden-worker': {
-          type: 'subagent',
-          hidden: true,
+    fs.writeFileSync(
+      path.join(opencodeDir, 'oh-my-opencode-slim.json'),
+      JSON.stringify({
+        agents: {
+          'hidden-worker': {
+            type: 'subagent',
+            hidden: true,
+          },
+          'hidden-inline': {
+            type: 'subagent',
+            model: 'runtime/hidden-inline-model',
+            prompt: 'Hidden inline prompt.',
+            hidden: true,
+          },
         },
-        'hidden-inline': {
-          type: 'subagent',
-          model: 'runtime/hidden-inline-model',
-          prompt: 'Hidden inline prompt.',
-          hidden: true,
-        },
-      },
-    }));
+      }),
+    );
 
     const { resolveAgent } = await import('./agent-discovery');
 

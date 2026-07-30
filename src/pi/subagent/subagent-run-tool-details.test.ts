@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+import { buildOmoSubagentToolDetails } from './subagent-run-tool-details';
 import type {
   SubagentRunTreeView,
   SubagentRunViewNode,
 } from './subagent-run-view';
-import { buildOmoSubagentToolDetails } from './subagent-run-tool-details';
 
-function node(overrides: Partial<SubagentRunViewNode> = {}): SubagentRunViewNode {
+function node(
+  overrides: Partial<SubagentRunViewNode> = {},
+): SubagentRunViewNode {
   return {
     runId: 'run-1',
     agentName: 'oracle',
@@ -87,13 +89,18 @@ describe('omo subagent tool details', () => {
 
   test('payload bounds roots, children, nested depth, and events', () => {
     const grandchild = node({ runId: 'grandchild', title: 'grandchild' });
-    const child = node({ runId: 'child', title: 'child', children: [grandchild] });
+    const child = node({
+      runId: 'child',
+      title: 'child',
+      children: [grandchild],
+    });
     const roots = Array.from({ length: 7 }, (_, index) =>
       node({
         runId: `root-${index}`,
         title: `root-${index}`,
-        recentLines: Array.from({ length: 12 }, (_, eventIndex) =>
-          `event-${eventIndex}`,
+        recentLines: Array.from(
+          { length: 12 },
+          (_, eventIndex) => `event-${eventIndex}`,
         ),
         children: index === 0 ? Array.from({ length: 7 }, () => child) : [],
       }),

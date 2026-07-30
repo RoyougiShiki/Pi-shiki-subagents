@@ -5,7 +5,10 @@ import * as path from 'node:path';
 describe('agent prompt/frontmatter consistency', () => {
   test('all adapter agent markdown files only keep name/description frontmatter and no legacy sentinels', () => {
     const dir = path.join(import.meta.dir, 'agents');
-    const files = fs.readdirSync(dir).filter((file) => file.endsWith('.md')).sort();
+    const files = fs
+      .readdirSync(dir)
+      .filter((file) => file.endsWith('.md'))
+      .sort();
 
     expect(files.length).toBeGreaterThan(0);
 

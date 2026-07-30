@@ -16,16 +16,22 @@
 
 export interface CommandSemanticResult {
   isError: boolean;
-  semantic: "success" | "no_matches" | "partial_success" | "condition_false" | "files_differ" | "error";
+  semantic:
+    | 'success'
+    | 'no_matches'
+    | 'partial_success'
+    | 'condition_false'
+    | 'files_differ'
+    | 'error';
   message?: string;
 }
 
 export interface CommandSemanticConfig {
   [command: string]: {
     /** 退出码语义映射 */
-    exitCodeMap: Record<number, CommandSemanticResult["semantic"]>;
+    exitCodeMap: Record<number, CommandSemanticResult['semantic']>;
     /** 默认语义（未映射的退出码） */
-    defaultSemantic: CommandSemanticResult["semantic"];
+    defaultSemantic: CommandSemanticResult['semantic'];
     /** 自定义消息 */
     messages?: Record<number, string>;
   };
@@ -43,34 +49,34 @@ export interface CommandSemanticConfig {
  */
 const DEFAULT_COMMAND_SEMANTICS: CommandSemanticConfig = {
   grep: {
-    exitCodeMap: { 0: "success", 1: "no_matches", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "No matches found" },
+    exitCodeMap: { 0: 'success', 1: 'no_matches', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'No matches found' },
   },
   rg: {
-    exitCodeMap: { 0: "success", 1: "no_matches", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "No matches found" },
+    exitCodeMap: { 0: 'success', 1: 'no_matches', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'No matches found' },
   },
   find: {
-    exitCodeMap: { 0: "success", 1: "partial_success", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "Some directories were inaccessible" },
+    exitCodeMap: { 0: 'success', 1: 'partial_success', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'Some directories were inaccessible' },
   },
   diff: {
-    exitCodeMap: { 0: "success", 1: "files_differ", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "Files differ" },
+    exitCodeMap: { 0: 'success', 1: 'files_differ', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'Files differ' },
   },
   test: {
-    exitCodeMap: { 0: "success", 1: "condition_false", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "Condition is false" },
+    exitCodeMap: { 0: 'success', 1: 'condition_false', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'Condition is false' },
   },
-  "[": {
-    exitCodeMap: { 0: "success", 1: "condition_false", 2: "error" },
-    defaultSemantic: "error",
-    messages: { 1: "Condition is false" },
+  '[': {
+    exitCodeMap: { 0: 'success', 1: 'condition_false', 2: 'error' },
+    defaultSemantic: 'error',
+    messages: { 1: 'Condition is false' },
   },
 };
 
@@ -87,9 +93,9 @@ const DEFAULT_COMMAND_SEMANTICS: CommandSemanticConfig = {
  */
 function extractSemanticCommandSegment(commandText: string): string {
   const trimmed = commandText.trim();
-  if (!trimmed) return "";
+  if (!trimmed) return '';
 
-  let quote: "single" | "double" | undefined;
+  let quote: 'single' | 'double' | undefined;
   let escaped = false;
   let parenDepth = 0;
   let segmentStart = 0;
@@ -103,37 +109,37 @@ function extractSemanticCommandSegment(commandText: string): string {
       continue;
     }
 
-    if (char === "\\") {
+    if (char === '\\') {
       escaped = true;
       continue;
     }
 
-    if (quote === "single") {
+    if (quote === 'single') {
       if (char === "'") quote = undefined;
       continue;
     }
 
-    if (quote === "double") {
-      if (char === "\"") quote = undefined;
+    if (quote === 'double') {
+      if (char === '"') quote = undefined;
       continue;
     }
 
     if (char === "'") {
-      quote = "single";
+      quote = 'single';
       continue;
     }
 
-    if (char === "\"") {
-      quote = "double";
+    if (char === '"') {
+      quote = 'double';
       continue;
     }
 
-    if (char === "(") {
+    if (char === '(') {
       parenDepth += 1;
       continue;
     }
 
-    if (char === ")" && parenDepth > 0) {
+    if (char === ')' && parenDepth > 0) {
       parenDepth -= 1;
       continue;
     }
@@ -142,18 +148,24 @@ function extractSemanticCommandSegment(commandText: string): string {
 
     const next = trimmed[i + 1];
 
-    if ((char === "|" && next === "|") || (char === "&" && next === "&") || char === "&" || char === ";" || char === "\n") {
-      return "";
+    if (
+      (char === '|' && next === '|') ||
+      (char === '&' && next === '&') ||
+      char === '&' ||
+      char === ';' ||
+      char === '\n'
+    ) {
+      return '';
     }
 
-    if (char === "|") {
-      if (i === 0) return "";
+    if (char === '|') {
+      if (i === 0) return '';
 
       const previousSegment = trimmed.slice(segmentStart, i).trim();
-      if (!previousSegment) return "";
+      if (!previousSegment) return '';
 
-      segmentStart = next === "&" ? i + 2 : i + 1;
-      if (next === "&") i += 1;
+      segmentStart = next === '&' ? i + 2 : i + 1;
+      if (next === '&') i += 1;
       sawPipeline = true;
     }
   }
@@ -161,7 +173,7 @@ function extractSemanticCommandSegment(commandText: string): string {
   if (!sawPipeline) return trimmed;
 
   const segment = trimmed.slice(segmentStart).trim();
-  return segment || "";
+  return segment || '';
 }
 
 /**
@@ -169,15 +181,15 @@ function extractSemanticCommandSegment(commandText: string): string {
  */
 function extractBaseCommand(commandText: string): string {
   const segment = extractSemanticCommandSegment(commandText);
-  const firstWord = segment.split(/\s+/)[0] ?? "";
+  const firstWord = segment.split(/\s+/)[0] ?? '';
   return firstWord;
 }
 
 /**
  * 判断语义是否代表错误
  */
-function isSemanticError(semantic: CommandSemanticResult["semantic"]): boolean {
-  return semantic === "error";
+function isSemanticError(semantic: CommandSemanticResult['semantic']): boolean {
+  return semantic === 'error';
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -204,8 +216,10 @@ export function interpretCommandSemantic(
     const isError = exitCode !== 0;
     return {
       isError,
-      semantic: isError ? "error" : "success",
-      message: isError ? `Command failed with exit code ${exitCode}` : undefined,
+      semantic: isError ? 'error' : 'success',
+      message: isError
+        ? `Command failed with exit code ${exitCode}`
+        : undefined,
     };
   }
 

@@ -1,9 +1,9 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { AGENT_PROMPTS } from "./pi-agents";
-import type { OmniMoConfig, PiCouncilParticipantConfig } from "../config-types";
-import { getPool } from "../subagent/subagent-pool";
-import type { AgentConfig } from "../../adapters/agent-discovery";
-import { loadActiveMode } from "../core/pi-modes";
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import type { AgentConfig } from '../../adapters/agent-discovery';
+import { PRIMARY_AGENT_NAME } from '../../config/constants';
+import type { OmniMoConfig, PiCouncilParticipantConfig } from '../config-types';
+import { getPool } from '../subagent/subagent-pool';
+import { AGENT_PROMPTS } from './pi-agents';
 
 // ─── Pi Council helpers ───────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ export interface PiCouncilRunResult {
   name: string;
   agent: string;
   model?: string;
-  status: "completed" | "failed" | "timed_out";
+  status: 'completed' | 'failed' | 'timed_out';
   result?: string;
   error?: string;
 }
@@ -47,7 +47,10 @@ export function resolvePiCouncilParticipants(args: {
   if (args.participants && args.participants.length > 0) {
     return {
       participants: args.participants.map((raw, index) =>
-        normalizeCouncilParticipant(raw.name || raw.agent || `participant-${index + 1}`, raw),
+        normalizeCouncilParticipant(
+          raw.name || raw.agent || `participant-${index + 1}`,
+          raw,
+        ),
       ),
     };
   }
@@ -61,10 +64,10 @@ export function resolvePiCouncilParticipants(args: {
     };
   }
 
-  const presetName = args.preset ?? council.default_preset ?? "default";
+  const presetName = args.preset ?? council.default_preset ?? 'default';
   const preset = council.presets[presetName];
   if (!preset) {
-    const available = Object.keys(council.presets).join(", ") || "(none)";
+    const available = Object.keys(council.presets).join(', ') || '(none)';
     return {
       participants: [],
       error: `Council preset "${presetName}" not found. Available presets: ${available}`,
@@ -72,7 +75,7 @@ export function resolvePiCouncilParticipants(args: {
   }
 
   const participants = Object.entries(preset)
-    .filter(([key]) => key !== "master")
+    .filter(([key]) => key !== 'master')
     .map(([key, raw]) => normalizeCouncilParticipant(key, raw));
 
   if (participants.length === 0) {
@@ -85,35 +88,43 @@ export function resolvePiCouncilParticipants(args: {
   return { participants };
 }
 
-function formatPiCouncilPrompt(question: string, participant: PiCouncilParticipant): string {
-  const role = participant.prompt ? `${participant.prompt}\n\n---\n\n` : "";
-  return `${role}You are councillor "${participant.name}" in an isolated council.\n\n` +
+function formatPiCouncilPrompt(
+  question: string,
+  participant: PiCouncilParticipant,
+): string {
+  const role = participant.prompt ? `${participant.prompt}\n\n---\n\n` : '';
+  return (
+    `${role}You are councillor "${participant.name}" in an isolated council.\n\n` +
     `Analyze the question independently. Do not assume other councillors' views. ` +
     `Return concrete findings, risks, and recommendations.\n\n` +
-    `Question:\n${question}`;
+    `Question:\n${question}`
+  );
 }
 
 export function extractAssistantTextFromMessages(messages: any[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m?.role !== "assistant") continue;
+    if (m?.role !== 'assistant') continue;
     const content = m.content;
-    if (typeof content === "string" && content.trim()) return content.trim();
+    if (typeof content === 'string' && content.trim()) return content.trim();
     if (Array.isArray(content)) {
       const text = content
-        .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+        .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
         .map((p: any) => p.text)
-        .join("\n")
+        .join('\n')
         .trim();
       if (text) return text;
     }
   }
-  return "";
+  return '';
 }
 
-export function resolvePiModel(ctx: ExtensionContext, modelId: string | undefined): any | undefined {
+export function resolvePiModel(
+  ctx: ExtensionContext,
+  modelId: string | undefined,
+): any | undefined {
   if (!modelId) return undefined;
-  const slash = modelId.indexOf("/");
+  const slash = modelId.indexOf('/');
   if (slash <= 0 || slash === modelId.length - 1) return undefined;
   const provider = modelId.slice(0, slash);
   const model = modelId.slice(slash + 1);
@@ -133,8 +144,8 @@ export async function runPiCouncilParticipant(args: {
   const agentConfig: AgentConfig = {
     name: participant.agent,
     description: participant.name,
-    systemPrompt: `${AGENT_PROMPTS[participant.agent]?.prompt ?? ""}`,
-    model: participant.model ?? "openai/gpt-4o-mini",
+    systemPrompt: `${AGENT_PROMPTS[participant.agent]?.prompt ?? ''}`,
+    model: participant.model,
   };
 
   const result = await pool.spawn({
@@ -143,7 +154,7 @@ export async function runPiCouncilParticipant(args: {
     agent: agentConfig,
     task: formatPiCouncilPrompt(question, participant),
     cwd: args.ctx.cwd,
-    parentAgent: loadActiveMode() || undefined,
+    parentAgent: PRIMARY_AGENT_NAME,
     depth: 1,
   });
 
@@ -152,7 +163,9 @@ export async function runPiCouncilParticipant(args: {
       name: participant.name,
       agent: participant.agent,
       model: participant.model,
-      status: result.error.toLowerCase().includes("timed out") ? "timed_out" : "failed",
+      status: result.error.toLowerCase().includes('timed out')
+        ? 'timed_out'
+        : 'failed',
       error: result.error,
     };
   }
@@ -161,8 +174,8 @@ export async function runPiCouncilParticipant(args: {
     name: participant.name,
     agent: participant.agent,
     model: participant.model,
-    status: "completed",
-    result: result.response || "(completed with no text output)",
+    status: 'completed',
+    result: result.response || '(completed with no text output)',
   };
 }
 
@@ -170,27 +183,30 @@ export function formatPiCouncilResults(
   question: string,
   results: PiCouncilRunResult[],
 ): string {
-  const completed = results.filter((r) => r.status === "completed");
-  const failed = results.filter((r) => r.status !== "completed");
+  const completed = results.filter((r) => r.status === 'completed');
+  const failed = results.filter((r) => r.status !== 'completed');
 
   const details = results
     .map((r) => {
-      const model = r.model ? ` (${r.model})` : "";
-      if (r.status !== "completed") {
-        return `### ${r.name}${model}\nStatus: ${r.status}\nError: ${r.error ?? "Unknown"}`;
+      const model = r.model ? ` (${r.model})` : '';
+      if (r.status !== 'completed') {
+        return `### ${r.name}${model}\nStatus: ${r.status}\nError: ${r.error ?? 'Unknown'}`;
       }
-      return `### ${r.name}${model}\n${r.result ?? "(no output)"}`;
+      return `### ${r.name}${model}\n${r.result ?? '(no output)'}`;
     })
-    .join("\n\n");
+    .join('\n\n');
 
-  const confidence = failed.length === 0
-    ? "all participants completed"
-    : completed.length > 0
-      ? "partial council"
-      : "all participants failed";
+  const confidence =
+    failed.length === 0
+      ? 'all participants completed'
+      : completed.length > 0
+        ? 'partial council'
+        : 'all participants failed';
 
-  return `## Isolated Council Results\n\nOriginal question:\n${question}\n\n` +
+  return (
+    `## Isolated Council Results\n\nOriginal question:\n${question}\n\n` +
     `Completed: ${completed.length}/${results.length} (${confidence})\n\n` +
     `${details}\n\n` +
-    `---\nSynthesize these independent councillor responses. Preserve disagreements and cite councillors by name.`;
+    `---\nSynthesize these independent councillor responses. Preserve disagreements and cite councillors by name.`
+  );
 }

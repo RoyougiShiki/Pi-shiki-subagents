@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { homedir } from 'node:os';
-import { type PluginConfig, PluginConfigSchema } from './schema';
-import { parseJsonc } from './jsonc';
+import * as path from 'node:path';
 import { TOOL_GROUPS_CONFIG_KEY } from './config-keys';
+import { parseJsonc } from './jsonc';
+import { type PluginConfig, PluginConfigSchema } from './schema';
 
 const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
 
@@ -19,7 +19,10 @@ const PROMPTS_DIR_NAME = 'oh-my-opencode-slim';
 interface LoadPluginConfigOptions {
   quiet?: boolean;
 }
-function loadConfigFromPath(configPath: string, options?: LoadPluginConfigOptions): PluginConfig | null {
+function loadConfigFromPath(
+  configPath: string,
+  options?: LoadPluginConfigOptions,
+): PluginConfig | null {
   try {
     const content = fs.readFileSync(configPath, 'utf-8');
     // Use stripJsonComments to support JSONC format (comments and trailing commas)
@@ -87,7 +90,6 @@ function findConfigPathInDirs(
   return null;
 }
 
-
 function getConfigSearchDirs(): string[] {
   const customDir = process.env.OPENCODE_CONFIG_DIR?.trim();
   const defaultDir = process.env.XDG_CONFIG_HOME
@@ -151,7 +153,10 @@ export function deepMerge<T extends Record<string, unknown>>(
  * @param directory - Project directory to search for .opencode config
  * @returns Merged plugin configuration (empty object if no configs found)
  */
-export function loadPluginConfig(directory: string, options?: LoadPluginConfigOptions): PluginConfig {
+export function loadPluginConfig(
+  directory: string,
+  options?: LoadPluginConfigOptions,
+): PluginConfig {
   const userConfigPath = findConfigPathInDirs(
     getConfigSearchDirs(),
     'oh-my-opencode-slim',
@@ -199,14 +204,11 @@ export function loadPluginConfig(directory: string, options?: LoadPluginConfigOp
     config.preset = envPreset;
   }
 
-  // Resolve preset and merge with root agents
+  // Presets are model-override packs only. Validate the active name exists,
+  // but never merge preset slots into agents (tools/prompt/type/etc).
   if (config.preset) {
     const preset = config.presets?.[config.preset];
-    if (preset) {
-      // Merge preset agents with root agents (root overrides)
-      config.agents = deepMerge(preset, config.agents);
-    } else {
-      // Preset name specified but doesn't exist - warn user
+    if (!preset) {
       const presetSource =
         envPreset === config.preset ? 'environment variable' : 'config file';
       const availablePresets = config.presets
@@ -227,7 +229,7 @@ export function loadPluginConfig(directory: string, options?: LoadPluginConfigOp
  * If preset is provided and safe for paths, it first checks {preset}/ subdirectory,
  * then falls back to the root prompts directory.
  *
- * @param agentName - Name of the agent (e.g., "standard-dev", "search")
+ * @param agentName - Name of the agent (e.g., "main", "search")
  * @param preset - Optional preset name for preset-scoped prompt lookup
  * @returns Object with prompt and/or appendPrompt if files exist
  */

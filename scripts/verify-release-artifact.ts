@@ -34,7 +34,6 @@ const staticPackagedRequiredFiles = [
   'dist/cli/index.js',
   'oh-my-opencode-slim.schema.json',
   'src/adapters/agents-default.json',
-  'src/config/workflow-types.ts',
   'src/cli/index.ts',
 ];
 

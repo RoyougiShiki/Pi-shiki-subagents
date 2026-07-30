@@ -13,26 +13,33 @@
  * - evidence adapter 来自 evidence-adapter.ts
  */
 
-import type { ToolEvidence } from "../policy/tool-evidence-types";
+import type { ToolEvidence } from '../policy/tool-evidence-types';
 import {
   checkVerificationEvidence,
   type VerificationEvidenceContext,
   type VerificationEvidenceState,
-} from "../policy/verification-evidence-policy";
+} from '../policy/verification-evidence-policy';
+import type { AgentContext } from './agent-context';
 import {
   auditCompletion,
+  type CompletionAuditInput,
   type CompletionAuditorOptions,
   type CompletionEvidenceSummary,
-  type CompletionAuditInput,
-} from "./completion-auditor";
+} from './completion-auditor';
 import {
+  type EvidenceAdapterOptions,
   toCompletionEvidenceSummary,
   toVerificationEvidenceState,
-  type EvidenceAdapterOptions,
-} from "./evidence-adapter";
-import { DEFAULT_HARNESS_MESSAGES, buildInjectedGuardMessage } from "./messages";
-import type { AgentContext } from "./agent-context";
-import type { HarnessDecision, HarnessIssue, HarnessMessageCatalog } from "./types";
+} from './evidence-adapter';
+import {
+  buildInjectedGuardMessage,
+  DEFAULT_HARNESS_MESSAGES,
+} from './messages';
+import type {
+  HarnessDecision,
+  HarnessIssue,
+  HarnessMessageCatalog,
+} from './types';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -49,7 +56,7 @@ export interface HarnessAuditInput {
 
 export interface HarnessAuditOptions extends ConsecutiveBlockOptions {
   messages?: HarnessMessageCatalog;
-  completion?: Omit<CompletionAuditorOptions, "messages">;
+  completion?: Omit<CompletionAuditorOptions, 'messages'>;
 }
 // ─── H7: 连续阻止上限（防无限阻塞，对应 cc-haha 8 次硬上限） ────────────────
 
@@ -75,15 +82,17 @@ function toIssueFromVerification(
 ): HarnessIssue {
   return {
     id: reason,
-    action: "warn",
+    action: 'warn',
     messageKey: messageKey ?? reason,
     message,
   };
 }
 
 const SUPERSEDED_ISSUES: Readonly<Record<string, readonly string[]>> = {
-  modification_without_verification: ["modified_without_verification"],
-  final_report_without_acknowledging_unverified: ["modified_without_verification"],
+  modification_without_verification: ['modified_without_verification'],
+  final_report_without_acknowledging_unverified: [
+    'modified_without_verification',
+  ],
 };
 
 function deduplicateIssues(issues: readonly HarnessIssue[]): HarnessIssue[] {
@@ -116,10 +125,12 @@ export function runHarnessAudit(
 
   // 构建 evidence summary
   const evidenceSummary =
-    input.evidenceSummary ?? toCompletionEvidenceSummary(input.evidences ?? [], input.evidenceAdapter);
+    input.evidenceSummary ??
+    toCompletionEvidenceSummary(input.evidences ?? [], input.evidenceAdapter);
 
   // 构建 verification state
-  const verificationState = input.verificationState ?? toVerificationEvidenceState(evidenceSummary);
+  const verificationState =
+    input.verificationState ?? toVerificationEvidenceState(evidenceSummary);
 
   const issues: HarnessIssue[] = [];
 
@@ -132,7 +143,7 @@ export function runHarnessAudit(
   );
 
   if (
-    verificationDecision.action === "warn" &&
+    verificationDecision.action === 'warn' &&
     verificationDecision.reason &&
     verificationDecision.hint
   ) {
@@ -163,16 +174,18 @@ export function runHarnessAudit(
 
   const deduplicatedIssues = deduplicateIssues(issues);
 
-  const wantsBlock = deduplicatedIssues.some((item) => item.action === "block");
+  const wantsBlock = deduplicatedIssues.some((item) => item.action === 'block');
   const max = options.maxConsecutiveBlocks ?? DEFAULT_MAX_CONSECUTIVE_BLOCKS;
   const count = options.consecutiveBlocks ?? 0;
 
   // H7: 达到连续阻止上限时，block 降级为 warn，避免无限阻塞
   const action = wantsBlock
-    ? (count >= max ? "warn" : "block")
+    ? count >= max
+      ? 'warn'
+      : 'block'
     : deduplicatedIssues.length > 0
-      ? "warn"
-      : "allow";
+      ? 'warn'
+      : 'allow';
 
   return {
     action,

@@ -1,188 +1,67 @@
-import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import {
   formatPoolCompletedContent,
   formatPoolErrorContent,
   formatPoolEventLabel,
+  type PoolNoticeEvent,
   registerPoolNoticeBridge,
   resetPoolNoticeBridgeForTests,
-  type PoolNoticeEvent,
 } from './subagent-pool-notice-bridge';
 
 function createPool() {
   const listeners: Array<(event: PoolNoticeEvent) => void> = [];
   return {
-    onEvent: mock((cb: (event: PoolNoticeEvent) => void) => {
-      listeners.push(cb);
-      return () => {
-        const index = listeners.indexOf(cb);
-        if (index >= 0) listeners.splice(index, 1);
-      };
+    onEvent: mock((listener: (event: PoolNoticeEvent) => void) => {
+      listeners.push(listener);
+      return () => listeners.splice(listeners.indexOf(listener), 1);
     }),
     emit(event: PoolNoticeEvent) {
       for (const listener of [...listeners]) listener(event);
     },
-    listenerCount() {
-      return listeners.length;
-    },
   };
 }
 
-function createCtx() {
-  return {
-    ui: {
-      notify: mock(() => {}),
-    },
-  } as any;
+function createContext() {
+  return { ui: { notify: mock(() => {}) } } as any;
 }
 
-describe('subagent pool notice bridge', () => {
-  beforeEach(() => {
-    resetPoolNoticeBridgeForTests();
-  });
+describe('subagent pool notices', () => {
+  beforeEach(() => resetPoolNoticeBridgeForTests());
 
-  test('formats labels with pool id when it differs from agent name', () => {
-    expect(formatPoolEventLabel({ agentName: 'fixer', poolId: 'run-1' })).toBe(
-      'fixer/run-1',
-    );
-    expect(formatPoolEventLabel({ agentName: 'fixer', poolId: 'fixer' })).toBe(
-      'fixer',
-    );
-  });
-
-  test('formats completion follow-up with pool identity and custom flow content', () => {
-    expect(
-      formatPoolCompletedContent({
-        type: 'completed',
-        agentName: 'fixer',
-        poolId: 'run-1',
-        response: 'OK',
-      }),
-    ).toContain('[pool] fixer/run-1 已完成\n\nOK');
-  });
-
-  test('formats passing review loop completion as stage-ready', () => {
-    const content = formatPoolCompletedContent(
-      {
-        type: 'completed',
-        agentName: 'oracle',
-        poolId: 'review-1',
-        response: 'VERDICT: PASS',
-      },
-      { verdict: 'PASS', round: 1, maxReviewRounds: 3, exhausted: false },
-    );
-
-    expect(content).toContain('[review-loop] VERDICT: PASS; round 1/3');
-    expect(content).toContain('审查已通过');
-  });
-
-  test('formats failing review loop completion within budget as same-session rework', () => {
-    const content = formatPoolCompletedContent(
-      {
-        type: 'completed',
-        agentName: 'oracle',
-        poolId: 'review-1',
-        response: 'VERDICT: FAIL',
-      },
-      { verdict: 'FAIL', round: 1, maxReviewRounds: 3, exhausted: false },
-    );
-
-    expect(content).toContain('[review-loop] VERDICT: FAIL; round 1/3');
-    expect(content).toContain('同一实现会话返工');
-  });
-
-  test('formats exhausted review loop completion as user decision stop', () => {
-    const content = formatPoolCompletedContent(
-      {
-        type: 'completed',
-        agentName: 'oracle',
-        poolId: 'review-1',
-        response: 'VERDICT: PARTIAL',
-      },
-      { verdict: 'PARTIAL', round: 1, maxReviewRounds: 1, exhausted: true },
-    );
-
-    expect(content).toContain('[review-loop] VERDICT: PARTIAL; round 1/1');
-    expect(content).toContain('已达到本阶段 MAX_REVIEW_ROUNDS');
-    expect(content).toContain('由用户裁决');
-  });
-
-  test('formats error follow-up with pool identity and next action', () => {
-    expect(
-      formatPoolErrorContent({
-        type: 'error',
-        agentName: 'fixer',
-        poolId: 'run-1',
-        error: 'timed out',
-      }),
-    ).toContain('[pool] fixer/run-1 已结束: failed\n\nerror: timed out');
-    expect(
-      formatPoolErrorContent({
-        type: 'error',
-        agentName: 'fixer',
-        poolId: 'run-1',
-        error: 'timed out',
-      }),
-    ).toContain('pool=result');
-  });
-
-  test('replaces previous listener so old ctx does not receive delayed completion', async () => {
-    const pool = createPool();
-    const oldCtx = createCtx();
-    const newCtx = createCtx();
-    const oldPi = { sendMessage: mock(() => {}) };
-    const newPi = { sendMessage: mock(() => {}) };
-    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
-    const reviewLoopRuntime = {
-      recordPoolCompletedReview: mock(() => ({
-        verdict: 'FAIL' as const,
-        round: 1,
-        maxReviewRounds: 1,
-        exhausted: true,
-      })),
-    };
-
-    registerPoolNoticeBridge({ pool, pi: oldPi, ctx: oldCtx, harnessRuntime });
-    registerPoolNoticeBridge({ pool, pi: newPi, ctx: newCtx, harnessRuntime, reviewLoopRuntime });
-
-    expect(pool.listenerCount()).toBe(1);
-
-    pool.emit({
+  test('keeps completion notifications short and points to pool=result', () => {
+    const response = 'x'.repeat(400);
+    const content = formatPoolCompletedContent({
       type: 'completed',
       agentName: 'fixer',
-      poolId: 'run-1',
-      response: 'done',
+      poolId: 'fix-1',
+      response,
     });
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(oldPi.sendMessage).not.toHaveBeenCalled();
-    expect(newPi.sendMessage).toHaveBeenCalledTimes(1);
-    expect(newPi.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      customType: 'pool_completed',
-      display: true,
-    });
-    expect(newPi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
-      '[pool] fixer/run-1 已完成',
+    expect(formatPoolEventLabel({ agentName: 'fixer', poolId: 'fix-1' })).toBe(
+      'fixer/fix-1',
     );
-    expect(newPi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
-      'MAX_REVIEW_ROUNDS',
-    );
-    expect(reviewLoopRuntime.recordPoolCompletedReview).toHaveBeenCalledTimes(1);
-    expect(newCtx.ui.notify).toHaveBeenCalledWith(
-      '[pool] fixer/run-1 completed',
-      'success',
-    );
-    expect(newPi.sendMessage.mock.calls[0]?.[1]).toEqual({
-      deliverAs: 'followUp',
-      triggerTurn: true,
-    });
+    expect(content).toContain('[pool] fixer/fix-1 completed');
+    expect(content).toContain('pool=result');
+    expect(content.length).toBeLessThan(response.length);
   });
 
+  test('formats failures with recovery actions', () => {
+    const content = formatPoolErrorContent({
+      type: 'error',
+      agentName: 'search',
+      poolId: 'search-1',
+      error: 'timed out',
+    });
 
-  test('does not delay completion follow-up behind harness ingestion', () => {
+    expect(content).toContain('search/search-1');
+    expect(content).toContain('pool=result');
+    expect(content).toContain('pool=resume');
+  });
+
+  test('delivers completion before asynchronous harness ingestion', () => {
     const pool = createPool();
-    const ctx = createCtx();
     const pi = { sendMessage: mock(() => {}) };
+    const ctx = createContext();
     const harnessRuntime = {
       ingestPoolCompleted: mock(() => new Promise<void>(() => {})),
     };
@@ -190,135 +69,45 @@ describe('subagent pool notice bridge', () => {
     registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
     pool.emit({
       type: 'completed',
-      agentName: 'fixer',
-      poolId: 'run-1',
-      response: 'done',
+      agentName: 'oracle',
+      poolId: 'review-1',
+      response: 'review complete',
     });
 
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
-      '[pool] fixer/run-1 已完成',
-    );
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      '[pool] fixer/run-1 completed',
-      'success',
-    );
+    expect(pi.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      customType: 'pool_completed',
+      content: expect.stringContaining('pool=result'),
+    });
     expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(1);
   });
 
-  test('suppresses stale harness notifications after bridge re-registration without retracting delivered completion', async () => {
+  test('replaces stale bridge listeners on session restart', () => {
     const pool = createPool();
-    const oldCtx = createCtx();
-    const newCtx = createCtx();
     const oldPi = { sendMessage: mock(() => {}) };
     const newPi = { sendMessage: mock(() => {}) };
-    let resolveOldIngest: (() => void) | undefined;
-    const oldHarnessRuntime = {
-      ingestPoolCompleted: mock(
-        (_event: PoolNoticeEvent, ctx: any) =>
-          new Promise<void>((resolve) => {
-            resolveOldIngest = () => {
-              ctx.ui.notify('[harness] stale verifier verdict captured', 'warning');
-              resolve();
-            };
-          }),
-      ),
-    };
-    const newHarnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
+    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
 
     registerPoolNoticeBridge({
       pool,
       pi: oldPi,
-      ctx: oldCtx,
-      harnessRuntime: oldHarnessRuntime,
+      ctx: createContext(),
+      harnessRuntime,
     });
-    pool.emit({
-      type: 'completed',
-      agentName: 'fixer',
-      poolId: 'old-run',
-      response: 'old done',
-    });
-
-    expect(oldPi.sendMessage).toHaveBeenCalledTimes(1);
-    expect(oldCtx.ui.notify).toHaveBeenCalledTimes(1);
-
     registerPoolNoticeBridge({
       pool,
       pi: newPi,
-      ctx: newCtx,
-      harnessRuntime: newHarnessRuntime,
-    });
-    resolveOldIngest?.();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(oldCtx.ui.notify).toHaveBeenCalledTimes(1);
-    expect(newPi.sendMessage).not.toHaveBeenCalled();
-    expect(pool.listenerCount()).toBe(1);
-  });
-
-  test('delivers each completed event once with matching pool identity', () => {
-    const pool = createPool();
-    const ctx = createCtx();
-    const pi = { sendMessage: mock(() => {}) };
-    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
-
-    registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
-    pool.emit({
-      type: 'completed',
-      agentName: 'fixer',
-      poolId: 'run-1',
-      response: 'one',
+      ctx: createContext(),
+      harnessRuntime,
     });
     pool.emit({
       type: 'completed',
-      agentName: 'oracle',
-      poolId: 'run-2',
-      response: 'two',
+      agentName: 'search',
+      poolId: 'search-1',
+      response: 'done',
     });
 
-    expect(pi.sendMessage).toHaveBeenCalledTimes(2);
-    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
-      '[pool] fixer/run-1 已完成',
-    );
-    expect(pi.sendMessage.mock.calls[1]?.[0]?.content).toContain(
-      '[pool] oracle/run-2 已完成',
-    );
-    expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(2);
-  });
-  test('error notice uses latest ctx and includes pool identity', () => {
-    const pool = createPool();
-    const oldCtx = createCtx();
-    const newCtx = createCtx();
-    const pi = { sendMessage: mock(() => {}) };
-    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
-
-    registerPoolNoticeBridge({ pool, pi, ctx: oldCtx, harnessRuntime });
-    registerPoolNoticeBridge({ pool, pi, ctx: newCtx, harnessRuntime });
-
-    pool.emit({
-      type: 'error',
-      agentName: 'oracle',
-      poolId: 'review-1',
-      error: 'failed',
-    });
-
-    expect(oldCtx.ui.notify).not.toHaveBeenCalled();
-    expect(newCtx.ui.notify).toHaveBeenCalledWith(
-      '[pool] oracle/review-1: failed',
-      'warning',
-    );
-    expect(pi.sendMessage).toHaveBeenCalledTimes(1);
-    expect(pi.sendMessage.mock.calls[0]?.[0]).toMatchObject({
-      customType: 'pool_failed',
-      display: true,
-    });
-    expect(pi.sendMessage.mock.calls[0]?.[0]?.content).toContain(
-      '[pool] oracle/review-1 已结束: failed',
-    );
-    expect(pi.sendMessage.mock.calls[0]?.[1]).toEqual({
-      deliverAs: 'followUp',
-      triggerTurn: true,
-    });
+    expect(oldPi.sendMessage).not.toHaveBeenCalled();
+    expect(newPi.sendMessage).toHaveBeenCalledTimes(1);
   });
 });

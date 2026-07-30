@@ -16,14 +16,14 @@ describe('getAgentOverride', () => {
     expect(override?.model).toBe('openai/gpt-5.4-mini');
   });
 
-  test('reads override from legacy alias when mapped', () => {
+  test('reads override from the main-session alias when mapped', () => {
     const config = {
       agents: {
         'frontend-ui-ux-engineer': { model: 'openai/gpt-5.4-mini' },
       },
     } as PluginConfig;
 
-    const override = getAgentOverride(config, 'standard-dev');
+    const override = getAgentOverride(config, 'main');
 
     expect(override).toBeDefined();
     expect(override?.model).toBe('openai/gpt-5.4-mini');
@@ -57,7 +57,7 @@ describe('getCustomAgentNames', () => {
     const config = {
       agents: {
         oracle: { model: 'openai/gpt-5.5' },
-        'standard-dev': { model: 'openai/gpt-5.6' },
+        main: { model: 'openai/gpt-5.6' },
       },
     } as PluginConfig;
 

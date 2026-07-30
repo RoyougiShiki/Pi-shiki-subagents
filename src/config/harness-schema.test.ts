@@ -2,14 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { HarnessConfigSchema, PluginConfigSchema } from './schema';
 
 describe('HarnessConfigSchema', () => {
-  test('accepts auditor, budget, and message config', () => {
+  test('accepts budget and message config', () => {
     const result = HarnessConfigSchema.safeParse({
-      completionAuditor: {
-        blockOnUnverifiedModification: true,
-        patterns: {
-          testPass: ['CUSTOM_TEST_OK'],
-        },
-      },
       toolResultBudget: {
         thresholds: {
           default: 1000,
@@ -24,11 +18,24 @@ describe('HarnessConfigSchema', () => {
         verificationEvidence: {
           subagentPending: 'CUSTOM_SUBAGENT',
         },
-        completionAuditor: {
-          testPassWithoutEvidence: 'CUSTOM_TEST_PASS',
-        },
         toolResultBudget: {
           persistedOutputTemplate: 'SAVED:{filepath}',
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  test('ignores legacy completionAuditor config without failing', () => {
+    const result = HarnessConfigSchema.safeParse({
+      completionAuditor: {
+        enabled: true,
+        blockOnUnverifiedModification: true,
+      },
+      messages: {
+        completionAuditor: {
+          testPassWithoutEvidence: 'CUSTOM_TEST_PASS',
         },
       },
     });
@@ -59,14 +66,14 @@ describe('HarnessConfigSchema', () => {
   test('is accepted by PluginConfigSchema', () => {
     const result = PluginConfigSchema.safeParse({
       harness: {
-        completionAuditor: {
-          blockOnUnverifiedModification: true,
+        toolResultBudget: {
+          enabled: true,
         },
       },
     });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.harness?.completionAuditor?.blockOnUnverifiedModification).toBe(true);
+    expect(result.data.harness?.toolResultBudget?.enabled).toBe(true);
   });
 });

@@ -1,14 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import type {
-  SubagentRunTreeView,
-  SubagentRunViewNode,
-} from './subagent-run-view';
 import {
   createSubagentRunDetailView,
   createSubagentRunTreeSummaryView,
 } from './subagent-run-detail-view';
+import type {
+  SubagentRunTreeView,
+  SubagentRunViewNode,
+} from './subagent-run-view';
 
-function node(overrides: Partial<SubagentRunViewNode> = {}): SubagentRunViewNode {
+function node(
+  overrides: Partial<SubagentRunViewNode> = {},
+): SubagentRunViewNode {
   return {
     runId: 'run-1',
     agentName: 'oracle',
@@ -74,7 +76,10 @@ describe('subagent run detail view', () => {
     const detail = createSubagentRunDetailView(
       view([
         node({
-          recentLines: Array.from({ length: 12 }, (_, index) => `status-${index}`),
+          recentLines: Array.from(
+            { length: 12 },
+            (_, index) => `status-${index}`,
+          ),
         }),
       ]),
       'run-1',
@@ -113,7 +118,11 @@ describe('subagent run detail view', () => {
 
   test('bounds nested depth to max 2', () => {
     const grandchild = node({ runId: 'grandchild', title: 'grandchild' });
-    const child = node({ runId: 'child', title: 'child', children: [grandchild] });
+    const child = node({
+      runId: 'child',
+      title: 'child',
+      children: [grandchild],
+    });
     const parent = node({ children: [child] });
     const summary = createSubagentRunTreeSummaryView(view([parent]), {
       maxDepth: 2,
