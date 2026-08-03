@@ -173,6 +173,14 @@ describe('Pi thin runtime', () => {
     expect(tools.map((tool) => tool.name)).toEqual(
       expect.arrayContaining(['omo_council', 'omo_subagent']),
     );
+    const subagentTool = tools.find((tool) => tool.name === 'omo_subagent');
+    const councilTool = tools.find((tool) => tool.name === 'omo_council');
+    expect(subagentTool?.promptSnippet).toEqual(expect.any(String));
+    expect(subagentTool?.promptSnippet.length).toBeGreaterThan(0);
+    expect(councilTool?.promptSnippet).toEqual(expect.any(String));
+    expect(councilTool?.promptSnippet.length).toBeGreaterThan(0);
+    expect(subagentTool?.promptGuidelines?.length).toBeGreaterThan(0);
+    expect(councilTool?.promptGuidelines?.length).toBeGreaterThan(0);
     expect([...commands.keys()]).toEqual(
       expect.arrayContaining(['preset', 'pi-sync', 'pool-status']),
     );

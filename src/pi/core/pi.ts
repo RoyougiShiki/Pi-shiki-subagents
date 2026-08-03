@@ -244,6 +244,11 @@ function createCouncilTool(config: OmniMoConfig | null) {
   return {
     name: 'omo_council',
     label: 'OMO Council',
+    promptSnippet:
+      'Run independent model perspectives on one explicit question (isolated or meeting).',
+    promptGuidelines: [
+      'Use omo_council when you need multiple independent viewpoints or adversarial cross-checks on one explicit question; pass a self-contained question.',
+    ],
     description: 'Run independent model perspectives for an explicit question.',
     parameters: Type.Object({
       question: Type.String({ description: 'Question or task to analyze' }),
