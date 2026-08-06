@@ -96,6 +96,43 @@ describe('subagent run adapter', () => {
     ]);
   });
 
+  test('maps SDK tool_execution_start/end events (real agent-loop event names)', () => {
+    expect(
+      toSubagentRunEvents(context, {
+        type: 'tool_execution_start',
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        args: { command: 'ls' },
+      }),
+    ).toEqual([
+      {
+        type: 'tool_call',
+        runId: 'run-1',
+        timestamp: 123,
+        toolName: 'bash',
+        summary: 'command',
+      },
+    ]);
+    expect(
+      toSubagentRunEvents(context, {
+        type: 'tool_execution_end',
+        toolCallId: 'call-1',
+        toolName: 'bash',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+        isError: true,
+      }),
+    ).toEqual([
+      {
+        type: 'tool_result',
+        runId: 'run-1',
+        timestamp: 123,
+        toolName: 'bash',
+        summary: 'activity',
+        isError: true,
+      },
+    ]);
+  });
+
   test('extracts alternate usage field names defensively', () => {
     expect(
       extractUsageSnapshot({

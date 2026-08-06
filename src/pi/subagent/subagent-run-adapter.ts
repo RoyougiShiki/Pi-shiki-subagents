@@ -169,7 +169,12 @@ export function toSubagentRunEvents(
     return events;
   }
 
-  if (type === 'tool_call' || type === 'tool_start' || type === 'tool_use') {
+  if (
+    type === 'tool_execution_start' ||
+    type === 'tool_call' ||
+    type === 'tool_start' ||
+    type === 'tool_use'
+  ) {
     const toolName = extractToolName(record);
     if (!toolName) return [];
     return [
@@ -183,7 +188,11 @@ export function toSubagentRunEvents(
     ];
   }
 
-  if (type === 'tool_result' || type === 'tool_end') {
+  if (
+    type === 'tool_execution_end' ||
+    type === 'tool_result' ||
+    type === 'tool_end'
+  ) {
     const toolName = extractToolName(record);
     if (!toolName) return [];
     const isError =
