@@ -483,7 +483,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             };
           const lines = list.map(
             (a: PoolAgentInfo) =>
-              `  ${a.status === 'dead' ? '✗' : '●'} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`,
+              `  ${a.status === 'dead' || a.status === 'failed' ? '✗' : '●'} ${a.id} (${a.agentName}) — ${a.status}, ${a.messageCount} msgs, model: ${a.model}`,
           );
           const running = list.filter(
             (a: PoolAgentInfo) =>

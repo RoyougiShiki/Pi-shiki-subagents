@@ -63,6 +63,7 @@ import {
 import {
   getPool,
   initPoolAllToolNamesResolver,
+  initPoolLimits,
   initPoolModelResolver,
   type PoolAgentInfo,
   resetPool,
@@ -460,6 +461,10 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         : undefined;
     });
     initPoolAllToolNamesResolver(() => getAllToolNames(pi));
+    initPoolLimits({
+      stallTimeoutMs: config?.harness?.subagent?.stallTimeoutMs,
+      promptTimeoutMs: config?.harness?.subagent?.promptTimeoutMs,
+    });
     try {
       ensureSubagentRunWidgetRegistered(ctx, getPool(), { force: true });
     } catch {}

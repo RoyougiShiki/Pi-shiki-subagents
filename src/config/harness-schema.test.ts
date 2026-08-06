@@ -76,4 +76,38 @@ describe('HarnessConfigSchema', () => {
     if (!result.success) return;
     expect(result.data.harness?.toolResultBudget?.enabled).toBe(true);
   });
+
+  test('accepts subagent stall and prompt timeout limits', () => {
+    const result = HarnessConfigSchema.safeParse({
+      subagent: {
+        stallTimeoutMs: 90000,
+        promptTimeoutMs: 300000,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.subagent?.stallTimeoutMs).toBe(90000);
+    expect(result.data.subagent?.promptTimeoutMs).toBe(300000);
+  });
+
+  test('accepts stallTimeoutMs=0 to disable stall detection', () => {
+    const result = HarnessConfigSchema.safeParse({
+      subagent: {
+        stallTimeoutMs: 0,
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  test('rejects negative subagent timeout values', () => {
+    const result = HarnessConfigSchema.safeParse({
+      subagent: {
+        stallTimeoutMs: -1,
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

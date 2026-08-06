@@ -1,7 +1,7 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 export interface PoolNoticeEvent {
-  type: 'error' | 'completed';
+  type: 'error' | 'completed' | 'stall_warn';
   poolId: string;
   agentName: string;
   error?: string;
@@ -75,6 +75,17 @@ export function formatPoolErrorContent(event: PoolNoticeEvent): string {
   ].join('\n');
 }
 
+export function formatPoolStallWarnContent(event: PoolNoticeEvent): string {
+  const header = `[pool] ${formatPoolEventLabel(event)} 长时间无响应`;
+  return [
+    header,
+    '',
+    `${event.error ?? 'LLM 流阶段超过预警阈值仍无新事件。'}`,
+    '',
+    '[info] 尚未终止。可调用 pool=send 发送 nudge 或等待其自动恢复；到 stall 阈值仍无事件将自动 abort 并结算为 failed。',
+  ].join('\n');
+}
+
 function isCurrentGeneration(generation: number): boolean {
   return bridgeState().generation === generation;
 }
@@ -131,6 +142,27 @@ export function registerPoolNoticeBridge(options: {
               display: true,
             },
             { deliverAs: 'followUp', triggerTurn: true },
+          );
+        } catch {}
+      }
+    }
+    // 预警：不终止、不触发新轮，仅提醒（父 agent 可 pool=send nudge 提前干预）。
+    if (event.type === 'stall_warn') {
+      try {
+        options.ctx.ui.notify(
+          `[pool] ${formatPoolEventLabel(event)} 长时间无响应，即将自动中止`,
+          'warning',
+        );
+      } catch {}
+      if (isCurrentGeneration(generation)) {
+        try {
+          options.pi.sendMessage(
+            {
+              customType: 'pool_stall_warn',
+              content: formatPoolStallWarnContent(event),
+              display: true,
+            },
+            { deliverAs: 'followUp', triggerTurn: false },
           );
         } catch {}
       }

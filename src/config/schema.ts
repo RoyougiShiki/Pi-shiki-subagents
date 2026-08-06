@@ -244,6 +244,27 @@ export const HarnessConfigSchema = z
       .strict()
       .optional(),
     messages: HarnessMessageConfigSchema.optional(),
+    subagent: z
+      .object({
+        stallTimeoutMs: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            'Sub-agent stall detection: treat the LLM stream phase as dead when no session events arrive for this many ms. 0 disables detection. Default 120000.',
+          ),
+        promptTimeoutMs: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            'Per-prompt hard timeout for sub-agents (ms). 0 disables. Default 600000.',
+          ),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

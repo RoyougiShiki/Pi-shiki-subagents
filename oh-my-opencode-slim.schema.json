@@ -419,6 +419,24 @@
             }
           },
           "additionalProperties": false
+        },
+        "subagent": {
+          "type": "object",
+          "properties": {
+            "stallTimeoutMs": {
+              "description": "Sub-agent stall detection: treat the LLM stream phase as dead when no session events arrive for this many ms. 0 disables detection. Default 120000.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "promptTimeoutMs": {
+              "description": "Per-prompt hard timeout for sub-agents (ms). 0 disables. Default 600000.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

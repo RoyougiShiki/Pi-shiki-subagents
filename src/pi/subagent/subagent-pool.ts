@@ -160,7 +160,7 @@ export interface PoolAgentInfo {
   id: string;
   name: string;
   agentName: string;
-  status: 'starting' | 'idle' | 'streaming' | 'dead';
+  status: 'starting' | 'idle' | 'streaming' | 'dead' | 'failed' | 'completed';
   startedAt: number;
   messageCount: number;
   model: string;
@@ -351,7 +351,7 @@ interface PoolEntry {
   name: string;
   agentName: string;
   session: AgentSession;
-  status: 'starting' | 'idle' | 'streaming' | 'dead';
+  status: 'starting' | 'idle' | 'streaming' | 'dead' | 'failed' | 'completed';
   startedAt: number;
   messageCount: number;
   model: string;
@@ -361,10 +361,23 @@ interface PoolEntry {
   depth?: number;
   taskPreview?: string;
   sessionFile?: string;
+  /** 断流(stall)检测：LLM 流阶段最近一次事件时间戳（ms）。 */
+  stallLastEventAt: number;
+  /** 断流(stall)检测：进行中的工具调用数（并行工具计数），>0 时不触发 stall。 */
+  stallToolDepth: number;
+  /** 断流(stall)检测：已判定断流并 abort，防止误标 completed。 */
+  stallAborted: boolean;
+  /** 断流(stall)检测：已发出 stall 预警（stallTimeoutMs 的一半处），不重复提醒。 */
+  stallWarned: boolean;
+  stallTimer?: ReturnType<typeof setInterval>;
 }
 
 export interface AgentPoolOptions {
   timeoutMs?: number;
+  /** 断流(stall)检测：LLM 流阶段无任何事件即判定断流并 abort（毫秒）。默认 120000；0 = 禁用。 */
+  stallTimeoutMs?: number;
+  /** 断流(stall)检测：检查间隔（毫秒）。默认 10000。 */
+  stallCheckIntervalMs?: number;
   sessionDir?: string;
   createSession?: typeof createAgentSession;
   createSessionManager?: (cwd: string, sessionDir: string) => any;
@@ -376,7 +389,7 @@ export interface AgentPoolOptions {
 }
 
 export interface PoolEvent {
-  type: 'error' | 'completed';
+  type: 'error' | 'completed' | 'stall_warn';
   poolId: string;
   agentName: string;
   error?: string;
@@ -385,7 +398,9 @@ export interface PoolEvent {
 
 export class AgentPool {
   private agents = new Map<string, PoolEntry>();
-  private readonly timeoutMs: number;
+  private timeoutMs: number;
+  private stallTimeoutMs: number;
+  private stallCheckIntervalMs: number;
   private readonly sessionDir: string;
   private readonly createSession: typeof createAgentSession;
   private readonly createSessionManager: (
@@ -403,6 +418,8 @@ export class AgentPool {
 
   constructor(options: AgentPoolOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? 600_000;
+    this.stallTimeoutMs = options.stallTimeoutMs ?? 120_000;
+    this.stallCheckIntervalMs = options.stallCheckIntervalMs ?? 10_000;
     this.sessionDir = options.sessionDir ?? SESSION_DIR;
     this.createSession = options.createSession ?? createAgentSession;
     this.createSessionManager =
@@ -452,6 +469,67 @@ export class AgentPool {
       status === 'streaming' ||
       status === 'idle'
     );
+  }
+
+  /** 运行时更新池级限制（断流检测 / prompt 超时）。 */
+  setLimits(limits: {
+    stallTimeoutMs?: number;
+    promptTimeoutMs?: number;
+  }): void {
+    if (limits.stallTimeoutMs !== undefined) {
+      this.stallTimeoutMs = Math.max(0, Math.floor(limits.stallTimeoutMs));
+    }
+    if (limits.promptTimeoutMs !== undefined) {
+      this.timeoutMs = Math.max(0, Math.floor(limits.promptTimeoutMs));
+    }
+  }
+
+  /**
+   * 断流(stall)检测：记录事件时间并维护工具执行深度。
+   * 工具执行阶段（toolDepth > 0）不触发 stall，避免误杀长工具调用。
+   */
+  private noteSessionEvent(entry: PoolEntry, event: unknown): void {
+    entry.stallLastEventAt = Date.now();
+    const type = (event as any)?.type;
+    if (type === 'tool_execution_start') entry.stallToolDepth += 1;
+    else if (type === 'tool_execution_end')
+      entry.stallToolDepth = Math.max(0, entry.stallToolDepth - 1);
+  }
+
+  private armStallDetection(entry: PoolEntry): void {
+    if (this.stallTimeoutMs <= 0) return;
+    entry.stallLastEventAt = Date.now();
+    entry.stallTimer = setInterval(() => {
+      this.checkStall(entry);
+    }, this.stallCheckIntervalMs);
+  }
+
+  private checkStall(entry: PoolEntry): void {
+    if (entry.stallAborted) return;
+    if (!entry.busy) return;
+    if (entry.stallToolDepth > 0) return;
+    const age = Date.now() - entry.stallLastEventAt;
+    // 两级检测：在 stallTimeoutMs 的一半处先发一次预警（不终止），
+    // 让父 agent 有机会提前干预；到 stallTimeoutMs 仍静默才 abort。
+    const warnMs = Math.floor(this.stallTimeoutMs / 2);
+    if (!entry.stallWarned && warnMs > 0 && age >= warnMs && age < this.stallTimeoutMs) {
+      entry.stallWarned = true;
+      const message = `Sub-agent "${entry.id}" has been silent for ${age}ms in LLM stream phase; will abort at ${this.stallTimeoutMs}ms if still silent.`;
+      console.warn(`[pool] ${message}`);
+      this.emit({
+        type: 'stall_warn',
+        poolId: entry.id,
+        agentName: entry.agentName,
+        error: message,
+      });
+    }
+    if (age < this.stallTimeoutMs) return;
+    entry.stallAborted = true;
+    const message = `Sub-agent "${entry.id}" stalled: no events for ${this.stallTimeoutMs}ms in LLM stream phase; aborting.`;
+    console.warn(`[pool] ${message}`);
+    if (entry.session) {
+      entry.session.abort().catch(() => undefined);
+    }
   }
 
   getRunTreeView(options?: SubagentRunViewOptions): SubagentRunTreeView {
@@ -568,6 +646,10 @@ export class AgentPool {
           depth: opts.depth,
           taskPreview: opts.task,
           sessionFile,
+          stallLastEventAt: Date.now(),
+          stallToolDepth: 0,
+          stallAborted: false,
+          stallWarned: false,
         };
 
         this.agents.set(opts.id, entry);
@@ -584,6 +666,7 @@ export class AgentPool {
         });
 
         const unsubscribe = session.subscribe((event: any) => {
+          this.noteSessionEvent(entry, event);
           if (this.initialRunActive(opts.id)) {
             for (const runEvent of toSubagentRunEvents(
               {
@@ -597,8 +680,10 @@ export class AgentPool {
             }
           }
           if (event.type === 'turn_start') {
-            entry.status = 'streaming';
-            this.updateRegistry(opts.id, { status: 'streaming' });
+            if (entry.status !== 'failed' && entry.status !== 'dead') {
+              entry.status = 'streaming';
+              this.updateRegistry(opts.id, { status: 'streaming' });
+            }
           }
           if (event.type === 'message_end') {
             const text = extractAssistantMessageText(event.message);
@@ -608,18 +693,23 @@ export class AgentPool {
             }
           }
           if (event.type === 'agent_end') {
-            entry.status = 'idle';
+            const settled =
+              entry.status === 'failed' || entry.status === 'dead';
+            if (!settled) {
+              entry.status = 'idle';
+              this.updateRegistry(opts.id, { status: 'idle' });
+            }
             entry.messageCount++;
             const text = extractLatestAssistantText(event.messages ?? []);
             if (text) entry.lastResponse = text;
             this.updateRegistry(opts.id, {
-              status: 'idle',
               messageCount: entry.messageCount,
               lastResponse: entry.lastResponse,
             });
           }
         });
         (entry as any)._unsubscribe = unsubscribe;
+        this.armStallDetection(entry);
 
         this.saveToRegistry({
           id: opts.id,
@@ -654,6 +744,7 @@ export class AgentPool {
         this.sendPrompt(opts.id, taskText, undefined, { emitErrorEvent: false })
           .then((result) => {
             if (result.error) {
+              entry.status = 'failed';
               this.updateRegistry(opts.id, {
                 status: 'failed',
                 errorMessage: result.error,
@@ -710,6 +801,7 @@ export class AgentPool {
             }
           })
           .catch((err) => {
+            entry.status = 'failed';
             this.updateRegistry(opts.id, {
               status: 'failed',
               errorMessage: err.message,
@@ -793,8 +885,41 @@ export class AgentPool {
 
     const sess = entry.session as any;
 
+    const fail = (errorMsg: string) => {
+      entry.status = 'failed';
+      this.updateRegistry(id, {
+        status: 'failed',
+        errorMessage: errorMsg,
+        lastResponse: entry.lastResponse,
+        completedAt: Date.now(),
+        messageCount: entry.messageCount,
+      });
+      if (options.emitErrorEvent !== false) {
+        if (this.initialRunActive(id)) {
+          this.recordRunEvent({
+            type: 'run_finished',
+            runId: id,
+            timestamp: Date.now(),
+            status: 'failed',
+            errorMessage: errorMsg,
+          });
+        }
+        this.emit({
+          type: 'error',
+          poolId: id,
+          agentName: entry.agentName,
+          error: errorMsg,
+        });
+      }
+      return { response: entry.lastResponse, error: errorMsg };
+    };
+
     try {
       entry.busy = true;
+      entry.stallAborted = false;
+      entry.stallWarned = false;
+      entry.stallLastEventAt = Date.now();
+      if (entry.status === 'failed') entry.status = 'streaming';
 
       if (type === 'steer' || type === 'follow_up') {
         try {
@@ -821,6 +946,12 @@ export class AgentPool {
           clearTimeout(timeoutTimer);
           timeoutTimer = undefined;
         }
+      }
+
+      if (entry.stallAborted) {
+        return fail(
+          `Sub-agent "${id}" stalled: no events for ${this.stallTimeoutMs}ms in LLM stream phase; aborted.`,
+        );
       }
 
       const messages =
@@ -855,22 +986,7 @@ export class AgentPool {
       return { response: diagnostic };
     } catch (err: any) {
       const errorMsg = err.message ?? String(err);
-      this.updateRegistry(id, {
-        status: 'failed',
-        errorMessage: errorMsg,
-        lastResponse: entry.lastResponse,
-        completedAt: Date.now(),
-        messageCount: entry.messageCount,
-      });
-      if (options.emitErrorEvent !== false) {
-        this.emit({
-          type: 'error',
-          poolId: id,
-          agentName: entry.agentName,
-          error: errorMsg,
-        });
-      }
-      return { response: entry.lastResponse, error: errorMsg };
+      return fail(errorMsg);
     } finally {
       entry.busy = false;
     }
@@ -911,6 +1027,10 @@ export class AgentPool {
   async kill(id: string): Promise<boolean> {
     const entry = this.agents.get(id);
     if (!entry) return false;
+    if (entry.stallTimer) {
+      clearInterval(entry.stallTimer);
+      entry.stallTimer = undefined;
+    }
     const unsub = (entry as any)._unsubscribe;
     if (typeof unsub === 'function') unsub();
     if (this.initialRunActive(id)) {
@@ -1012,6 +1132,18 @@ export function initPoolAllToolNamesResolver(
   resolver: () => readonly string[],
 ): void {
   getPool().setAllToolNamesResolver(resolver);
+}
+
+export interface PoolLimitConfig {
+  /** LLM 流阶段无声事件判定断流的毫秒数；0 = 禁用 stall 检测。默认 120000。 */
+  stallTimeoutMs?: number;
+  /** 单次 prompt 总超时毫秒数；0 = 不限制。默认 600000。 */
+  promptTimeoutMs?: number;
+}
+
+/** Configure singleton pool stall/prompt limits. */
+export function initPoolLimits(limits: PoolLimitConfig): void {
+  getPool().setLimits(limits);
 }
 
 export async function resetPool(): Promise<void> {

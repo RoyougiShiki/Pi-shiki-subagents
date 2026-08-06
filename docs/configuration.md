@@ -102,6 +102,8 @@ The registry records pool id, agent name, task, model, cwd, parent agent, depth,
 
 Harness options, including `toolResultBudget`, remain independent of subagent workflow. The completion-auditor path has been removed; do not enable legacy `harness.completionAuditor` fields (they are ignored).
 
+Sub-agent connection health is guarded by `harness.subagent`: `stallTimeoutMs` (default `120000`) treats the LLM stream phase as dead when no session events arrive — the session is aborted and the run is marked `failed` so the main agent receives a `pool_failed` notice instead of hanging forever. Tool-execution phases are excluded, so long-running tools are never aborted by this check. `0` disables it. `promptTimeoutMs` (default `600000`) is the per-prompt hard timeout; `0` disables.
+
 ## Fallback Models
 
 ```jsonc
