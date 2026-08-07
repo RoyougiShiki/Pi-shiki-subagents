@@ -1,25 +1,16 @@
 {
   "name": "oh-my-opencode-slim",
   "version": "1.0.4",
-  "description": "Lightweight agent orchestration plugin for OpenCode - a slimmed-down fork of oh-my-opencode",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "oh-my-opencode-slim": "./dist/cli/index.js"
-  },
+  "description": "Pi extension: light multi-agent orchestration layer (pi-shiki, formerly oh-my-opencode-slim). OpenCode 形态已移除。",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "pi-package",
-    "opencode",
-    "opencode-plugin",
+    "pi-extension",
     "ai",
     "agents",
     "orchestration",
-    "llm",
-    "claude",
-    "gpt",
-    "gemini"
+    "multi-agent"
   ],
   "pi": {
     "extensions": [
@@ -35,52 +26,29 @@
   },
   "homepage": "https://github.com/alvinunreal/oh-my-opencode-slim#readme",
   "files": [
-    "dist",
     "src/pi",
     "src/adapters",
     "src/config",
-    "src/cli",
-    "oh-my-opencode-slim.schema.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "oh-my-opencode-slim.schema.json"
   ],
   "scripts": {
-    "clean:dist": "bun run scripts/clean-dist.ts",
-    "build:plugin": "bun build src/index.ts --outdir dist --target node --format esm --external @ast-grep/napi --external @opencode-ai/plugin --external @opencode-ai/sdk --external jsdom --external zod",
-    "build:cli": "bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external @ast-grep/napi --external @opencode-ai/plugin --external @opencode-ai/sdk --external jsdom --external zod",
-    "build": "bun run clean:dist && bun run build:plugin && bun run build:cli && node ./node_modules/typescript/bin/tsc --emitDeclarationOnly && bun run generate-schema",
-    "prepare": "bun run build",
     "contributors:add": "all-contributors add",
     "contributors:check": "all-contributors check",
     "contributors:generate": "all-contributors generate",
-    "generate-schema": "bun run scripts/generate-schema.ts",
     "pi:sync": "bun run scripts/pi-dev-sync.ts",
     "pi:sync:write": "bun run scripts/pi-dev-sync.ts --write",
     "pi:sync:check": "bun run scripts/pi-dev-sync.ts --check",
-    "pi:sync:build": "bun run build && bun run scripts/pi-dev-sync.ts --write --skip-schema",
-    "verify:release": "bun run scripts/verify-release-artifact.ts",
-    "verify:host-smoke": "bun run scripts/verify-opencode-host-smoke.ts",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
     "test": "bun test",
     "lint": "biome lint .",
     "format": "biome format . --write",
     "check": "biome check --write .",
-    "check:ci": "biome check .",
-    "dev": "bun run build && opencode",
-    "prepublishOnly": "bun run build",
-    "release:patch": "npm version patch && git push --follow-tags && npm publish",
-    "release:minor": "npm version minor && git push --follow-tags && npm publish",
-    "release:major": "npm version major && git push --follow-tags && npm publish"
+    "check:ci": "biome check ."
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@mozilla/readability": "^0.6.0",
-    "@opencode-ai/plugin": "^1.3.17",
-    "@opencode-ai/sdk": "^1.3.17",
-    "jsdom": "^26.1.0",
     "lru-cache": "^11.3.3",
-    "pi-cache-graph": "^0.2.0",
-    "turndown": "^7.2.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -96,7 +64,15 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*",
-    "zod": "^4.0.0"
+    "zod": "*"
   },
-  "trustedDependencies": []
+  "trustedDependencies": [],
+  "peerDependenciesMeta": {
+    "typebox": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  }
 }
