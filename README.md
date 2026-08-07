@@ -7,7 +7,7 @@ The maintained runtime is the Pi extension declared in `package.json`:
 ```json
 {
   "pi": {
-    "extensions": ["./src/pi/core/pi.ts"]
+    "extensions": ["./src/pi/core/pi-shiki-subagents.ts"]
   }
 }
 ```

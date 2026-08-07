@@ -14,7 +14,7 @@
   ],
   "pi": {
     "extensions": [
-      "./src/pi/core/pi.ts"
+      "./src/pi/core/pi-shiki-subagents.ts"
     ]
   },
   "repository": {

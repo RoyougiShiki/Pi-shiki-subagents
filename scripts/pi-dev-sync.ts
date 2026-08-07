@@ -22,7 +22,7 @@ const SETTINGS_PATH =
   join(homedir(), '.pi', 'agent', 'settings.json');
 const SCHEMA_PATH = join(REPO_ROOT, 'pi-shiki-subagents.schema.json');
 const PACKAGE_NAME = 'pi-shiki-subagents';
-const REQUIRED_EXTENSION_FILTERS = ['+src/pi/core/pi.ts'];
+const REQUIRED_EXTENSION_FILTERS = ['+src/pi/core/pi-shiki-subagents.ts'];
 
 type JsonObject = Record<string, unknown>;
 
