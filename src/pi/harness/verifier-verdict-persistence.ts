@@ -124,7 +124,7 @@ export async function loadVerifierVerdicts(
     const verdicts = fromVerifierVerdictsPersistenceJson(JSON.parse(content));
     if (!verdicts) {
       console.warn(
-        `[oh-my-opencode-slim] Ignoring invalid verifier verdict state: ${statePath}`,
+        `[pi-shiki-subagents] Ignoring invalid verifier verdict state: ${statePath}`,
       );
       return null;
     }
@@ -138,7 +138,7 @@ export async function loadVerifierVerdicts(
       return null;
     }
     console.warn(
-      `[oh-my-opencode-slim] Failed to load verifier verdict state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to load verifier verdict state: ${statePath}`,
     );
     return null;
   }
@@ -168,7 +168,7 @@ export async function saveVerifierVerdicts(
     return true;
   } catch {
     console.warn(
-      `[oh-my-opencode-slim] Failed to save verifier verdict state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to save verifier verdict state: ${statePath}`,
     );
     return false;
   }

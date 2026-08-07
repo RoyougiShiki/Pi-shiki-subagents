@@ -4,8 +4,8 @@ Status: plan-only domain review; do not implement from this file without a follo
 
 Baseline:
 
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/README.md`
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs`
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/README.md`
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs`
 
 Scope: subagent runtime/observability and harness warning evidence. Findings are grouped by capability name first. Code paths are evidence only.
 

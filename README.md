@@ -1,4 +1,4 @@
-# oh-my-opencode-slim
+# pi-shiki-subagents
 
 A thin subagent runtime for the Pi coding agent.
 

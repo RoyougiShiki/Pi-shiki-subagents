@@ -2,7 +2,7 @@
 
 > **状态**：设计定稿（待评审确认后执行）
 > **日期**：2026-06-13
-> **范围**：`oh-my-opencode-slim` 的 Pi 扩展 harness 层、policy 层、agent/prompt 层、workflow 配置
+> **范围**：`pi-shiki-subagents` 的 Pi 扩展 harness 层、policy 层、agent/prompt 层、workflow 配置
 > **前序文档**：本文件覆盖并取代同目录 `proposal.md` v1 的设计方向（v1 的"新增 grill mode""5-stage workflow""omo-skill-matcher 启动 hook""保留 analyst 做 grill"等结论，经评审后全部修正，详见 §1 变更说明）
 > **研究依据**：cc-haha 源码核对 + Pi runtime 能力查证 + grill-me / grill-with-docs / grill-me-codex / superpowers 四仓库原文研读
 
@@ -198,7 +198,7 @@ v1 proposal 基于三仓库的**表面机制**设计，有几处方向性结论�
 | 8 | #16 | 删除 observer agent | `src/adapters/agents/observer.md`（删）、`src/adapters/agents-default.json`（改） |
 | 9 | #17 | 删除 tool-description-trimmer | `src/pi/prompt/tool-description-trimmer.ts` + test（删）、调用点（改） |
 | 10 | H6 | tool-result-budget 裁 read/grep/bash 落盘重叠部分 | `src/pi/harness/tool-result-budget.ts`（改） |
-| 11 | #18 | 历史 plans 归档 | `docs/oh-my-opencode-slim/plans/` 目录移动 |
+| 11 | #18 | 历史 plans 归档 | `docs/pi-shiki-subagents/plans/` 目录移动 |
 
 **第一批验收**：`bun test` / `bun run typecheck` / `bun run build` / `bun run verify:release` 全绿；删除的模块的 test 同步删除或改写。
 

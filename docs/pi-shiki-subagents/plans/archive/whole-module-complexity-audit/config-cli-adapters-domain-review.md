@@ -6,8 +6,8 @@ Scope: configuration loading, JSONC behavior, source precedence, schema surface,
 
 Baseline inputs:
 
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/README.md`
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs`
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/README.md`
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs`
 - Focused source spot checks in `src/config/**`, `src/cli/**`, `src/adapters/**`, `src/index.ts`, `package.json`, and `README.md`
 
 Reporting rule: findings are grouped by capability name first. File paths are evidence only.
@@ -41,7 +41,7 @@ Validation:
 Executable tasks:
 
 1. Update `README.md` to show only `./src/pi/core/pi.ts` in the Pi extension example.
-2. Mark `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md` as historical/stale where it describes already-removed OpenCode adapter behavior.
+2. Mark `docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md` as historical/stale where it describes already-removed OpenCode adapter behavior.
 3. Add a short note that `src/index.ts` is retained only as a legacy npm main compatibility placeholder.
 
 ### P0.2 Subagent Default Agent Definition Resolution
@@ -117,9 +117,9 @@ Decision: keep all currently supported config sources, but document and test one
 Capability order to preserve unless a separate product decision changes it:
 
 1. Built-in defaults.
-2. Pi-native config fallback at `~/.pi/agent/oh-my-opencode-slim.json` for Pi runtime/subagent model resolution.
+2. Pi-native config fallback at `~/.pi/agent/pi-shiki-subagents.json` for Pi runtime/subagent model resolution.
 3. OpenCode user config from `OPENCODE_CONFIG_DIR` or XDG/default OpenCode config directory.
-4. Project config at `.opencode/oh-my-opencode-slim.json[c]`.
+4. Project config at `.opencode/pi-shiki-subagents.json[c]`.
 5. `OH_MY_OPENCODE_SLIM_PRESET` preset selection override.
 6. Root agent overrides beat preset agent fields at the same config layer.
 
@@ -221,7 +221,7 @@ Decision: keep `src/adapters/agent-runtime-config.ts` as the runtime agent defin
 
 Evidence:
 
-- `src/adapters/agent-runtime-config.ts` reads Pi-native config from `~/.pi/agent/oh-my-opencode-slim.json`, reads shared config through `loadPluginConfig`, merges defaults, normalizes model entries, and exposes delegation rules.
+- `src/adapters/agent-runtime-config.ts` reads Pi-native config from `~/.pi/agent/pi-shiki-subagents.json`, reads shared config through `loadPluginConfig`, merges defaults, normalizes model entries, and exposes delegation rules.
 - `src/cli/paths.ts` separately defines OpenCode search locations and lite config paths.
 - `src/config/loader.ts` has its own `getConfigSearchDirs()` with equivalent OpenCode search semantics.
 - `src/adapters/pi.test.ts` already asserts shared OpenCode search paths and Pi adapter config behavior.
@@ -257,7 +257,7 @@ Evidence:
 
 - `src/config/schema.ts` includes agent overrides, presets, disabled agents/MCPs, workflows, fallback, harness, council, interview/session/todo continuation, and vision model config.
 - The schema is strict for nested agent/harness objects but broad at the product level.
-- `package.json` generates `oh-my-opencode-slim.schema.json` during build.
+- `package.json` generates `pi-shiki-subagents.schema.json` during build.
 
 Cost: medium to prune because each field may be user-facing.
 
@@ -392,7 +392,7 @@ Executable tasks:
 Before implementation patches derived from this plan:
 
 ```sh
-node docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs .
+node docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs .
 bun run typecheck
 bun test
 git diff --check

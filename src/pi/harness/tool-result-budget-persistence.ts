@@ -27,7 +27,7 @@ export async function loadBudgetState(
     const state = fromToolResultBudgetPersistenceJson(JSON.parse(content));
     if (!state) {
       console.warn(
-        `[oh-my-opencode-slim] Ignoring invalid tool result budget state: ${statePath}`,
+        `[pi-shiki-subagents] Ignoring invalid tool result budget state: ${statePath}`,
       );
       return null;
     }
@@ -41,7 +41,7 @@ export async function loadBudgetState(
       return null;
     }
     console.warn(
-      `[oh-my-opencode-slim] Failed to load tool result budget state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to load tool result budget state: ${statePath}`,
     );
     return null;
   }
@@ -66,7 +66,7 @@ export async function saveBudgetState(
     return true;
   } catch {
     console.warn(
-      `[oh-my-opencode-slim] Failed to save tool result budget state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to save tool result budget state: ${statePath}`,
     );
     return false;
   }

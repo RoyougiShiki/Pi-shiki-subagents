@@ -1,7 +1,7 @@
 # Plans and Research Notes
 
 This directory contains planning, audit, and research snapshots for
-`oh-my-opencode-slim`. These files are not the current runtime specification.
+`pi-shiki-subagents`. These files are not the current runtime specification.
 
 Current user-facing configuration belongs in:
 

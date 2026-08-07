@@ -60,7 +60,7 @@ export function resolvePiCouncilParticipants(args: {
     return {
       participants: [],
       error:
-        'Council is not configured. Add council.presets to oh-my-opencode-slim.json/jsonc, or pass participants[].',
+        'Council is not configured. Add council.presets to pi-shiki-subagents.json/jsonc, or pass participants[].',
     };
   }
 

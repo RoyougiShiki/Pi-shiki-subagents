@@ -104,7 +104,7 @@ Types/Defaults Layer (唯一真源)
 
 - 所有阈值、文案、pattern 都可配置
 - 默认值通过 `DEFAULT_*` 常量导出
-- 用户可通过 `oh-my-opencode-slim.jsonc` 覆盖
+- 用户可通过 `pi-shiki-subagents.jsonc` 覆盖
 
 ---
 
@@ -399,7 +399,7 @@ src/config/schema.ts          # HarnessConfigSchema
 
 ### 9.1 Codebase Graph
 
-项目名: `home-h-projects-aiprojects-oh-my-opencode-slim`
+项目名: `home-h-projects-aiprojects-pi-shiki-subagents`
 
 已索引模块（部分）:
 - `src/pi/policy/verification-evidence-policy.ts`

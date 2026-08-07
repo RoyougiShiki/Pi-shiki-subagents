@@ -1,4 +1,4 @@
-# oh-my-opencode-slim
+# pi-shiki-subagents
 
 Thin Pi runtime for role-scoped subagent pooling, mechanical safety boundaries, and optional subagent model overrides.
 

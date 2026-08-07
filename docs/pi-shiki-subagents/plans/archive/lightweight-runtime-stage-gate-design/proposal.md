@@ -2,7 +2,7 @@
 
 ## Status
 
-Design accepted. This document describes the next runtime design direction for `oh-my-opencode-slim`.
+Design accepted. This document describes the next runtime design direction for `pi-shiki-subagents`.
 
 This is a new lightweight design. It intentionally does **not** restore the old WorkflowManager system.
 

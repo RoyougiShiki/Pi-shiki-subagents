@@ -31,7 +31,7 @@ interface PoolNoticeBridgeState {
   generation?: number;
 }
 
-const GLOBAL_KEY = Symbol.for('oh-my-opencode-slim.pool-notice-bridge');
+const GLOBAL_KEY = Symbol.for('pi-shiki-subagents.pool-notice-bridge');
 
 function bridgeState(): PoolNoticeBridgeState {
   const globalRecord = globalThis as typeof globalThis & {

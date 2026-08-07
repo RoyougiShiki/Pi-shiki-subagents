@@ -29,7 +29,7 @@ export async function loadEvidenceSummaryState(
     const state = fromRecoveredEvidenceSummaryJson(JSON.parse(content));
     if (!state) {
       console.warn(
-        `[oh-my-opencode-slim] Ignoring invalid evidence summary state: ${statePath}`,
+        `[pi-shiki-subagents] Ignoring invalid evidence summary state: ${statePath}`,
       );
       return null;
     }
@@ -43,7 +43,7 @@ export async function loadEvidenceSummaryState(
       return null;
     }
     console.warn(
-      `[oh-my-opencode-slim] Failed to load evidence summary state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to load evidence summary state: ${statePath}`,
     );
     return null;
   }
@@ -68,7 +68,7 @@ export async function saveEvidenceSummaryState(
     return true;
   } catch {
     console.warn(
-      `[oh-my-opencode-slim] Failed to save evidence summary state: ${statePath}`,
+      `[pi-shiki-subagents] Failed to save evidence summary state: ${statePath}`,
     );
     return false;
   }

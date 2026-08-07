@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible bug in oh-my-opencode-slim.
+description: Report a reproducible bug in pi-shiki-subagents.
 title: '[Bug]: '
 labels:
   - bug
@@ -47,7 +47,7 @@ body:
   - type: input
     id: plugin-version
     attributes:
-      label: oh-my-opencode-slim version
+      label: pi-shiki-subagents version
       placeholder: 0.0.0
     validations:
       required: false

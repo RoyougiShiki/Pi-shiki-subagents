@@ -1,5 +1,5 @@
 /**
- * Thin Pi runtime for oh-my-opencode-slim.
+ * Thin Pi runtime for pi-shiki-subagents.
  *
  * The runtime owns subagent sessions, mechanical tool boundaries, result
  * budgeting, and a small set of explicit utilities. Task workflows live in
@@ -523,7 +523,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const presetNames = listPresetNames(config);
       if (presetNames.length === 0) {
         ctx.ui.notify(
-          'No presets configured. Add presets.<name> objects in ~/.pi/agent/oh-my-opencode-slim.json',
+          'No presets configured. Add presets.<name> objects in ~/.pi/agent/pi-shiki-subagents.json',
           'warning',
         );
         return;
@@ -761,6 +761,6 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   });
 
   console.error(
-    `[oh-my-opencode-slim] Thin Pi runtime loaded. Preset: ${currentPreset} (subagent overrides only; main model uses Pi controls)`,
+    `[pi-shiki-subagents] Thin Pi runtime loaded. Preset: ${currentPreset} (subagent overrides only; main model uses Pi controls)`,
   );
 }

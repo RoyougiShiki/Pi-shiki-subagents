@@ -2,7 +2,7 @@
 
 创建日期：2026-06-03
 
-本目录用于持续沉淀对 `cc-haha` / Claude Code 类 harness 的学习成果，并将其映射到当前项目 `oh-my-opencode-slim` 的 Pi 扩展能力增强计划。
+本目录用于持续沉淀对 `cc-haha` / Claude Code 类 harness 的学习成果，并将其映射到当前项目 `pi-shiki-subagents` 的 Pi 扩展能力增强计划。
 
 ## 本地源码路径
 
@@ -13,7 +13,7 @@
 | cc-haha | https://github.com/NanmiCoder/cc-haha | `/tmp/pi-github-repos/cc-haha@main` | Claude Code 类 harness / desktop UX / agent loop 研究 |
 | ClaudeCode-Source-Analysis | https://github.com/bcefghj/ClaudeCode-Source-Analysis | 未固定本地路径 | Claude Code source map 逆向分析；作为 cc-haha 之外的第二校准来源 |
 | Pi Session Manager | https://github.com/Dwsy/pi-session-manager | `/tmp/pi-github-repos/Dwsy/pi-session-manager` | Pi WebUI/Desktop、session/search/live/terminal/PSM 插件能力参考 |
-| 当前项目 | 当前工作区 | `/home/h/projects/aiprojects/oh-my-opencode-slim` | Pi 扩展落地目标 |
+| 当前项目 | 当前工作区 | `/home/h/projects/aiprojects/pi-shiki-subagents` | Pi 扩展落地目标 |
 
 > 注意：`/tmp/pi-github-repos/...` 可能会被系统清理；如果未来路径失效，需要重新 fetch/clone。当前文档记录了关键文件和机制，后续即使源码路径失效也能继续研究。
 
@@ -22,7 +22,7 @@
 当前工作区的 codebase graph 索引已存在，项目名：
 
 ```txt
-home-h-projects-aiprojects-oh-my-opencode-slim
+home-h-projects-aiprojects-pi-shiki-subagents
 ```
 
 已用该索引查询过当前项目中与 cc-haha 机制对接的模块，例如：

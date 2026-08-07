@@ -124,7 +124,7 @@ function logAgentFileSync(
   message: string,
   options?: AgentFileSyncOptions,
 ): void {
-  if (!options?.quiet) console.error(`[oh-my-opencode-slim] ${message}`);
+  if (!options?.quiet) console.error(`[pi-shiki-subagents] ${message}`);
 }
 
 function writeManagedAgentFile(

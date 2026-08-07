@@ -87,11 +87,11 @@ Local static scan summary:
 
 Reproducibility/provenance:
 
-- Authoritative provenance for the local static scan is the checked-in script plus command: `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs`.
+- Authoritative provenance for the local static scan is the checked-in script plus command: `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs`.
 - Run it from the repository root with:
 
 ```sh
-node docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs .
+node docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs .
 ```
 
 - For source metrics/import graph/boundary checks, the script walks `src/**`. Exact excluded directories: node_modules, .git, dist, coverage, .codebase-memory.
@@ -358,7 +358,7 @@ Recommendation: simplify docs.
 
 Rationale:
 
-- `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md` is now marked as a historical design draft and notes current facts: single `pi.ts` extension and `src/index.ts` as a warning-only compatibility stub.
+- `docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md` is now marked as a historical design draft and notes current facts: single `pi.ts` extension and `src/index.ts` as a warning-only compatibility stub.
 - Keeping the stale plan explicitly marked historical reduces the risk of reintroducing removed legacy OpenCode assumptions while preserving useful background context.
 
 Cost: small.

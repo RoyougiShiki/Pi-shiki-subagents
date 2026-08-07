@@ -24,7 +24,7 @@
       "type": "boolean"
     },
     "showStartupToast": {
-      "description": "Show the startup activation toast when OpenCode starts. Defaults to true.",
+      "description": "Show the startup activation toast. Defaults to true.",
       "type": "boolean"
     },
     "autoUpdate": {
@@ -517,6 +517,6 @@
     }
   },
   "additionalProperties": false,
-  "title": "oh-my-opencode-slim",
-  "description": "Configuration schema for oh-my-opencode-slim plugin for OpenCode"
+  "title": "pi-shiki-subagents",
+  "description": "Configuration schema for pi-shiki-subagents (Pi extension)"
 }

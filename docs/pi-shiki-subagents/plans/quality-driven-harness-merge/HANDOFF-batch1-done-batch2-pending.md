@@ -2,7 +2,7 @@
 
 > 日期：2026-06-18
 > 分支：`refactor/mode-first-stabilization`
-> 方案文档：`docs/oh-my-opencode-slim/plans/quality-driven-harness-merge/proposal-v2.md`
+> 方案文档：`docs/pi-shiki-subagents/plans/quality-driven-harness-merge/proposal-v2.md`
 > 工作区状态：未提交，包含第一批成果与第二批本轮改动。
 
 ## 当前进度

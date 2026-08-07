@@ -2,7 +2,7 @@
 
 Status: plan artifact only; no implementation performed.
 
-Baseline: `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/README.md` plus targeted source reads of Pi core, mode registration, council/meeting, subagent pool, hub, and package metadata.
+Baseline: `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/README.md` plus targeted source reads of Pi core, mode registration, council/meeting, subagent pool, hub, and package metadata.
 
 Review rule: findings are grouped by capability/function name. Code paths are listed only as evidence.
 
@@ -213,7 +213,7 @@ Risk: medium; type movement can fan out across tests and exports.
 
 Validation:
 
-- Import graph scan before/after with `node docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs .`.
+- Import graph scan before/after with `node docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs .`.
 - Meeting/council targeted tests or smoke.
 - `bun run typecheck`.
 
@@ -457,7 +457,7 @@ git diff --check
 For import/coupling changes:
 
 ```sh
-node docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs .
+node docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs .
 ```
 
 For docs-only edits:

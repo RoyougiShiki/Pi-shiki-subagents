@@ -58,7 +58,7 @@ src/adapters/agent-discovery.ts
 src/adapters/delegation-rules.ts
 src/adapters/pi-env.d.ts
 src/config/**
-oh-my-opencode-slim.schema.json
+pi-shiki-subagents.schema.json
 ```
 
 说明:
@@ -145,7 +145,7 @@ verify:release
 src/pi
 src/adapters
 src/config
-oh-my-opencode-slim.schema.json
+pi-shiki-subagents.schema.json
 README.md
 LICENSE
 ```

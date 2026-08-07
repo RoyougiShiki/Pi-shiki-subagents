@@ -6,12 +6,12 @@ Configuration applies to the maintained Pi runtime and its shared agent definiti
 
 | File | Purpose |
 |------|---------|
-| `~/.pi/agent/oh-my-opencode-slim.jsonc` | Pi-native JSONC settings; preferred over `.json` |
-| `~/.pi/agent/oh-my-opencode-slim.json` | Pi-native settings for presets, agents, tool groups, council, and harness |
-| `~/.config/opencode/oh-my-opencode-slim.jsonc` | Shared user JSONC settings |
-| `~/.config/opencode/oh-my-opencode-slim.json` | Shared user settings |
-| `.opencode/oh-my-opencode-slim.jsonc` | Project JSONC overrides |
-| `.opencode/oh-my-opencode-slim.json` | Project overrides |
+| `~/.pi/agent/pi-shiki-subagents.jsonc` | Pi-native JSONC settings; preferred over `.json` |
+| `~/.pi/agent/pi-shiki-subagents.json` | Pi-native settings for presets, agents, tool groups, council, and harness |
+| `~/.config/opencode/pi-shiki-subagents.jsonc` | Shared user JSONC settings |
+| `~/.config/opencode/pi-shiki-subagents.json` | Shared user settings |
+| `.opencode/pi-shiki-subagents.jsonc` | Project JSONC overrides |
+| `.opencode/pi-shiki-subagents.json` | Project overrides |
 
 JSONC supports comments and trailing commas. All configuration sources use the same strict schema. Removed workflow and mode fields are errors; they are not silently ignored. The optional `$schema` URL is supported for editor validation.
 
@@ -19,7 +19,7 @@ JSONC supports comments and trailing commas. All configuration sources use the s
 
 ```jsonc
 {
-  "$schema": "https://unpkg.com/oh-my-opencode-slim@latest/oh-my-opencode-slim.schema.json",
+  "$schema": "https://unpkg.com/pi-shiki-subagents@latest/pi-shiki-subagents.schema.json",
   "preset": "省钱模式",
   "presets": {
     "省钱模式": {},

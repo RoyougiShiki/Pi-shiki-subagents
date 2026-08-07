@@ -20,8 +20,8 @@ const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
 const SETTINGS_PATH =
   process.env.PI_SETTINGS_PATH ??
   join(homedir(), '.pi', 'agent', 'settings.json');
-const SCHEMA_PATH = join(REPO_ROOT, 'oh-my-opencode-slim.schema.json');
-const PACKAGE_NAME = 'oh-my-opencode-slim';
+const SCHEMA_PATH = join(REPO_ROOT, 'pi-shiki-subagents.schema.json');
+const PACKAGE_NAME = 'pi-shiki-subagents';
 const REQUIRED_EXTENSION_FILTERS = ['+src/pi/core/pi.ts'];
 
 type JsonObject = Record<string, unknown>;
@@ -125,7 +125,7 @@ function ensureSchema(options: Options): CheckResult {
       changed: false,
       settingsChanged: false,
       messages: [
-        '[schema] stale; run bun run pi:sync to update oh-my-opencode-slim.schema.json',
+        '[schema] stale; run bun run pi:sync to update pi-shiki-subagents.schema.json',
       ],
     };
   }
@@ -135,7 +135,7 @@ function ensureSchema(options: Options): CheckResult {
     ok: true,
     changed: true,
     settingsChanged: false,
-    messages: ['[schema] updated oh-my-opencode-slim.schema.json'],
+    messages: ['[schema] updated pi-shiki-subagents.schema.json'],
   };
 }
 

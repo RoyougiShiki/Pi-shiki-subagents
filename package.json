@@ -1,7 +1,7 @@
 {
-  "name": "oh-my-opencode-slim",
+  "name": "pi-shiki-subagents",
   "version": "1.0.4",
-  "description": "Pi extension: light multi-agent orchestration layer (pi-shiki, formerly oh-my-opencode-slim). OpenCode 形态已移除。",
+  "description": "Pi extension: light multi-agent orchestration layer (pi-shiki). Fork of oh-my-opencode-slim; OpenCode 形态已移除。",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -19,19 +19,19 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/alvinunreal/oh-my-opencode-slim"
+    "url": "https://github.com/RoyougiShiki/Pi-shiki-subagents"
   },
   "bugs": {
-    "url": "https://github.com/alvinunreal/oh-my-opencode-slim/issues"
+    "url": "https://github.com/RoyougiShiki/Pi-shiki-subagents/issues"
   },
-  "homepage": "https://github.com/alvinunreal/oh-my-opencode-slim#readme",
+  "homepage": "https://github.com/RoyougiShiki/Pi-shiki-subagents#readme",
   "files": [
     "src/pi",
     "src/adapters",
     "src/config",
     "README.md",
     "LICENSE",
-    "oh-my-opencode-slim.schema.json"
+    "pi-shiki-subagents.schema.json"
   ],
   "scripts": {
     "contributors:add": "all-contributors add",

@@ -1,9 +1,9 @@
-# Quality-Driven Harness Merge — 借 grill-me / grill-with-docs / grill-me-codex / superpowers 改造 oh-my-opencode-slim
+# Quality-Driven Harness Merge — 借 grill-me / grill-with-docs / grill-me-codex / superpowers 改造 pi-shiki-subagents
 
 > **状态**：设计草案 v1（待评审）
 > **日期**：2026-06-13
-> **作者**：基于 `docs/oh-my-opencode-slim/plans/` 既有研究 + 三套外部 harness 模式综合
-> **范围**：`oh-my-opencode-slim` 现有 Pi 扩展、mode / workflow / tool-scope / skill 子系统
+> **作者**：基于 `docs/pi-shiki-subagents/plans/` 既有研究 + 三套外部 harness 模式综合
+> **范围**：`pi-shiki-subagents` 现有 Pi 扩展、mode / workflow / tool-scope / skill 子系统
 > **不打算复刻**：Claude Code 完整 transcript / permission / teammate runtime（沿用 `claude-code-harness-study/12-harness-closeout.md` 的收口边界）
 
 ---
@@ -24,7 +24,7 @@
 | 仓库 | 借什么 | 不借什么 | 本项目落点 |
 |---|---|---|---|
 | [mattpocock/skills](https://github.com/mattpocock/skills) → [`skills/productivity/grill-me/SKILL.md`](https://github.com/mattpocock/skills/blob/main/skills/productivity/grill-me/SKILL.md) | 一次一问、每个问题都给推荐答案、能查代码就不问人 | 自由对话式（不强制结构化 UI） | `standard-dev` 的 `analysis` 阶段 prompt 模板 + 新 `grill` mode 提示词骨架 |
-| [mattpocock/skills](https://github.com/mattpocock/skills) → [`skills/engineering/grill-with-docs/`](https://github.com/mattpocock/skills/blob/main/skills/engineering/grill-with-docs/SKILL.md) | CONTEXT.md / ADR 沉淀 + 三个 ADR 触发条件 | "用 AskUserQuestion 弹窗"的强 UI 依赖 | 新建 `docs/oh-my-opencode-slim/context/CONTEXT.md` + `docs/oh-my-opencode-slim/adr/` 目录约定，绑定到 `grill` mode 输出 |
+| [mattpocock/skills](https://github.com/mattpocock/skills) → [`skills/engineering/grill-with-docs/`](https://github.com/mattpocock/skills/blob/main/skills/engineering/grill-with-docs/SKILL.md) | CONTEXT.md / ADR 沉淀 + 三个 ADR 触发条件 | "用 AskUserQuestion 弹窗"的强 UI 依赖 | 新建 `docs/pi-shiki-subagents/context/CONTEXT.md` + `docs/pi-shiki-subagents/adr/` 目录约定，绑定到 `grill` mode 输出 |
 | [chaseai-yt/grill-me-codex](https://github.com/chaseai-yt/grill-me-codex) → [`SKILL.md`](https://github.com/chaseai-yt/grill-me-codex/blob/main/skills/grill-me-codex/SKILL.md) | 两幕拆分（对齐 + 跨模型审查）、`VERDICT: APPROVED\|REVISE` 终止协议、Claude 是最终裁判、`MAX_ROUNDS` 必终止 | 跨 CLI（`codex exec`）+ 跨进程（Codex CLI 沙箱 `sandbox_mode="read-only"` 风险） | `standard-dev` 的 `implement` 阶段内嵌"审查循环"，但**用 omo_subagent spawn `oracle`** 而不是外部 CLI，把沙箱边界收回到本项目 Pi runtime |
 | [obra/superpowers](https://github.com/obra/superpowers) → [`skills/using-superpowers/SKILL.md`](https://github.com/obra/superpowers/blob/main/skills/using-superpowers/SKILL.md) | "1% 适用就强制匹配 skill" + Red Flags 反向表 + 决策图 + 优先级（用户 > skill > default） | 14 个具体 skill 的逐字内容 | 新建一个 `omo-skill-matcher` 启动 hook，解析 `~/.pi/agents/*.md` 的 `name:` / `description:` frontmatter，注入 `<AvailableSkills>` 提示，prompt 模板沿用 `using-superpowers` 的 Red Flags 表 |
 | [obra/superpowers](https://github.com/obra/superpowers) → [`skills/verification-before-completion/SKILL.md`](https://github.com/obra/superpowers/blob/main/skills/verification-before-completion/SKILL.md) | "NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE" 铁律 + 24 条 failure memories | 重新设计 verifier | 已有 `verification-evidence-policy.ts` 完整吸收这条 |
@@ -44,7 +44,7 @@
 **当前实现**（`src/adapters/agents/standard-dev.md` + `docs/configuration.md`）：
 - `analysis` (analyst) → `plan` (designer) → `implement` (dispatcher+fixer/oracle)
 - `oracle` 已经被设计为"证据驱动的对抗性审查者"（[src/adapters/agents/oracle.md](src/adapters/agents/oracle.md)）。
-- 已有 `workflow-stage-policy` 阻止跳 stage（[docs/oh-my-opencode-slim/plans/lightweight-runtime-stage-gate-design/proposal.md](docs/oh-my-opencode-slim/plans/lightweight-runtime-stage-gate-design/proposal.md)）。
+- 已有 `workflow-stage-policy` 阻止跳 stage（[docs/pi-shiki-subagents/plans/lightweight-runtime-stage-gate-design/proposal.md](docs/pi-shiki-subagents/plans/lightweight-runtime-stage-gate-design/proposal.md)）。
 
 **改造方向**（**不是新建 mode，而是在 `standard-dev` 内**增 stage）：
 
@@ -83,7 +83,7 @@ standard-dev workflow:
 
 **当前状态**：
 - Pi 已经会把 `src/adapters/agents/*.md` 同步到 `~/.pi/agents/`，但**没有**在 `mode_session_started` / 通知里聚合 skill 列表。
-- `docs/oh-my-opencode-slim/plans/agent-boundary-redesign/proposal.md` §8 已经设计了 `mode_session_started` / `mode_session_resumed` customType，但**没**做 skill 摘要注入。
+- `docs/pi-shiki-subagents/plans/agent-boundary-redesign/proposal.md` §8 已经设计了 `mode_session_started` / `mode_session_resumed` customType，但**没**做 skill 摘要注入。
 
 **改造方向**：
 
@@ -124,7 +124,7 @@ standard-dev workflow:
 
 **改造方向**：
 
-1. 在仓库内新建 `docs/oh-my-opencode-slim/context/CONTEXT.md`（初始为空） + `docs/oh-my-opencode-slim/adr/`（初始为空），**只**由 `grill` stage 的 analyst 写入。
+1. 在仓库内新建 `docs/pi-shiki-subagents/context/CONTEXT.md`（初始为空） + `docs/pi-shiki-subagents/adr/`（初始为空），**只**由 `grill` stage 的 analyst 写入。
 2. `CONTEXT.md` 严格遵循"纯术语表，不含实现"（与 [CONTEXT-FORMAT.md](https://github.com/mattpocock/skills/blob/main/skills/engineering/grill-with-docs/CONTEXT-FORMAT.md) §"Rules" 一致）。
 3. ADR 沿用三条件触发（hard to reverse / surprising without context / real trade-off），可参考原 `ADR-FORMAT.md` 但编号用 4 位（`0001-foo.md`）保留扩展空间。
 4. 写入权限：仅 `grill` stage 内的 analyst（`designer` 也可写但**不**强制）；`dispatcher` / `fixer` 全部 read-only。
@@ -192,12 +192,12 @@ standard-dev workflow:
     // 新增
     "grill": ["read", "grep", "find"],                    // analyst 在 grill stage 的 read-only
     "oracle_independent": ["read", "grep", "find", "bash", "codebase-memory"],  // 禁止 write/edit/omo_subagent
-    "context_writer": ["read", "write", "edit"]            // 限定路径：docs/oh-my-opencode-slim/context/ + docs/oh-my-opencode-slim/adr/
+    "context_writer": ["read", "write", "edit"]            // 限定路径：docs/pi-shiki-subagents/context/ + docs/pi-shiki-subagents/adr/
   }
 }
 ```
 
-注意：路径级限制本项目目前没有，需要在 `tool-scope-manager.ts` 加"按工具组的路径白名单"扩展，**或**把"只能在 `docs/oh-my-opencode-slim/{context,adr}/` 下 write"做成 `subagent-contract-policy` 的额外约束——后者更轻量。
+注意：路径级限制本项目目前没有，需要在 `tool-scope-manager.ts` 加"按工具组的路径白名单"扩展，**或**把"只能在 `docs/pi-shiki-subagents/{context,adr}/` 下 write"做成 `subagent-contract-policy` 的额外约束——后者更轻量。
 
 ### 3.4 调整 skill 范式
 
@@ -230,7 +230,7 @@ omo-skill-subagent-stop: true|false          # 默认 false；oracle/search 类�
 <ModeWorkflows>...</ModeWorkflows>      # 已有
 <AvailableAgents>...</AvailableAgents>  # 已有
 <AvailableSkills>...</AvailableSkills>  # 新增：来自 omo-skill-matcher
-<CONTEXTExcerpt>...</CONTEXTExcerpt>    # 新增：来自 docs/oh-my-opencode-slim/context/CONTEXT.md 摘要
+<CONTEXTExcerpt>...</CONTEXTExcerpt>    # 新增：来自 docs/pi-shiki-subagents/context/CONTEXT.md 摘要
 <RecentADRs>...</RecentADRs>            # 新增：最近 5 条 ADR 标题
 <RedFlags>...</RedFlags>                # 新增：抄 superpowers 的反向表，标注来源
 <RolePrompt>...</RolePrompt>            # 已有：来自 agents/<name>.md
@@ -280,8 +280,8 @@ omo-skill-subagent-stop: true|false          # 默认 false；oracle/search 类�
 
 ### 阶段 1：P0 最小闭环（建议 PR #1）
 
-1. 新建 `docs/oh-my-opencode-slim/context/CONTEXT.md`（空文件 + 注释说明）。
-2. 新建 `docs/oh-my-opencode-slim/adr/README.md`（约定格式）。
+1. 新建 `docs/pi-shiki-subagents/context/CONTEXT.md`（空文件 + 注释说明）。
+2. 新建 `docs/pi-shiki-subagents/adr/README.md`（约定格式）。
 3. 修改 `src/config/workflow-defaults.ts` 中 `standard-dev` workflow，加 `grill` + `review` stage。
 4. 修改 `src/adapters/agents/standard-dev.md`：把 5 stage 写进"工作路径"。
 5. 新建 `src/adapters/agents/grill.md`（`grill` mode 的 prompt，主体抄 [mattpocock/grill-me](https://github.com/mattpocock/skills/blob/main/skills/productivity/grill-me/SKILL.md) + 沉淀指令）。
@@ -346,7 +346,7 @@ omo-skill-subagent-stop: true|false          # 默认 false；oracle/search 类�
 
 ## 8. 一句话总结
 
-> 用 grill-me（对齐）+ grill-with-docs（沉淀）+ grill-me-codex（两幕对抗） + superpowers（bootstrap / Red Flags / TDD / verification）四套已经被验证的设计模式，对 `oh-my-opencode-slim` 现有 `standard-dev` workflow 做 5-stage 化、补 `grill` mode 与 `omo-skill-matcher` 启动 hook、硬化 `oracle` 独立验证者角色；不引入外部 CLI 沙箱、不复活 WorkflowManager、不加细粒度审批；最高价值集中在阶段 1–2，最低风险前提是每一步都沿用现有 `workflow-stage-policy` / `evidence-tracker` / `verification-evidence-policy` 的"config-driven + 纯函数 + companion JSON"风格。
+> 用 grill-me（对齐）+ grill-with-docs（沉淀）+ grill-me-codex（两幕对抗） + superpowers（bootstrap / Red Flags / TDD / verification）四套已经被验证的设计模式，对 `pi-shiki-subagents` 现有 `standard-dev` workflow 做 5-stage 化、补 `grill` mode 与 `omo-skill-matcher` 启动 hook、硬化 `oracle` 独立验证者角色；不引入外部 CLI 沙箱、不复活 WorkflowManager、不加细粒度审批；最高价值集中在阶段 1–2，最低风险前提是每一步都沿用现有 `workflow-stage-policy` / `evidence-tracker` / `verification-evidence-policy` 的"config-driven + 纯函数 + companion JSON"风格。
 
 ---
 
@@ -356,8 +356,8 @@ omo-skill-subagent-stop: true|false          # 默认 false；oracle/search 类�
 |---|---|---|---|---|---|
 | 反方审讯 prompt | ✅ | ✅ | ✅ | ❌ | `grill` stage analyst prompt |
 | 一次一问 + 推荐答案 | ✅ | ✅ | ✅ | ❌ | 同上 |
-| CONTEXT.md 沉淀 | ❌ | ✅ | ❌ | ❌ | `docs/oh-my-opencode-slim/context/CONTEXT.md` |
-| ADR 沉淀 | ❌ | ✅ | ❌ | ❌ | `docs/oh-my-opencode-slim/adr/` |
+| CONTEXT.md 沉淀 | ❌ | ✅ | ❌ | ❌ | `docs/pi-shiki-subagents/context/CONTEXT.md` |
+| ADR 沉淀 | ❌ | ✅ | ❌ | ❌ | `docs/pi-shiki-subagents/adr/` |
 | 两幕拆分 | ❌ | ❌ | ✅ | ❌ | `standard-dev` 5 stage（analysis+grill=Act 1, implement+review=Act 2） |
 | 跨模型对抗 | ❌ | ❌ | ✅（Codex） | ❌ | `oracle` 独立上下文（不跨 CLI） |
 | `VERDICT: APPROVED\|REVISE` 协议 | ❌ | ❌ | ✅ | ❌ | oracle 审查收口 |
@@ -385,4 +385,4 @@ omo-skill-subagent-stop: true|false          # 默认 false；oracle/search 类�
 5. **`<AvailableSkills>` 注入数量上限**：建议 top-5 by description keyword match；超过则只列名字 + 描述前 80 字符。
 6. **`omo-skill-subagent-stop` 默认值**：所有现有 agent 默认 false；新增 skill 时按需显式 true。
 7. **CONTEXT.md 写入冲突**：两个并行 grill session 同时写怎么办？建议"只允许一个 grill session 持有 writer 锁"，由 `review-ledger.ts` 跟踪持有者。
-8. **是否引入"plan 文档"目录** `docs/oh-my-opencode-slim/plans/` 已存在但用途不同（历史研究快照）；新计划走 `docs/oh-my-opencode-slim/plans/quality-driven-harness-merge/` 自身目录，无须再开。
+8. **是否引入"plan 文档"目录** `docs/pi-shiki-subagents/plans/` 已存在但用途不同（历史研究快照）；新计划走 `docs/pi-shiki-subagents/plans/quality-driven-harness-merge/` 自身目录，无须再开。

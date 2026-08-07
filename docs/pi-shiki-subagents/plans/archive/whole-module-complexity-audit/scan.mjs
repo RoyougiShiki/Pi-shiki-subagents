@@ -193,13 +193,13 @@ const docsAndPackageFindings = {
     read(
       path.join(
         root,
-        'docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md',
+        'docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md',
       ),
     ).includes('src/opencode') ||
     read(
       path.join(
         root,
-        'docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md',
+        'docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md',
       ),
     ).includes('旧 OpenCode'),
 };

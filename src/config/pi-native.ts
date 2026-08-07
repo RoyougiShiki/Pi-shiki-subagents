@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { parseJsonc } from './jsonc';
 import { PluginConfigSchema } from './schema';
 
-const CONFIG_BASENAME = 'oh-my-opencode-slim';
+const CONFIG_BASENAME = 'pi-shiki-subagents';
 
 export function getDefaultPiNativeConfigDir(): string {
   return path.join(process.env.HOME || os.homedir(), '.pi', 'agent');
@@ -42,7 +42,7 @@ export function readPiNativeConfigObject(
       );
       if (parsed.success) return parsed.data;
       console.warn(
-        `[oh-my-opencode-slim] Invalid Pi-native config at ${configPath}; ignoring it.`,
+        `[pi-shiki-subagents] Invalid Pi-native config at ${configPath}; ignoring it.`,
       );
     } catch {}
   }

@@ -27,7 +27,7 @@ function getPrimaryAgentName(): string {
     .map(([name]) => name);
   if (primaryAgents.length !== 1) {
     throw new Error(
-      `[oh-my-opencode-slim] agents-default.json must define exactly one presetPrimary main session; found ${primaryAgents.length}`,
+      `[pi-shiki-subagents] agents-default.json must define exactly one presetPrimary main session; found ${primaryAgents.length}`,
     );
   }
   return primaryAgents[0]!;

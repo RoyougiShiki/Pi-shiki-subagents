@@ -1,17 +1,17 @@
 # 05 — 映射到当前 Pi 扩展的落地设计
 
-本文把 cc-haha harness 学习成果映射到当前项目 `oh-my-opencode-slim` 的 Pi 扩展实现路径。
+本文把 cc-haha harness 学习成果映射到当前项目 `pi-shiki-subagents` 的 Pi 扩展实现路径。
 
 当前项目路径：
 
 ```txt
-/home/h/projects/aiprojects/oh-my-opencode-slim
+/home/h/projects/aiprojects/pi-shiki-subagents
 ```
 
 Codebase graph 项目名：
 
 ```txt
-home-h-projects-aiprojects-oh-my-opencode-slim
+home-h-projects-aiprojects-pi-shiki-subagents
 ```
 
 ## 1. 当前项目已有基础
@@ -199,7 +199,7 @@ interface PersistedToolResultRef {
 或当前项目扩展专用路径：
 
 ```txt
-~/.pi/oh-my-opencode-slim/tool-results/{sessionId}/{toolUseId}.txt
+~/.pi/pi-shiki-subagents/tool-results/{sessionId}/{toolUseId}.txt
 ```
 
 ### 4.4 与 cc-haha 对应

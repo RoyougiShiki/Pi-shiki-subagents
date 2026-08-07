@@ -11,9 +11,9 @@ Scope of this review:
 
 Baseline evidence:
 
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/README.md`
-- `docs/oh-my-opencode-slim/plans/whole-module-complexity-audit/scan.mjs`
-- spot checks of `README.md`, `package.json`, `src/index.ts`, `tsconfig.json`, selected `dist/**/*.d.ts`, and `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md`.
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/README.md`
+- `docs/pi-shiki-subagents/plans/whole-module-complexity-audit/scan.mjs`
+- spot checks of `README.md`, `package.json`, `src/index.ts`, `tsconfig.json`, selected `dist/**/*.d.ts`, and `docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md`.
 
 No implementation is included in this review.
 
@@ -51,7 +51,7 @@ Capability: cleanup-plan guidance for the legacy OpenCode adapter boundary.
 
 Finding:
 
-- `docs/oh-my-opencode-slim/plans/platform-adapter-cleanup/proposal.md` still says the design is not implemented.
+- `docs/pi-shiki-subagents/plans/platform-adapter-cleanup/proposal.md` still says the design is not implemented.
 - It says `src/index.ts` exports the old OpenCode adapter, but current `src/index.ts` is a warning-only compatibility placeholder.
 - It still documents two Pi extensions, while current `package.json` has only `./src/pi/core/pi.ts`.
 - It lists old deletion candidates and risk framing that are now partially historical.
