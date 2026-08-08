@@ -177,7 +177,7 @@ export function registerPoolNoticeBridge(options: {
         try {
           options.ctx.ui.notify(
             `[pool] ${formatPoolEventLabel(event)} completed`,
-            'success',
+            'info',
           );
         } catch {}
         try {

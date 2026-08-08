@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 import { discoverAgents } from '../../adapters/agent-discovery';
 import {
   checkDelegationAllowed,
@@ -8,13 +9,13 @@ import {
 import { loadPluginConfig } from '../../config/loader';
 import { readPiNativeConfigObject } from '../../config/pi-native';
 import {
+  type AvailableModelRef,
   formatModelRef,
   getActivePresetName,
   getPresetPack,
   isModelAvailable,
   parseModelRef,
   resolveRoleSubagentModelId,
-  type AvailableModelRef,
 } from '../preset/preset-model-resolution';
 import {
   getPool,
@@ -57,7 +58,6 @@ function emptyDetails(action: SubagentToolAction, runId?: string) {
   return buildDetails(action, runId, false);
 }
 
-
 async function listAvailableModels(ctx: any): Promise<AvailableModelRef[]> {
   try {
     const available = await ctx?.modelRegistry?.getAvailable?.();
@@ -75,7 +75,10 @@ async function listAvailableModels(ctx: any): Promise<AvailableModelRef[]> {
 
 function loadEffectivePresetConfig(cwd: string) {
   const piNative = readPiNativeConfigObject();
-  const shared = loadPluginConfig(cwd, { quiet: true }) as Record<string, unknown>;
+  const shared = loadPluginConfig(cwd, { quiet: true }) as Record<
+    string,
+    unknown
+  >;
   return {
     preset:
       (typeof piNative.preset === 'string' && piNative.preset) ||
@@ -254,26 +257,28 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       '  result / listSaved / resume / kill: fetch result, list resumable sessions, resume, or stop',
       '  on busy/reject: do not repeat the same request; degrade or ask the user',
     ].join('\n'),
-    parameters: {
-      type: 'object',
-      properties: {
-        agent: { type: 'string', description: 'Subagent role name' },
-        task: { type: 'string', description: 'Task prompt for a pool agent' },
-        pool: {
-          type: 'string',
+    parameters: Type.Object({
+      agent: Type.Optional(Type.String({ description: 'Subagent role name' })),
+      task: Type.Optional(
+        Type.String({ description: 'Task prompt for a pool agent' }),
+      ),
+      pool: Type.Optional(
+        Type.String({
           description: poolActionDescription,
-        },
-        id: {
-          type: 'string',
+        }),
+      ),
+      id: Type.Optional(
+        Type.String({
           description: 'Pool agent ID (for spawn/send/kill)',
-        },
-        message: {
-          type: 'string',
+        }),
+      ),
+      message: Type.Optional(
+        Type.String({
           description: 'Message for pool send/resume action',
-        },
-        model: { type: 'string', description: 'Model override' },
-      },
-    },
+        }),
+      ),
+      model: Type.Optional(Type.String({ description: 'Model override' })),
+    }),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
@@ -357,7 +362,12 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
           });
           if (!modelResolution.ok) {
             return {
-              content: [{ type: 'text', text: `✗ Spawn failed: ${modelResolution.error}` }],
+              content: [
+                {
+                  type: 'text',
+                  text: `✗ Spawn failed: ${modelResolution.error}`,
+                },
+              ],
               details: buildDetails('spawn', params.id, true),
               isError: true,
             };

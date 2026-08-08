@@ -186,7 +186,7 @@ export function renderOmoSubagentCallLines(
 
 export function renderOmoSubagentCall(
   args: Record<string, unknown>,
-  _theme?: ThemeLike,
+  _theme?: unknown,
 ): Text {
   return new Text(renderOmoSubagentCallLines(args).join('\n'), 0, 0);
 }
@@ -194,7 +194,7 @@ export function renderOmoSubagentCall(
 export function renderOmoSubagentResult(
   result: ToolResultLike,
   options: RenderResultOptions,
-  _theme?: ThemeLike,
+  _theme?: unknown,
 ): Text {
   return new Text(
     renderOmoSubagentResultLines(result, { expanded: options.expanded }).join(

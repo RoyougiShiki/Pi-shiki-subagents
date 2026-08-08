@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type {
+  AgentToolResult,
   ExtensionAPI,
   ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
@@ -39,6 +40,7 @@ import {
   resolvePiCouncilParticipants,
   runPiCouncilParticipant,
 } from '../meeting/pi-council';
+import type { PiMeetingResult } from '../meeting/pi-meeting';
 import { formatPiMeetingResult, runPiMeeting } from '../meeting/pi-meeting';
 import {
   getToolScope,
@@ -47,6 +49,7 @@ import {
   setToolScope,
 } from '../policy/tool-scope-manager';
 import {
+  type AvailableModelRef,
   findStalePresetSlots,
   getActivePresetName,
   getPresetPack,
@@ -54,12 +57,8 @@ import {
   parseModelRef,
   setPresetSlot,
   summarizePresetPack,
-  type AvailableModelRef,
 } from '../preset/preset-model-resolution';
-import {
-  isModelPlaceholder,
-  parsePiModelId,
-} from '../preset/preset-switch';
+import { isModelPlaceholder, parsePiModelId } from '../preset/preset-switch';
 import {
   getPool,
   initPoolAllToolNamesResolver,
@@ -92,9 +91,7 @@ export {
   normalizePiMeetingMaxRounds,
   normalizePiMeetingObjective,
 } from '../meeting/pi-meeting';
-export {
-  parsePiModelId,
-} from '../preset/preset-switch';
+export { parsePiModelId } from '../preset/preset-switch';
 
 const PRESET_MODEL_SUBCOMMAND = 'model';
 const DANGEROUS_BASH_PATTERNS = [
@@ -242,6 +239,14 @@ function applyMainToolScope(pi: ExtensionAPI): void {
 }
 
 function createCouncilTool(config: OmniMoConfig | null) {
+  // 显式 details 类型：meeting 分支带 result，isolated 分支带 results，其余不带，统一联合避免推断分裂
+  type CouncilToolDetails = {
+    mode: string;
+    question: string;
+    result?: PiMeetingResult;
+    results?: PiCouncilRunResult[];
+  };
+
   return {
     name: 'omo_council',
     label: 'OMO Council',
@@ -299,7 +304,7 @@ function createCouncilTool(config: OmniMoConfig | null) {
       _signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
-    ) {
+    ): Promise<AgentToolResult<CouncilToolDetails>> {
       const mode = params.mode ?? 'isolated';
       if (mode === 'meeting') {
         const meeting = await runPiMeeting({
@@ -323,7 +328,6 @@ function createCouncilTool(config: OmniMoConfig | null) {
               },
             ],
             details: { mode, question: params.question },
-            isError: true,
           };
         }
         return {
@@ -334,7 +338,6 @@ function createCouncilTool(config: OmniMoConfig | null) {
             },
           ],
           details: { mode, question: params.question, result: meeting.result },
-          isError: meeting.result.status === 'failed',
         };
       }
       if (mode !== 'isolated') {
@@ -346,7 +349,6 @@ function createCouncilTool(config: OmniMoConfig | null) {
             },
           ],
           details: { mode, question: params.question },
-          isError: true,
         };
       }
 
@@ -359,7 +361,6 @@ function createCouncilTool(config: OmniMoConfig | null) {
         return {
           content: [{ type: 'text' as const, text: resolved.error }],
           details: { mode, question: params.question },
-          isError: true,
         };
       }
       const timeoutMs = config?.council?.timeout ?? 180000;
@@ -386,7 +387,6 @@ function createCouncilTool(config: OmniMoConfig | null) {
           },
         ],
         details: { mode, question: params.question, results },
-        isError: results.every((result) => result.status !== 'completed'),
       };
     },
   };
@@ -542,10 +542,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       };
 
       const EDIT = '__edit__';
-      const firstChoices = [
-        ...presetNames.map(labelForPreset),
-        '编辑覆盖…',
-      ];
+      const firstChoices = [...presetNames.map(labelForPreset), '编辑覆盖…'];
       const first = await ctx.ui.select('预设（子代理模型策略）', firstChoices);
       if (!first) return;
 
@@ -582,10 +579,11 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             );
             let packNext = asPresetPack(native.presets?.[selectedPreset]);
             for (const item of stale) {
-              packNext = setPresetSlot(packNext, item.slot, undefined) as Record<
-                string,
-                string
-              >;
+              packNext = setPresetSlot(
+                packNext,
+                item.slot,
+                undefined,
+              ) as Record<string, string>;
             }
             native.presets![selectedPreset] = packNext;
             native.preset = selectedPreset;
@@ -594,7 +592,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
             config = loadOmniMoConfig();
             ctx.ui.notify(
               `已切换到「${selectedPreset}」，并清除失效覆盖。\n${summarizePresetPack(packNext)}`,
-              'success',
+              'info',
             );
             return;
           }
@@ -617,7 +615,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
         const packAfter = asPresetPack(getPresetPack(config, selectedPreset));
         ctx.ui.notify(
           `已切换到「${selectedPreset}」\n- 主模型不变（请用 Pi /model）\n- 子代理策略: ${summarizePresetPack(packAfter)}`,
-          'success',
+          'info',
         );
         return;
       }
@@ -626,14 +624,16 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const target =
         presetNames.length === 1
           ? presetNames[0]
-          : await ctx.ui.select(
-              '选择要编辑的预设',
-              presetNames.map((name) => labelForPreset(name)),
-            ).then((label) =>
-              label
-                ? presetNames.find((name) => labelForPreset(name) === label)
-                : undefined,
-            );
+          : await ctx.ui
+              .select(
+                '选择要编辑的预设',
+                presetNames.map((name) => labelForPreset(name)),
+              )
+              .then((label) =>
+                label
+                  ? presetNames.find((name) => labelForPreset(name) === label)
+                  : undefined,
+              );
       if (!target) return;
       await editPresetOverrides(target, ctx, available);
       config = loadOmniMoConfig();
@@ -648,7 +648,9 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
   ): Promise<void> {
     const slotChoices = [
       ...PRESET_MODEL_SLOT_NAMES.map((slot) => {
-        const pack = asPresetPack(getPresetPack(loadOmniMoConfig(), presetName));
+        const pack = asPresetPack(
+          getPresetPack(loadOmniMoConfig(), presetName),
+        );
         const current = pack[slot];
         const stale =
           current &&
@@ -675,12 +677,15 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     if (chosen.startsWith('清除全部覆盖')) {
       native.presets![presetName] = {};
       writePiNativeConfig(native);
-      ctx.ui.notify(`「${presetName}」已清空，子代理将跟随主模型。`, 'success');
+      ctx.ui.notify(`「${presetName}」已清空，子代理将跟随主模型。`, 'info');
       return;
     }
 
-    const slot = PRESET_MODEL_SLOT_NAMES.find((name) =>
-      chosen.startsWith(`${name} `) || chosen.startsWith(`${name}=`) || chosen.startsWith(name),
+    const slot = PRESET_MODEL_SLOT_NAMES.find(
+      (name) =>
+        chosen.startsWith(`${name} `) ||
+        chosen.startsWith(`${name}=`) ||
+        chosen.startsWith(name),
     );
     if (!slot) return;
 
@@ -694,7 +699,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       pack = setPresetSlot(pack, slot, undefined) as Record<string, string>;
       native.presets![presetName] = pack;
       writePiNativeConfig(native);
-      ctx.ui.notify(`已清除 ${presetName}.${slot}`, 'success');
+      ctx.ui.notify(`已清除 ${presetName}.${slot}`, 'info');
       return;
     }
 
@@ -724,7 +729,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     pack = setPresetSlot(pack, slot, normalized) as Record<string, string>;
     native.presets![presetName] = pack;
     writePiNativeConfig(native);
-    ctx.ui.notify(`已保存 ${presetName}.${slot} = ${normalized}`, 'success');
+    ctx.ui.notify(`已保存 ${presetName}.${slot} = ${normalized}`, 'info');
   }
 
   pi.registerCommand('pi-sync', {
@@ -733,7 +738,7 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       const result = runPiSyncCommand(args);
       ctx.ui.notify(
         result.output || (result.ok ? 'Pi sync completed.' : 'Pi sync failed.'),
-        result.ok ? 'success' : 'error',
+        result.ok ? 'info' : 'error',
       );
     },
   });
