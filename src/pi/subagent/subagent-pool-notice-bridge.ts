@@ -4,6 +4,8 @@ export interface PoolNoticeEvent {
   type: 'error' | 'completed' | 'stall_warn';
   poolId: string;
   agentName: string;
+  /** 发起会话标识：通知只回发给该会话（pi-web 多会话并存时事件必须带归属）。 */
+  sessionId: string;
   error?: string;
   response?: string;
 }
@@ -26,20 +28,9 @@ export interface PoolNoticeBridgeHarnessRuntime {
   ): Promise<void>;
 }
 
-interface PoolNoticeBridgeState {
-  unsubscribe?: () => void;
-  generation?: number;
-}
-
-const GLOBAL_KEY = Symbol.for('pi-shiki-subagents.pool-notice-bridge');
-
-function bridgeState(): PoolNoticeBridgeState {
-  const globalRecord = globalThis as typeof globalThis & {
-    [GLOBAL_KEY]?: PoolNoticeBridgeState;
-  };
-  globalRecord[GLOBAL_KEY] ??= {};
-  return globalRecord[GLOBAL_KEY];
-}
+// 每个会话的桥是独立订阅：同一会话重复注册（reload/restart）时先取消旧句柄避免重复处理，
+// 跨会话之间共存互不干扰（pi-web 多会话并存的修复：不再用全局单例抢订阅）。
+const bridgeSubscriptions = new Map<string, () => void>();
 
 export function formatPoolEventLabel(event: {
   agentName: string;
@@ -86,126 +77,105 @@ export function formatPoolStallWarnContent(event: PoolNoticeEvent): string {
   ].join('\n');
 }
 
-function isCurrentGeneration(generation: number): boolean {
-  return bridgeState().generation === generation;
-}
-
-function createGenerationGuardedContext(
-  ctx: ExtensionContext,
-  generation: number,
-): ExtensionContext {
-  const rawCtx = ctx as ExtensionContext & { ui?: { notify?: unknown } };
-  const rawUi = rawCtx.ui;
-  if (!rawUi || typeof rawUi.notify !== 'function') return ctx;
-
-  const guardedUi = {
-    ...rawUi,
-    notify: (...args: Parameters<typeof rawUi.notify>) => {
-      if (!isCurrentGeneration(generation)) return;
-      return rawUi.notify!(...args);
-    },
-  };
-
-  return {
-    ...(ctx as object),
-    ui: guardedUi,
-  } as ExtensionContext;
-}
-
 export function registerPoolNoticeBridge(options: {
   pool: PoolNoticeSource;
   pi: PoolNoticeBridgePi;
   ctx: ExtensionContext;
   harnessRuntime: PoolNoticeBridgeHarnessRuntime;
+  /** 发起会话标识：只处理该会话 spawn 的子代理事件。 */
+  sessionId: string;
 }): () => void {
-  const state = bridgeState();
-  try {
-    state.unsubscribe?.();
-  } catch {}
-  const generation = (state.generation ?? 0) + 1;
-  state.generation = generation;
+  const { pool, pi, ctx, harnessRuntime, sessionId } = options;
 
-  const unsubscribe = options.pool.onEvent((event) => {
+  // 同一会话重复注册（reload/restart）时取消旧句柄，避免重复投递；
+  // 不同会话的桥保持共存（pi-web 多会话并存的修复：不再用全局单例抢订阅）。
+  bridgeSubscriptions.get(sessionId)?.();
+
+  const unsubscribe = pool.onEvent((event) => {
+    // 多会话路由：只处理本会话 spawn 的子代理事件。
+    if (event.sessionId !== sessionId) return;
+
     if (event.type === 'error') {
       try {
-        options.ctx.ui.notify(
+        ctx.ui.notify(
           `[pool] ${formatPoolEventLabel(event)}: ${event.error}`,
           'warning',
         );
       } catch {}
-      if (isCurrentGeneration(generation)) {
-        try {
-          options.pi.sendMessage(
-            {
-              customType: 'pool_failed',
-              content: formatPoolErrorContent(event),
-              display: true,
-            },
-            { deliverAs: 'followUp', triggerTurn: true },
-          );
-        } catch {}
-      }
+      try {
+        pi.sendMessage(
+          {
+            customType: 'pool_failed',
+            content: formatPoolErrorContent(event),
+            display: true,
+          },
+          { deliverAs: 'followUp', triggerTurn: true },
+        );
+      } catch {}
     }
     // 预警：不终止、不触发新轮，仅提醒（父 agent 可 pool=send nudge 提前干预）。
     if (event.type === 'stall_warn') {
       try {
-        options.ctx.ui.notify(
+        ctx.ui.notify(
           `[pool] ${formatPoolEventLabel(event)} 长时间无响应，即将自动中止`,
           'warning',
         );
       } catch {}
-      if (isCurrentGeneration(generation)) {
-        try {
-          options.pi.sendMessage(
-            {
-              customType: 'pool_stall_warn',
-              content: formatPoolStallWarnContent(event),
-              display: true,
-            },
-            { deliverAs: 'followUp', triggerTurn: false },
-          );
-        } catch {}
-      }
+      try {
+        pi.sendMessage(
+          {
+            customType: 'pool_stall_warn',
+            content: formatPoolStallWarnContent(event),
+            display: true,
+          },
+          { deliverAs: 'followUp', triggerTurn: false },
+        );
+      } catch {}
     }
     // Deliver a compact completion notification before best-effort harness ingestion.
     if (event.type === 'completed') {
-      const guardedCtx = createGenerationGuardedContext(
-        options.ctx,
-        generation,
-      );
-      if (isCurrentGeneration(generation)) {
-        try {
-          options.ctx.ui.notify(
-            `[pool] ${formatPoolEventLabel(event)} completed`,
-            'info',
-          );
-        } catch {}
-        try {
-          options.pi.sendMessage(
-            {
-              customType: 'pool_completed',
-              content: formatPoolCompletedContent(event),
-              display: true,
-            },
-            { deliverAs: 'followUp', triggerTurn: true },
-          );
-        } catch {}
-      }
-      void options.harnessRuntime
-        .ingestPoolCompleted(event, guardedCtx)
+      try {
+        ctx.ui.notify(
+          `[pool] ${formatPoolEventLabel(event)} completed`,
+          'info',
+        );
+      } catch {}
+      try {
+        pi.sendMessage(
+          {
+            customType: 'pool_completed',
+            content: formatPoolCompletedContent(event),
+            display: true,
+          },
+          { deliverAs: 'followUp', triggerTurn: true },
+        );
+      } catch {}
+      void harnessRuntime
+        .ingestPoolCompleted(event, ctx)
         .catch(() => undefined);
     }
   });
 
-  state.unsubscribe = unsubscribe;
-  return unsubscribe;
+  bridgeSubscriptions.set(sessionId, unsubscribe);
+  return () => {
+    unsubscribe();
+    if (bridgeSubscriptions.get(sessionId) === unsubscribe) {
+      bridgeSubscriptions.delete(sessionId);
+    }
+  };
+}
+
+/** 会话销毁时清理该会话的桥（只影响本会话，不影响其他会话的桥）。 */
+export function disposePoolNoticeBridge(sessionId: string): void {
+  bridgeSubscriptions.get(sessionId)?.();
+  bridgeSubscriptions.delete(sessionId);
 }
 
 export function resetPoolNoticeBridgeForTests(): void {
-  const state = bridgeState();
-  try {
-    state.unsubscribe?.();
-  } catch {}
-  state.generation = (state.generation ?? 0) + 1;
-  state.unsubscribe = undefined;
+  for (const dispose of [...bridgeSubscriptions.values()]) {
+    try {
+      dispose();
+    } catch {}
+  }
+  bridgeSubscriptions.clear();
 }

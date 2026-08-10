@@ -39,6 +39,8 @@ export type SubagentRunEvent =
       startedAt: number;
       taskPreview?: string;
       model?: string;
+      /** 发起会话标识：子代理归属（嵌套子代理继承根会话）。 */
+      ownerSessionId: string;
     }
   | {
       type: 'status';
@@ -99,6 +101,8 @@ export interface SubagentRunRecord {
   displayName: string;
   depth: number;
   startedAt: number;
+  /** 发起会话标识：子代理归属（嵌套子代理继承根会话）。 */
+  ownerSessionId: string;
   completedAt?: number;
   status: SubagentRunStatus;
   taskPreview?: string;
@@ -260,6 +264,7 @@ function toRecentEvent(
 function createPlaceholderRun(
   runId: string,
   timestamp: number,
+  ownerSessionId?: string,
 ): SubagentRunRecord {
   return {
     runId,
@@ -267,6 +272,7 @@ function createPlaceholderRun(
     displayName: runId,
     depth: 0,
     startedAt: timestamp,
+    ownerSessionId: ownerSessionId ?? 'unknown',
     status: 'starting',
     toolCount: 0,
     recentEvents: [],
@@ -295,13 +301,19 @@ export function updateSubagentRunState(
     }
 
     const nextRun: SubagentRunRecord = {
-      ...(existing ?? createPlaceholderRun(event.runId, event.startedAt)),
+      ...(existing ??
+        createPlaceholderRun(
+          event.runId,
+          event.startedAt,
+          event.ownerSessionId,
+        )),
       runId: event.runId,
       parentRunId: event.parentRunId,
       agentName: event.agentName,
       displayName: event.displayName,
       depth: Math.max(0, event.depth),
       startedAt: event.startedAt,
+      ownerSessionId: event.ownerSessionId,
       status: 'starting',
       taskPreview: cleanText(event.taskPreview, bounded.maxTaskPreviewChars),
       model: event.model,

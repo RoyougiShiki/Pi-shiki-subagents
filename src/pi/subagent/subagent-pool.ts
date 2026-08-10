@@ -80,6 +80,7 @@ interface AgentEnv {
   OMO_SUBAGENT_DEPTH: string | undefined;
   OMO_ALLOWED_SUBAGENTS: string | undefined;
   OMO_AGENT_ID: string | undefined;
+  OMO_OWNER_SESSION_ID: string | undefined;
 }
 
 function saveAgentEnv(): AgentEnv {
@@ -90,6 +91,7 @@ function saveAgentEnv(): AgentEnv {
     OMO_SUBAGENT_DEPTH: process.env.OMO_SUBAGENT_DEPTH,
     OMO_ALLOWED_SUBAGENTS: process.env.OMO_ALLOWED_SUBAGENTS,
     OMO_AGENT_ID: process.env.OMO_AGENT_ID,
+    OMO_OWNER_SESSION_ID: process.env.OMO_OWNER_SESSION_ID,
   };
 }
 
@@ -370,6 +372,8 @@ interface PoolEntry {
   /** 断流(stall)检测：已发出 stall 预警（stallTimeoutMs 的一半处），不重复提醒。 */
   stallWarned: boolean;
   stallTimer?: ReturnType<typeof setInterval>;
+  /** 发起会话标识：该子代理归哪个会话所有（pi-web 多会话路由用）。 */
+  ownerSessionId: string;
 }
 
 export interface AgentPoolOptions {
@@ -392,6 +396,8 @@ export interface PoolEvent {
   type: 'error' | 'completed' | 'stall_warn';
   poolId: string;
   agentName: string;
+  /** 发起会话标识：完成/失败/预警通知只路由到该会话。 */
+  sessionId: string;
   error?: string;
   response?: string;
 }
@@ -512,7 +518,12 @@ export class AgentPool {
     // 两级检测：在 stallTimeoutMs 的一半处先发一次预警（不终止），
     // 让父 agent 有机会提前干预；到 stallTimeoutMs 仍静默才 abort。
     const warnMs = Math.floor(this.stallTimeoutMs / 2);
-    if (!entry.stallWarned && warnMs > 0 && age >= warnMs && age < this.stallTimeoutMs) {
+    if (
+      !entry.stallWarned &&
+      warnMs > 0 &&
+      age >= warnMs &&
+      age < this.stallTimeoutMs
+    ) {
       entry.stallWarned = true;
       const message = `Sub-agent "${entry.id}" has been silent for ${age}ms in LLM stream phase; will abort at ${this.stallTimeoutMs}ms if still silent.`;
       console.warn(`[pool] ${message}`);
@@ -521,6 +532,7 @@ export class AgentPool {
         poolId: entry.id,
         agentName: entry.agentName,
         error: message,
+        sessionId: entry.ownerSessionId,
       });
     }
     if (age < this.stallTimeoutMs) return;
@@ -553,6 +565,8 @@ export class AgentPool {
     parentRunId?: string;
     resumeSessionFile?: string;
     resumeMessage?: string;
+    /** 发起会话标识：pi-web 多会话并存时，完成通知只回发给该会话。 */
+    ownerSessionId: string;
   }): Promise<{ response: string; error?: string }> {
     if (this.agents.has(opts.id)) {
       return {
@@ -572,6 +586,8 @@ export class AgentPool {
       if (opts.allowedSubagents)
         process.env.OMO_ALLOWED_SUBAGENTS = opts.allowedSubagents.join(',');
       process.env.OMO_AGENT_ID = opts.id;
+      // 嵌套子代理继承根发起会话：孙子 spawn 时从环境变量读取归属。
+      process.env.OMO_OWNER_SESSION_ID = opts.ownerSessionId;
 
       let session: AgentSession | undefined;
       let existingRecord: PoolAgentRecord | undefined;
@@ -646,6 +662,7 @@ export class AgentPool {
           depth: opts.depth,
           taskPreview: opts.task,
           sessionFile,
+          ownerSessionId: opts.ownerSessionId,
           stallLastEventAt: Date.now(),
           stallToolDepth: 0,
           stallAborted: false,
@@ -663,6 +680,7 @@ export class AgentPool {
           startedAt: entry.startedAt,
           taskPreview: opts.task,
           model: entry.model,
+          ownerSessionId: opts.ownerSessionId,
         });
 
         const unsubscribe = session.subscribe((event: any) => {
@@ -770,6 +788,7 @@ export class AgentPool {
                 poolId: opts.id,
                 agentName: opts.agent.name,
                 error: result.error,
+                sessionId: entry.ownerSessionId,
               });
             } else {
               this.updateRegistry(opts.id, {
@@ -797,6 +816,7 @@ export class AgentPool {
                 poolId: opts.id,
                 agentName: opts.agent.name,
                 response: result.response,
+                sessionId: entry.ownerSessionId,
               });
             }
           })
@@ -827,6 +847,7 @@ export class AgentPool {
               poolId: opts.id,
               agentName: opts.agent.name,
               error: err.message,
+              sessionId: entry.ownerSessionId,
             });
           });
 
@@ -852,6 +873,7 @@ export class AgentPool {
           poolId: opts.id,
           agentName: opts.agent.name,
           error: spawnError,
+          sessionId: opts.ownerSessionId,
         });
         if (session) {
           this.recordRunEvent({
@@ -909,6 +931,7 @@ export class AgentPool {
           poolId: id,
           agentName: entry.agentName,
           error: errorMsg,
+          sessionId: entry.ownerSessionId,
         });
       }
       return { response: entry.lastResponse, error: errorMsg };
@@ -1061,8 +1084,11 @@ export class AgentPool {
     return true;
   }
 
-  async killAll(): Promise<void> {
-    const ids = [...this.agents.keys()];
+  async killAll(ownerSessionId?: string): Promise<void> {
+    const ids = [...this.agents.keys()].filter((id) => {
+      if (ownerSessionId === undefined) return true;
+      return this.agents.get(id)?.ownerSessionId === ownerSessionId;
+    });
     await Promise.all(ids.map((id) => this.kill(id)));
   }
 
@@ -1146,9 +1172,9 @@ export function initPoolLimits(limits: PoolLimitConfig): void {
   getPool().setLimits(limits);
 }
 
-export async function resetPool(): Promise<void> {
+export async function resetPool(sessionId?: string): Promise<void> {
   if (activePool) {
-    await activePool.killAll();
-    activePool = null;
+    await activePool.killAll(sessionId);
+    if (sessionId === undefined) activePool = null;
   }
 }

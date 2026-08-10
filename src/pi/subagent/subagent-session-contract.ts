@@ -36,6 +36,8 @@ export interface SubagentSessionSnapshot {
   runId: string;
   agentName: string;
   displayName: string;
+  /** 发起会话标识：面板按会话过滤显示用。 */
+  ownerSessionId: string;
   status: SubagentRunStatus;
   activity: SubagentSessionActivity;
   lineage: SubagentSessionLineage;
@@ -140,6 +142,7 @@ export function toSubagentSessionSnapshot(
     runId: run.runId,
     agentName: run.agentName,
     displayName: run.displayName,
+    ownerSessionId: run.ownerSessionId,
     status: run.status,
     activity: {
       phase: activityPhaseForStatus(run.status),

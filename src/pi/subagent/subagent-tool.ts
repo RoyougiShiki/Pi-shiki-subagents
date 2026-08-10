@@ -17,6 +17,7 @@ import {
   parseModelRef,
   resolveRoleSubagentModelId,
 } from '../preset/preset-model-resolution';
+import { resolveOwnerSessionId } from './session-owner';
 import {
   getPool,
   type PoolAgentInfo,
@@ -383,6 +384,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             parentRunId: callerRunId,
             depth: callerDepth + 1,
             allowedSubagents,
+            ownerSessionId: resolveOwnerSessionId(ctx),
           });
           if (spawnResult.error) {
             return {
@@ -703,6 +705,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
             ),
             resumeSessionFile: resumePlan.resumeSessionFile,
             resumeMessage: resumePlan.resumeMessage,
+            ownerSessionId: resolveOwnerSessionId(ctx),
           });
           if (resumeResult.error) {
             return {

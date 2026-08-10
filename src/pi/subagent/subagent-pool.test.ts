@@ -386,3 +386,55 @@ describe('AgentPool stall detection', () => {
     expect(failedNode?.status).toBe('failed');
   });
 });
+
+describe('AgentPool owner session routing', () => {
+  test('completed event carries the owner session id', async () => {
+    const pool = createPool();
+    const eventPromise = waitForCompletion(pool);
+    await pool.spawn({
+      id: 'agent-a',
+      name: 'agent-a',
+      agent: { name: 'search' } as any,
+      task: 'summarize',
+      ownerSessionId: 'session-a',
+    });
+    const event = await eventPromise;
+    expect(event.sessionId).toBe('session-a');
+  });
+
+  test('error event carries the owner session id', async () => {
+    const pool = createPool({ rejectWith: new Error('boom') });
+    const eventPromise = waitForError(pool);
+    await pool.spawn({
+      id: 'agent-fail',
+      name: 'agent-fail',
+      agent: { name: 'search' } as any,
+      task: 'summarize',
+      ownerSessionId: 'session-b',
+    });
+    const event = await eventPromise;
+    expect(event.sessionId).toBe('session-b');
+  });
+
+  test('killAll(sessionId) only kills agents owned by that session', async () => {
+    const pool = createPool();
+    await pool.spawn({
+      id: 'agent-a',
+      name: 'agent-a',
+      agent: { name: 'search' } as any,
+      task: 'summarize',
+      ownerSessionId: 'session-a',
+    });
+    await pool.spawn({
+      id: 'agent-b',
+      name: 'agent-b',
+      agent: { name: 'search' } as any,
+      task: 'summarize',
+      ownerSessionId: 'session-b',
+    });
+    expect(pool.list().map((a) => a.id).sort()).toEqual(['agent-a', 'agent-b']);
+
+    await pool.killAll('session-a');
+    expect(pool.list().map((a) => a.id)).toEqual(['agent-b']);
+  });
+});

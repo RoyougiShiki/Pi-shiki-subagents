@@ -79,12 +79,16 @@ describe('subagent pool notices', () => {
     const ctx = createContext();
     const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
 
-    registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
+    registerPoolNoticeBridge({
+      pool, pi, ctx, harnessRuntime,
+      sessionId: 'session-test',
+    });
     pool.emit({
       type: 'stall_warn',
       agentName: 'worker',
       poolId: 'worker-1',
       error: 'silent for 30000ms',
+      sessionId: 'session-test',
     });
 
     expect(ctx.ui.notify).toHaveBeenCalledTimes(1);
@@ -109,12 +113,16 @@ describe('subagent pool notices', () => {
       ingestPoolCompleted: mock(() => new Promise<void>(() => {})),
     };
 
-    registerPoolNoticeBridge({ pool, pi, ctx, harnessRuntime });
+    registerPoolNoticeBridge({
+      pool, pi, ctx, harnessRuntime,
+      sessionId: 'session-test',
+    });
     pool.emit({
       type: 'completed',
       agentName: 'oracle',
       poolId: 'review-1',
       response: 'review complete',
+      sessionId: 'session-test',
     });
 
     expect(pi.sendMessage).toHaveBeenCalledTimes(1);
@@ -125,32 +133,93 @@ describe('subagent pool notices', () => {
     expect(harnessRuntime.ingestPoolCompleted).toHaveBeenCalledTimes(1);
   });
 
-  test('replaces stale bridge listeners on session restart', () => {
+  test('routes events only to the owning session bridge', () => {
     const pool = createPool();
-    const oldPi = { sendMessage: mock(() => {}) };
-    const newPi = { sendMessage: mock(() => {}) };
+    const piA = { sendMessage: mock(() => {}) };
+    const piB = { sendMessage: mock(() => {}) };
     const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
 
     registerPoolNoticeBridge({
       pool,
-      pi: oldPi,
+      pi: piA,
       ctx: createContext(),
       harnessRuntime,
+      sessionId: 'session-a',
     });
+    // 第二个会话注册后，A 的桥必须仍然存活（回归：不再踢旧订阅）。
     registerPoolNoticeBridge({
       pool,
-      pi: newPi,
+      pi: piB,
       ctx: createContext(),
       harnessRuntime,
+      sessionId: 'session-b',
+    });
+
+    pool.emit({
+      type: 'completed',
+      agentName: 'oracle',
+      poolId: 'review-1',
+      response: 'review complete',
+      sessionId: 'session-a',
+    });
+    expect(piA.sendMessage).toHaveBeenCalledTimes(1);
+    expect(piB.sendMessage).not.toHaveBeenCalled();
+
+    pool.emit({
+      type: 'completed',
+      agentName: 'search',
+      poolId: 'search-1',
+      response: 'done',
+      sessionId: 'session-b',
+    });
+    expect(piB.sendMessage).toHaveBeenCalledTimes(1);
+    expect(piA.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test('ignores events whose session id does not match', () => {
+    const pool = createPool();
+    const pi = { sendMessage: mock(() => {}) };
+    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
+
+    registerPoolNoticeBridge({
+      pool,
+      pi,
+      ctx: createContext(),
+      harnessRuntime,
+      sessionId: 'session-a',
     });
     pool.emit({
       type: 'completed',
       agentName: 'search',
       poolId: 'search-1',
       response: 'done',
+      sessionId: 'session-other',
     });
 
-    expect(oldPi.sendMessage).not.toHaveBeenCalled();
-    expect(newPi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(pi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  test('stops delivering after the bridge is disposed', () => {
+    const pool = createPool();
+    const pi = { sendMessage: mock(() => {}) };
+    const harnessRuntime = { ingestPoolCompleted: mock(async () => {}) };
+
+    const dispose = registerPoolNoticeBridge({
+      pool,
+      pi,
+      ctx: createContext(),
+      harnessRuntime,
+      sessionId: 'session-a',
+    });
+    dispose();
+    pool.emit({
+      type: 'completed',
+      agentName: 'search',
+      poolId: 'search-1',
+      response: 'done',
+      sessionId: 'session-a',
+    });
+
+    expect(pi.sendMessage).not.toHaveBeenCalled();
   });
 });

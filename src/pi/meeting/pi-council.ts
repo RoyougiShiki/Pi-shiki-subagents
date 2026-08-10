@@ -2,6 +2,7 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { AgentConfig } from '../../adapters/agent-discovery';
 import { PRIMARY_AGENT_NAME } from '../../config/constants';
 import type { OmniMoConfig, PiCouncilParticipantConfig } from '../config-types';
+import { resolveOwnerSessionId } from '../subagent/session-owner';
 import { getPool } from '../subagent/subagent-pool';
 import { AGENT_PROMPTS } from './pi-agents';
 
@@ -156,6 +157,7 @@ export async function runPiCouncilParticipant(args: {
     cwd: args.ctx.cwd,
     parentAgent: PRIMARY_AGENT_NAME,
     depth: 1,
+    ownerSessionId: resolveOwnerSessionId(args.ctx),
   });
 
   if (result.error) {

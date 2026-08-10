@@ -31,6 +31,8 @@ export interface SubagentRunWidgetOptions
   placement?: 'aboveEditor' | 'belowEditor';
   now?: () => number;
   refreshMs?: number | false;
+  /** 面板归属会话：只显示该会话 spawn 的子代理。缺省 = 显示全部（单会话/兼容）。 */
+  ownerSessionId?: string;
 }
 
 export interface RegisteredSubagentRunWidget {
@@ -80,10 +82,15 @@ export function registerSubagentRunWidget(
 
   const getView = (timestamp: number): SubagentRunTreeView => {
     const snapshots = pool.getSubagentSessionSnapshots?.();
-    if (snapshots)
-      return createSubagentRunTreeViewFromSnapshots(snapshots, {
+    if (snapshots) {
+      // 多会话并存：每个会话的面板只显示自己 spawn 的子代理。
+      const mine = options.ownerSessionId
+        ? snapshots.filter((s) => s.ownerSessionId === options.ownerSessionId)
+        : snapshots;
+      return createSubagentRunTreeViewFromSnapshots(mine, {
         now: timestamp,
       });
+    }
     return pool.getRunTreeView({ now: timestamp });
   };
   const render = () => {
@@ -120,28 +127,39 @@ export function registerSubagentRunWidget(
   };
 }
 
-let registeredSubagentRunWidget: RegisteredSubagentRunWidget | undefined;
+// 每个会话一个面板：互不顶替（pi-web 多会话并存的修复）。
+// 无 sessionId 时回退单例（TUI / 兼容路径）。
+const registeredWidgets = new Map<string, RegisteredSubagentRunWidget>();
+
+function widgetKey(sessionId: string | undefined): string {
+  return sessionId ?? '__global__';
+}
 
 export function ensureSubagentRunWidgetRegistered(
   ctx: SubagentRunWidgetContext,
   pool: SubagentRunWidgetPool,
   options: SubagentRunWidgetOptions & { force?: boolean } = {},
 ): RegisteredSubagentRunWidget {
-  if (registeredSubagentRunWidget && !options.force) {
-    registeredSubagentRunWidget.refresh();
-    return registeredSubagentRunWidget;
+  const key = widgetKey(options.ownerSessionId);
+  const existing = registeredWidgets.get(key);
+  if (existing && !options.force) {
+    existing.refresh();
+    return existing;
   }
-  registeredSubagentRunWidget?.dispose();
+  existing?.dispose();
   const { force: _force, ...widgetOptions } = options;
-  registeredSubagentRunWidget = registerSubagentRunWidget(
-    ctx,
-    pool,
-    widgetOptions,
-  );
-  return registeredSubagentRunWidget;
+  const widget = registerSubagentRunWidget(ctx, pool, widgetOptions);
+  registeredWidgets.set(key, widget);
+  return widget;
 }
 
-export function disposeRegisteredSubagentRunWidget(): void {
-  registeredSubagentRunWidget?.dispose();
-  registeredSubagentRunWidget = undefined;
+/** 会话销毁时清理该会话的面板；无参时清空全部。 */
+export function disposeRegisteredSubagentRunWidget(sessionId?: string): void {
+  if (sessionId === undefined) {
+    for (const widget of [...registeredWidgets.values()]) widget.dispose();
+    registeredWidgets.clear();
+    return;
+  }
+  registeredWidgets.get(widgetKey(sessionId))?.dispose();
+  registeredWidgets.delete(widgetKey(sessionId));
 }

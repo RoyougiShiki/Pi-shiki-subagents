@@ -59,6 +59,7 @@ import {
   summarizePresetPack,
 } from '../preset/preset-model-resolution';
 import { isModelPlaceholder, parsePiModelId } from '../preset/preset-switch';
+import { resolveOwnerSessionId } from '../subagent/session-owner';
 import {
   getPool,
   initPoolAllToolNamesResolver,
@@ -67,8 +68,14 @@ import {
   type PoolAgentInfo,
   resetPool,
 } from '../subagent/subagent-pool';
-import { registerPoolNoticeBridge } from '../subagent/subagent-pool-notice-bridge';
-import { ensureSubagentRunWidgetRegistered } from '../subagent/subagent-run-widget';
+import {
+  disposePoolNoticeBridge,
+  registerPoolNoticeBridge,
+} from '../subagent/subagent-pool-notice-bridge';
+import {
+  disposeRegisteredSubagentRunWidget,
+  ensureSubagentRunWidgetRegistered,
+} from '../subagent/subagent-run-widget';
 import { registerSubagentTool } from '../subagent/subagent-tool';
 
 export {
@@ -465,14 +472,19 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
       stallTimeoutMs: config?.harness?.subagent?.stallTimeoutMs,
       promptTimeoutMs: config?.harness?.subagent?.promptTimeoutMs,
     });
+    const ownerSessionId = resolveOwnerSessionId(ctx);
     try {
-      ensureSubagentRunWidgetRegistered(ctx, getPool(), { force: true });
+      ensureSubagentRunWidgetRegistered(ctx, getPool(), {
+        force: true,
+        ownerSessionId,
+      });
     } catch {}
     registerPoolNoticeBridge({
       pool: getPool(),
       pi,
       ctx,
       harnessRuntime,
+      sessionId: ownerSessionId,
     });
   });
 
@@ -760,8 +772,13 @@ export default function omniMoPiExtension(pi: ExtensionAPI) {
     },
   });
 
-  pi.on('session_shutdown', async () => {
-    await resetPool();
+  pi.on('session_shutdown', async (event, ctx) => {
+    // 只清理本会话：dispose 本会话的通知桥 + 只杀掉本会话 spawn 的子代理。
+    // （修复：全局 resetPool 会误杀其他会话还在运行的子代理）
+    const ownerSessionId = resolveOwnerSessionId(ctx);
+    disposePoolNoticeBridge(ownerSessionId);
+    disposeRegisteredSubagentRunWidget(ownerSessionId);
+    await resetPool(ownerSessionId);
     resetToolScope();
   });
 
