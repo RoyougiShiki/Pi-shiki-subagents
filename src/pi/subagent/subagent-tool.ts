@@ -167,7 +167,9 @@ export function selectPoolResultText(
   active: Pick<PoolAgentInfo, 'lastResponse'> | undefined,
   record: Pick<PoolAgentRecord, 'lastResponse'> | undefined,
 ): string {
-  return active?.lastResponse || record?.lastResponse || '';
+  // registry 的 lastResponse 是全量文本；active 来自 pool.list()，其 lastResponse
+  // 已截断为 200 字符预览（仅供 list 展示）。因此全量优先，active 仅作 fallback。
+  return record?.lastResponse || active?.lastResponse || '';
 }
 
 export function formatPoolResultContent(args: {
@@ -235,6 +237,7 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
     promptGuidelines: [
       'Use omo_subagent for noisy exploration, parallel independent subtasks, or role-isolated review/implementation; skip it when the main session can finish in a few steps.',
       'omo_subagent task must include goal, scope/paths, output format, and stop conditions in one shot; wait for pool_completed/pool_failed instead of polling list.',
+      'When a tool result contains a <persisted-output> block, use read on the filepath inside it to get the full content — the preview is truncated and the complete output lives only in that file.',
     ],
     description: [
       'Delegate bounded subtasks to isolated role subagents. Main keeps user control and only takes results back.',
@@ -257,6 +260,8 @@ export function registerSubagentTool(pi: ExtensionAPI): void {
       '  list: reuse/debug snapshot; do not poll for completion',
       '  result / listSaved / resume / kill: fetch result, list resumable sessions, resume, or stop',
       '  on busy/reject: do not repeat the same request; degrade or ask the user',
+      '',
+      'Large results (e.g. pool=result, pool=listSaved) may arrive as a <persisted-output> block containing a filepath. read that file for the full content; do not treat the preview as the complete result.',
     ].join('\n'),
     parameters: Type.Object({
       agent: Type.Optional(Type.String({ description: 'Subagent role name' })),

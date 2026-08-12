@@ -41,7 +41,7 @@ export const DEFAULT_HARNESS_MESSAGES: HarnessMessageCatalog = {
       preview,
       hasMore,
     }) =>
-      `<persisted-output>\nOutput too large (${originalSize} chars). Full output saved to: ${filepath}\n\nPreview (first ${previewSize} chars):\n${preview}${hasMore ? '\n...' : ''}\n</persisted-output>`,
+      `<persisted-output>\nOutput too large (${originalSize} chars). Full output saved to: ${filepath}\nTo get the full content, use the read tool on that file — the preview below is truncated.\n\nPreview (first ${previewSize} chars):\n${preview}${hasMore ? '\n...' : ''}\n</persisted-output>`,
     clearedOutput: ({ filepath }) =>
       filepath
         ? `[old tool result cleared; full output saved at ${filepath}]`

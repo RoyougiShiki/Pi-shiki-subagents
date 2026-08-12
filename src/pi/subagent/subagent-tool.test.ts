@@ -30,13 +30,18 @@ describe('pool resume planning', () => {
 });
 
 describe('pool result access', () => {
-  test('prefers live results and retains failure detail', () => {
+  test('prefers persisted full results over live previews', () => {
+    // registry 存全量 lastResponse；live 来自 pool.list()，是 200 字符预览，不能顶替全量。
     expect(
       selectPoolResultText(
-        { lastResponse: 'live result' },
-        { lastResponse: 'persisted result' },
+        { lastResponse: 'live preview' },
+        { lastResponse: 'persisted full result' },
       ),
-    ).toBe('live result');
+    ).toBe('persisted full result');
+    // 无 registry 记录时退回 live（可能仍只是预览，但至少不是空）。
+    expect(selectPoolResultText({ lastResponse: 'live result' }, undefined)).toBe(
+      'live result',
+    );
     expect(
       formatPoolResultContent({
         id: 'search-1',
